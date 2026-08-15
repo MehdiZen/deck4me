@@ -79,13 +79,27 @@ export class DetectionService {
     this.cameras.set(devs.filter((d) => d.kind === 'videoinput'))
   }
 
+  /** Notifié quand la caméra choisie change, pour que le réglage aille aussi
+   *  dans la base : le localStorage d'une webview peut être vidé par Windows
+   *  ou par une réinstallation, la base non. */
+  onCameraChange: ((deviceId: string) => void) | null = null
+
   /** Change de caméra, persiste, et redémarre la détection si elle tournait. */
   async selectCamera(deviceId: string): Promise<void> {
     this.selectedCameraId.set(deviceId)
     localStorage.setItem('meme4me.cameraId', deviceId)
+    this.onCameraChange?.(deviceId)
     if (this.running()) {
       this.stop()
       await this.start()
+    }
+  }
+
+  /** Reprend le choix persisté en base quand le localStorage est vide. */
+  adoptSavedCamera(deviceId: string): void {
+    if (deviceId && !this.selectedCameraId()) {
+      this.selectedCameraId.set(deviceId)
+      localStorage.setItem('meme4me.cameraId', deviceId)
     }
   }
 

@@ -174,9 +174,10 @@ export class App {
   private updates = inject(UpdateService)
 
   constructor() {
-    // La vérification de mise à jour attend que les réglages soient lus :
-    // c'est eux qui disent si elle doit avoir lieu.
-    void this.store.load().then(() => this.updates.checkOnStartup())
+    // Tout ce qui suit attend que les réglages soient lus : ce sont eux qui
+    // disent quoi reprendre au lancement.
+    void this.store.load().then(() => this.onSettingsReady())
+    this.detection.onCameraChange = (id) => void this.store.saveSettings({ detectionCamera: id })
     this.matcher.init()
     void this.bindHotkeys()
 
@@ -186,6 +187,17 @@ export class App {
       if (this.matcher.muted()) document.title = 'meme4me — COUPÉ'
       else document.title = 'meme4me Studio'
     })
+  }
+
+  private async onSettingsReady(): Promise<void> {
+    const s = this.store.settings()
+    this.detection.adoptSavedCamera(s.detectionCamera)
+    if (s.detectionAutoStart && !this.detection.running()) {
+      // Un échec ici (webcam débranchée, prise par un autre logiciel) ne doit
+      // pas empêcher l'application de s'ouvrir : le statut le dira.
+      await this.detection.start().catch(() => {})
+    }
+    await this.updates.checkOnStartup()
   }
 
   private async bindHotkeys(): Promise<void> {

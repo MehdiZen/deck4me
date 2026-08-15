@@ -44,10 +44,27 @@ export interface Profile {
   isActive: boolean
 }
 
-/** action → accélérateur ("CmdOrCtrl+Shift+P"). Vide = non assigné. */
 export interface Settings {
+  /** action → accélérateur ("CmdOrCtrl+Shift+P"). Vide = non assigné. */
   hotkeys: Record<string, string>
   autoUpdateCheck: boolean
+  /** Webcam republiée, retenue par NOM : l'index bouge au branchement. */
+  vcamDevice: string
+  /** Définition diffusée, "LxH@fps". Vide = automatique. */
+  vcamFormat: string
+  vcamAutoStart: boolean
+  detectionAutoStart: boolean
+  detectionCamera: string
+}
+
+export const DEFAULT_SETTINGS: Settings = {
+  hotkeys: {},
+  autoUpdateCheck: true,
+  vcamDevice: '',
+  vcamFormat: '',
+  vcamAutoStart: false,
+  detectionAutoStart: false,
+  detectionCamera: '',
 }
 
 /** Gesture telle que persistée (samples en JSON, frames brutes incluses). */
@@ -112,7 +129,7 @@ export class StoreService {
   readonly allGestures = signal<StoredGesture[]>([])
   readonly bindings = signal<StoredBinding[]>([])
   readonly assets = signal<AssetMeta[]>([])
-  readonly settings = signal<Settings>({ hotkeys: {}, autoUpdateCheck: true })
+  readonly settings = signal<Settings>({ ...DEFAULT_SETTINGS })
   readonly overlayUrl = signal('')
   readonly port = signal(47821)
   readonly version = signal('')
@@ -178,7 +195,7 @@ export class StoreService {
       bindings: [],
       assets: [],
       defaultAssetId: null,
-      settings: { hotkeys: {}, autoUpdateCheck: true },
+      settings: { ...DEFAULT_SETTINGS },
       overlayUrl: '',
       hasCalibration: false,
       port: 47821,
@@ -188,7 +205,7 @@ export class StoreService {
     this.allGestures.set(boot.gestures)
     this.bindings.set(boot.bindings)
     this.assets.set(boot.assets)
-    this.settings.set(boot.settings ?? { hotkeys: {}, autoUpdateCheck: true })
+    this.settings.set({ ...DEFAULT_SETTINGS, ...boot.settings })
     this.overlayUrl.set(boot.overlayUrl)
     this.port.set(boot.port)
     this.version.set(boot.version)

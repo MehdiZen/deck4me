@@ -80,6 +80,19 @@ pub struct Settings {
     pub hotkeys: std::collections::BTreeMap<String, String>,
     /// Vérification des mises à jour au démarrage.
     pub auto_update_check: bool,
+    /// Webcam republiée, retenue par NOM et non par index : l'index change dès
+    /// qu'un autre périphérique est branché ou débranché, et on rouvrirait
+    /// alors la mauvaise caméra sans rien dire.
+    pub vcam_device: String,
+    /// Définition diffusée, "LxH@fps". Vide = automatique.
+    pub vcam_format: String,
+    /// Reprendre la caméra virtuelle au lancement.
+    pub vcam_auto_start: bool,
+    /// Démarrer la détection au lancement.
+    pub detection_auto_start: bool,
+    /// Caméra de détection (deviceId du navigateur), pour ne pas dépendre du
+    /// seul localStorage de la webview.
+    pub detection_camera: String,
 }
 
 impl Default for Settings {
@@ -87,6 +100,11 @@ impl Default for Settings {
         Settings {
             hotkeys: std::collections::BTreeMap::new(),
             auto_update_check: true,
+            vcam_device: String::new(),
+            vcam_format: String::new(),
+            vcam_auto_start: false,
+            detection_auto_start: false,
+            detection_camera: String::new(),
         }
     }
 }

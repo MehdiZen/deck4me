@@ -68,18 +68,55 @@ body {
   overflow: hidden; /* la mise en page gère son propre défilement */
 }
 
-/* Halo ambiant : deux sources lumineuses très diffuses, fixes derrière tout.
-   C'est ce qui empêche le fond sombre de ressembler à du carton noir. */
-body::before {
+/* Halo ambiant : des sources lumineuses très diffuses derrière tout, qui
+   dérivent lentement. C'est ce qui empêche le fond sombre de ressembler à du
+   carton noir.
+
+   Deux couches aux périodes volontairement premières entre elles (71 s et 97 s)
+   pour que le motif ne se répète jamais visiblement, et une amplitude de
+   quelques pourcents seulement : à cette vitesse on ne voit pas le mouvement,
+   on remarque juste que l'écran est vivant.
+
+   Uniquement `transform` : c'est la seule propriété que le compositeur anime
+   sans repeindre. Animer `background-position` ferait redessiner un dégradé
+   plein écran soixante fois par seconde, sur le processeur qui fait tourner
+   MediaPipe juste à côté. */
+body::before,
+body::after {
   content: '';
   position: fixed;
-  inset: 0;
   z-index: -1;
   pointer-events: none;
+  /* Débordement volontaire : les taches peuvent dériver sans jamais découvrir
+     un bord de l'écran. */
+  inset: -25%;
+  will-change: transform;
+}
+
+body::before {
   background:
-    radial-gradient(70ch 50ch at 12% -8%, #8b5cf620, transparent 70%),
-    radial-gradient(60ch 40ch at 96% 4%, #38bdf815, transparent 70%),
-    radial-gradient(80ch 60ch at 50% 120%, #6d3fe014, transparent 70%);
+    radial-gradient(46ch 34ch at 22% 14%, #8b5cf626, transparent 68%),
+    radial-gradient(38ch 30ch at 78% 76%, #6d3fe018, transparent 68%);
+  animation: drift-a 71s ease-in-out infinite;
+}
+
+body::after {
+  background:
+    radial-gradient(40ch 30ch at 84% 20%, #38bdf818, transparent 68%),
+    radial-gradient(50ch 36ch at 34% 88%, #a78bfa14, transparent 68%);
+  animation: drift-b 97s ease-in-out infinite;
+}
+
+@keyframes drift-a {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33% { transform: translate3d(3.5%, -2.5%, 0) scale(1.06); }
+  66% { transform: translate3d(-2.5%, 3%, 0) scale(0.97); }
+}
+
+@keyframes drift-b {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.04); }
+  40% { transform: translate3d(-4%, 2%, 0) scale(0.96); }
+  75% { transform: translate3d(2%, -3.5%, 0) scale(1.08); }
 }
 
 /* ---- Typographie ---- */
@@ -391,4 +428,7 @@ input[type="checkbox"] { accent-color: var(--accent); width: 17px; height: 17px;
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
   }
+  /* La dérive du fond s'arrête net plutôt que de sauter à sa dernière image :
+     une animation ramenée à 0,01 ms garde son état final, pas son état initial. */
+  body::before, body::after { animation: none !important; transform: none !important; }
 }

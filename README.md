@@ -105,6 +105,20 @@ la source navigateur, sinon le son sort de ton casque et pas du stream.
 > ffmpeg pour convertir coûterait ~80 Mo dans l'installeur — un arbitrage à
 > trancher, pas une omission.
 
+### Ce qui est retenu entre deux lancements
+
+Caméra de détection, webcam republiée, définition diffusée : tout est persisté
+dans la base, plus rien à recliquer avant un stream. Deux options de reprise
+automatique (décochées par défaut, parce qu'allumer une webcam sans qu'on l'ait
+demandé n'est pas anodin) : **démarrer la détection au lancement** dans Réglages →
+Caméra de détection, et **reprendre la caméra virtuelle au lancement** dans sa
+carte.
+
+La webcam republiée est retenue par **nom** et non par index : un index change
+dès qu'un périphérique est branché ou débranché, et on rouvrirait alors la
+mauvaise caméra sans rien dire. Si la définition retenue n'existe plus sur la
+caméra choisie, on retombe sur « automatique » plutôt que d'échouer à l'ouverture.
+
 ### Profils et raccourcis
 
 Un **profil** est un jeu de gestures armées : « Just Chatting » et « en jeu » ne

@@ -47,6 +47,22 @@ import { StoreService } from '../services/store.service'
           tourne. Si la caméra virtuelle ci-dessous est active, prends
           « meme4me Camera » ici aussi : la webcam n'est alors ouverte qu'une fois.
         </p>
+        <label class="opt">
+          <span class="switch">
+            <input
+              type="checkbox"
+              [checked]="store.settings().detectionAutoStart"
+              (change)="setAutoStart($event)"
+            />
+          </span>
+          <span>
+            Démarrer la détection au lancement
+            <span class="lbl">
+              La caméra s'ouvre dès l'ouverture de meme4me. À laisser décoché si tu
+              veux garder la main sur le moment où la webcam s'allume.
+            </span>
+          </span>
+        </label>
       </div>
 
       <app-virtual-cam />
@@ -92,6 +108,8 @@ import { StoreService } from '../services/store.service'
     .grow { flex: 1; min-width: 0; }
     .url { font-family: var(--font-data); font-size: 12px; }
     .warnline { border-left: 2px solid var(--st-candidate); padding-left: 11px; }
+    .opt { display: flex; align-items: flex-start; gap: 11px; cursor: pointer; font-size: 13.5px; margin-top: 14px; }
+    .opt .lbl { display: block; margin-top: 2px; text-transform: none; letter-spacing: 0; font-size: 11.5px; }
   `,
 })
 export class SettingsPage {
@@ -105,6 +123,12 @@ export class SettingsPage {
 
   async select(ev: Event): Promise<void> {
     await this.detection.selectCamera((ev.target as HTMLSelectElement).value)
+  }
+
+  async setAutoStart(ev: Event): Promise<void> {
+    await this.store.saveSettings({
+      detectionAutoStart: (ev.target as HTMLInputElement).checked,
+    })
   }
 
   async copy(): Promise<void> {

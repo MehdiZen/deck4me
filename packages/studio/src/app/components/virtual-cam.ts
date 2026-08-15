@@ -1,5 +1,6 @@
 import { Component, OnDestroy, inject, signal } from '@angular/core'
 import { DetectionService } from '../services/detection.service'
+import { StoreService } from '../services/store.service'
 import { TauriService } from '../services/tauri.service'
 
 export interface VcamStatus {
@@ -80,7 +81,7 @@ const EMPTY: VcamStatus = {
         <select
           class="grow"
           [value]="selected()"
-          (change)="selected.set(+$any($event.target).value)"
+          (change)="pickDevice(+$any($event.target).value)"
           [disabled]="status().running"
           aria-label="Webcam à republier"
         >
@@ -98,7 +99,7 @@ const EMPTY: VcamStatus = {
         <select
           class="grow"
           [value]="formatKey()"
-          (change)="formatKey.set($any($event.target).value)"
+          (change)="pickFormat($any($event.target).value)"
           [disabled]="status().running || !formats().length"
           aria-label="Définition diffusée"
         >
@@ -126,6 +127,23 @@ const EMPTY: VcamStatus = {
           pas la reconnaissance des poses — et coûte du CPU.
         </p>
       </div>
+
+      <label class="opt">
+        <span class="switch">
+          <input
+            type="checkbox"
+            [checked]="store.settings().vcamAutoStart"
+            (change)="setAutoStart($event)"
+          />
+        </span>
+        <span>
+          Reprendre au lancement
+          <span class="lbl">
+            meme4me rouvre cette caméra et redémarre la diffusion tout seul au
+            démarrage — plus rien à recliquer avant un stream.
+          </span>
+        </span>
+      </label>
 
       @if (status().running) {
         <div class="stats">
@@ -159,11 +177,17 @@ const EMPTY: VcamStatus = {
     .row:last-child { margin-bottom: 0; }
     .grow { flex: 1; min-width: 160px; }
     .hint { flex-basis: 100%; margin: 0; text-transform: none; letter-spacing: 0; }
+    .opt { display: flex; align-items: flex-start; gap: 11px; cursor: pointer; font-size: 13.5px; margin-bottom: 12px; }
+    .opt .lbl { display: block; margin-top: 2px; text-transform: none; letter-spacing: 0; font-size: 11.5px; }
   `,
 })
 export class VirtualCamCard implements OnDestroy {
+  /** Une seule reprise automatique par lancement de l'application. */
+  private static autoStarted = false
+
   private tauri = inject(TauriService)
   private detection = inject(DetectionService)
+  protected store = inject(StoreService)
 
   status = signal<VcamStatus>(EMPTY)
   devices = signal<VcamDevice[]>([])
@@ -179,11 +203,45 @@ export class VirtualCamCard implements OnDestroy {
   constructor() {
     // Énumération au chargement, sinon la liste reste vide jusqu'à ce que
     // l'utilisateur clique « Actualiser » sans savoir qu'il doit le faire.
-    void this.refresh()
+    void this.refresh().then(() => this.maybeAutoStart())
     // Le statut bouge sans nous (Streamlabs se connecte, caméra perdue).
     // Sondage léger : simple lecture mémoire + registre côté Rust, aucun
     // processus lancé — sinon des fenêtres de console clignotent sans fin.
     this.poll = window.setInterval(() => void this.readStatus(), 3000)
+  }
+
+  /** Reprise au lancement. Ne se déclenche qu'une fois par session : sans ce
+   *  verrou, revenir sur l'écran Réglages relancerait la caméra que
+   *  l'utilisateur vient d'arrêter à la main. */
+  private async maybeAutoStart(): Promise<void> {
+    if (VirtualCamCard.autoStarted) return
+    VirtualCamCard.autoStarted = true
+    const s = this.store.settings()
+    if (!s.vcamAutoStart || this.status().running || !this.status().registered) return
+    if (this.selected() < 0) return
+    await this.start()
+  }
+
+  /** Le choix est retenu par NOM : l'index d'une caméra change dès qu'un autre
+   *  périphérique est branché, et on rouvrirait la mauvaise sans rien dire. */
+  private async remember(patch: Partial<{ vcamDevice: string; vcamFormat: string }>): Promise<void> {
+    await this.store.saveSettings(patch)
+  }
+
+  async pickDevice(index: number): Promise<void> {
+    this.selected.set(index)
+    const name = this.devices().find((d) => d.index === index)?.name ?? ''
+    await this.remember({ vcamDevice: name })
+    await this.loadFormats()
+  }
+
+  async pickFormat(key: string): Promise<void> {
+    this.formatKey.set(key)
+    await this.remember({ vcamFormat: key })
+  }
+
+  async setAutoStart(ev: Event): Promise<void> {
+    await this.store.saveSettings({ vcamAutoStart: (ev.target as HTMLInputElement).checked })
   }
 
   ngOnDestroy(): void {
@@ -209,7 +267,12 @@ export class VirtualCamCard implements OnDestroy {
     try {
       const devs = await this.tauri.invoke<VcamDevice[]>('vcam_devices', {}, [])
       this.devices.set(devs)
-      if (this.selected() < 0 && devs.length) this.selected.set(devs[0].index)
+      if (this.selected() < 0 && devs.length) {
+        // Retrouver la caméra retenue par son nom ; à défaut, la première.
+        const saved = this.store.settings().vcamDevice
+        this.selected.set(devs.find((d) => d.name === saved)?.index ?? devs[0]!.index)
+        this.formatKey.set(this.store.settings().vcamFormat)
+      }
       if (this.selected() >= 0 && !this.status().running) await this.loadFormats()
     } catch (e) {
       this.status.update((s) => ({ ...s, error: String(e) }))
@@ -223,9 +286,18 @@ export class VirtualCamCard implements OnDestroy {
    *  d'où l'échec silencieux si elle est occupée (on reste en automatique). */
   private async loadFormats(): Promise<void> {
     try {
-      this.formats.set(
-        await this.tauri.invoke<VcamFormat[]>('vcam_formats', { cameraIndex: this.selected() }, []),
+      const list = await this.tauri.invoke<VcamFormat[]>(
+        'vcam_formats',
+        { cameraIndex: this.selected() },
+        [],
       )
+      this.formats.set(list)
+      // La définition retenue peut ne plus exister sur cette caméra : mieux
+      // vaut retomber sur « automatique » qu'échouer à l'ouverture.
+      const key = this.formatKey()
+      if (key && !list.some((f) => `${f.width}x${f.height}@${f.fps}` === key)) {
+        this.formatKey.set('')
+      }
     } catch {
       this.formats.set([])
     }
