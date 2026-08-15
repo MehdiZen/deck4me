@@ -95,19 +95,19 @@ const SAMPLES_PER_TAKE = 8 // unique est artificiellement basse → seuil irréa
               </ul>
               @switch (v.verdict) {
                 @case ('collision') {
-                  <p class="badge err">
+                  <p class="badge err verdict">
                     Trop proche de « {{ nameOf(v.collidesWith!) }} » — enregistrement refusé.
                     Choisis une pose plus différenciée, ou réenregistre l'autre gesture.
                   </p>
                 }
                 @case ('false_positive_risk') {
-                  <p class="badge warn">
+                  <p class="badge warn verdict">
                     Cette pose ressemble à ta tête en parlant normalement : risque de
                     déclenchement involontaire en live. Exagère-la davantage, ou assume.
                   </p>
                 }
                 @case ('ok') {
-                  <p class="badge ok">Pose propre, seuil fiable.</p>
+                  <p class="badge ok verdict">Pose propre, seuil fiable.</p>
                 }
               }
             }
@@ -124,12 +124,39 @@ const SAMPLES_PER_TAKE = 8 // unique est artificiellement basse → seuil irréa
     </div>
   `,
   styles: `
-    .modal-bg { position: fixed; inset: 0; background: #000a; display: grid; place-items: center; z-index: 50; }
-    .modal { width: 560px; max-height: 90vh; overflow-y: auto; }
-    .count { font-size: 64px; font-weight: 700; text-align: center; margin: 8px 0; }
-    .progress { height: 10px; background: #0b1220; border-radius: 5px; margin: 12px 0; overflow: hidden; }
-    .progress > div { height: 100%; background: #0ea5e9; transition: width .1s linear; }
-    ul { margin: 8px 0; }
+    .modal-bg {
+      position: fixed; inset: 0; z-index: 50;
+      background: #0b0a0ecc;
+      backdrop-filter: blur(3px);
+      display: grid; place-items: center;
+      animation: fade 140ms ease-out;
+    }
+    @keyframes fade { from { opacity: 0 } }
+    .modal {
+      width: 560px; max-height: 90vh; overflow-y: auto;
+      box-shadow: 0 24px 60px #0009;
+    }
+    .modal h2 { margin-bottom: 14px; }
+    /* Compte à rebours : un relevé d'instrument, pas un titre */
+    .count {
+      font-family: var(--font-data);
+      font-variant-numeric: tabular-nums;
+      font-size: 60px; font-weight: 600; line-height: 1.1;
+      text-align: center; margin: 14px 0 4px;
+      color: var(--accent-hi);
+    }
+    .progress {
+      height: 8px; background: var(--ground); border-radius: 99px;
+      margin: 14px 0; overflow: hidden; border: 1px solid var(--line-soft);
+    }
+    .progress > div {
+      height: 100%; background: var(--accent); border-radius: 99px;
+      transition: width .1s linear;
+    }
+    ul { margin: 10px 0; padding-left: 18px; font-size: 13px; }
+    li { margin-bottom: 3px; }
+    li b { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+    .verdict { display: block; padding: 10px 12px; line-height: 1.5; white-space: normal; }
   `,
 })
 export class Wizard {

@@ -34,7 +34,7 @@ const SAMPLE_EVERY_MS = 250
       @if (running()) {
         <app-camera-view />
         <div class="progress"><div [style.width.%]="progress()"></div></div>
-        <p>{{ frames().length }} frames capturées…</p>
+        <p class="lbl"><span class="num">{{ frames().length }}</span> images de référence…</p>
       } @else {
         <button class="primary" [disabled]="busy()" (click)="start()">
           {{ store.calibration() ? 'Recalibrer' : 'Lancer la calibration' }}
@@ -43,8 +43,14 @@ const SAMPLE_EVERY_MS = 250
     </div>
   `,
   styles: `
-    .progress { height: 10px; background: #0b1220; border-radius: 5px; margin: 12px 0; overflow: hidden; }
-    .progress > div { height: 100%; background: #0ea5e9; transition: width .1s linear; }
+    .progress {
+      height: 8px; background: var(--ground); border-radius: 99px;
+      margin: 14px 0 10px; overflow: hidden; border: 1px solid var(--line-soft);
+    }
+    .progress > div {
+      height: 100%; background: var(--accent); border-radius: 99px;
+      transition: width .1s linear;
+    }
   `,
 })
 export class Calibration {

@@ -9,28 +9,39 @@ import { Wizard } from '../components/wizard'
   selector: 'app-gestures-page',
   imports: [Wizard, RouterLink],
   template: `
-    @if (!store.calibration() && store.loaded()) {
-      <p class="card badge warn" style="display:block">
-        Avant tout : fais la <a routerLink="/reglages">calibration neutre</a> (20 s).
-        Elle absorbe ta morphologie et tes lunettes, et sert de garde-fou anti-faux-positifs.
-      </p>
-    }
-    @if (store.staleGestures().length) {
-      <p class="card badge err" style="display:block">
-        {{ store.staleGestures().length }} gesture(s) d'une ancienne version sans données
-        brutes : à réenregistrer.
-      </p>
-    }
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px">
-      <h1 style="margin:0">Gestures</h1>
+    <div class="head">
+      <h1>Gestures</h1>
+      <span class="spacer"></span>
       <button class="primary" [disabled]="!store.calibration()" (click)="wizardOpen.set(true)">
-        + Enregistrer une gesture
+        Enregistrer une gesture
       </button>
     </div>
 
-    @if (!store.gestures().length) {
-      <p class="card">Aucune gesture. Vise 8 à 15 poses volontaires, exagérées, lisibles à la caméra.</p>
+    @if (!store.calibration() && store.loaded()) {
+      <div class="card notice warn">
+        <b>Commence par la calibration.</b>
+        <a routerLink="/reglages">Vingt secondes de visage neutre</a> : elles absorbent
+        ta morphologie et tes lunettes, et servent de garde-fou contre les
+        déclenchements involontaires.
+      </div>
     }
+    @if (store.staleGestures().length) {
+      <div class="card notice err">
+        <b>{{ store.staleGestures().length }} gesture(s) à réenregistrer.</b>
+        Elles viennent d'une version antérieure et n'ont plus les données nécessaires.
+      </div>
+    }
+
+    @if (!store.gestures().length && store.calibration()) {
+      <div class="card empty">
+        <b>Aucune gesture pour l'instant.</b>
+        <p class="lbl">
+          Vise huit à quinze poses volontaires et exagérées, lisibles à la caméra.
+          Une pose que le viewer ne devine pas ne fait pas un bon bit.
+        </p>
+      </div>
+    }
+
     <div class="list">
       @for (g of store.gestures(); track g.id) {
         <div class="card row">
@@ -41,22 +52,26 @@ import { Wizard } from '../components/wizard'
               (change)="toggle(g, $event)"
             />
           </label>
-          <div style="flex:1">
+          <div style="flex:1; min-width:0">
             <b>{{ g.name }}</b>
-            <span class="badge">{{ srcLabel(g.source) }}</span>
-            @if (needsPosition(g)) {
-              <span class="badge warn" title="Enregistrée avant la prise en compte de la position des mains : réenregistre-la pour distinguer deux poses de même forme">
-                sans position
-              </span>
-            }
-            <br />
-            <span class="lbl">
-              seuil {{ effective(g).toFixed(3) }}
-              @if ((g.sensitivity ?? 1) !== 1) {
-                ({{ ((g.sensitivity ?? 1) * 100).toFixed(0) }}%)
+            <div class="meta">
+              <span class="badge">{{ srcLabel(g.source) }}</span>
+              @if (needsPosition(g)) {
+                <span
+                  class="badge warn"
+                  title="Enregistrée avant la prise en compte de la position des mains : réenregistre-la pour distinguer deux poses de même forme"
+                >
+                  sans position
+                </span>
               }
-              · {{ g.rawSamples.length }} samples
-            </span>
+              <span class="lbl">
+                seuil <span class="num">{{ effective(g).toFixed(3) }}</span>
+                @if ((g.sensitivity ?? 1) !== 1) {
+                  <span class="num">({{ ((g.sensitivity ?? 1) * 100).toFixed(0) }}%)</span>
+                }
+                · <span class="num">{{ g.rawSamples.length }}</span> prises
+              </span>
+            </div>
           </div>
           <div class="holdcell">
             <select [value]="g.holdMode" (change)="setHoldMode(g, $event)" title="Affichage du meme">
@@ -81,18 +96,19 @@ import { Wizard } from '../components/wizard'
           <div class="bindcell">
             @if (bindingAsset(g.id); as asset) {
               <img [src]="store.assetUrl(asset)" alt="" class="thumb" />
-              <span class="lbl">{{ asset.filename }}</span>
-              <button (click)="store.unbind(g.id)">retirer</button>
+              <span class="fname">{{ asset.filename }}</span>
+              <button class="ghost" (click)="store.unbind(g.id)" title="Retirer l'image">×</button>
             } @else {
-              <label class="lbl file">
-                image…
+              <label class="file">
+                Choisir une image
                 <input type="file" accept=".png,.gif,.webp,.webm" hidden (change)="upload(g, $event)" />
               </label>
-              <span class="lbl">(sinon : image de test)</span>
             }
           </div>
-          <button (click)="matcher.testTrigger(g.id)" title="Déclenche dans OBS">Tester</button>
-          <button class="danger" (click)="remove(g)">Suppr.</button>
+          <button (click)="matcher.testTrigger(g.id)" title="Affiche le meme dans OBS">
+            Tester
+          </button>
+          <button class="danger" (click)="remove(g)">Supprimer</button>
         </div>
       }
     </div>
@@ -102,14 +118,52 @@ import { Wizard } from '../components/wizard'
     }
   `,
   styles: `
+    .head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .head h1 { margin: 0; }
+    .spacer { flex: 1; }
+
+    .notice { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; font-size: 13px; }
+    .notice.warn { border-color: #c8820e59; background: #c8820e12; }
+    .notice.err { border-color: #e03e4e59; background: #e03e4e12; }
+    .notice b { font-weight: 600; }
+
+    .empty { text-align: center; padding: 34px 20px; }
+    .empty b { display: block; margin-bottom: 6px; font-weight: 600; }
+    .empty .lbl { max-width: 52ch; margin: 0 auto; }
+
     .list { display: flex; flex-direction: column; gap: 8px; }
-    .row { display: flex; align-items: center; gap: 12px; padding: 10px 16px; }
-    .thumb { height: 40px; border-radius: 4px; vertical-align: middle; }
-    .bindcell { display: flex; align-items: center; gap: 8px; min-width: 220px; }
-    .holdcell { display: flex; align-items: center; gap: 6px; }
-    .file { cursor: pointer; border: 1px dashed #334155; border-radius: 6px; padding: 4px 10px; }
-    .file:hover { border-color: #38bdf8; }
-    .toggle input { width: 18px; height: 18px; }
+    /* Bandeau d'instrument : état à gauche, identité, réglages, actions */
+    .row {
+      display: flex; align-items: center; gap: 16px;
+      padding: 12px 16px;
+      transition: border-color 120ms ease;
+    }
+    .row:hover { border-color: #3d3a4c; }
+    .toggle { display: flex; }
+    .meta { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
+
+    .holdcell { display: flex; align-items: center; gap: 7px; }
+    .holdcell select { max-width: 210px; }
+
+    .bindcell { display: flex; align-items: center; gap: 9px; width: 214px; }
+    .thumb {
+      height: 38px; width: 52px; object-fit: cover;
+      border-radius: 5px; border: 1px solid var(--line);
+      background: var(--ground);
+    }
+    .fname {
+      flex: 1; font-size: 12px; color: var(--ink-2);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    button.ghost { padding: 4px 9px; background: none; border-color: transparent; color: var(--ink-3); }
+    button.ghost:hover { color: var(--ink); background: var(--panel-2); }
+    .file {
+      cursor: pointer; font-size: 12.5px; color: var(--ink-2);
+      border: 1px dashed var(--line); border-radius: var(--r-control);
+      padding: 9px 12px; width: 100%; text-align: center;
+      transition: border-color 120ms ease, color 120ms ease;
+    }
+    .file:hover { border-color: var(--accent); color: var(--ink); }
   `,
 })
 export class GesturesPage {

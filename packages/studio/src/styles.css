@@ -1,40 +1,209 @@
+/* meme4me — surface de contrôle de régie.
+   Monde sombre assumé (l'app vit à côté d'OBS et d'un jeu) : tout est peint
+   explicitement, rien n'est hérité de l'hôte.
+   Les couleurs d'état viennent des voyants de régie et sont validées pour la
+   vision des couleurs ; elles s'accompagnent toujours du nom de l'état en
+   toutes lettres, jamais de la couleur seule. */
+
+:root {
+  /* Neutres biaisés violet — choisis, pas hérités d'un gris standard */
+  --ground: #131218;
+  --panel: #1c1b24;
+  --panel-2: #23212d;
+  --line: #302e3c;
+  --line-soft: #26242f;
+  --ink: #eae7f2;
+  --ink-2: #a6a1b8;
+  --ink-3: #756f88;
+
+  /* Accent : violet du streaming, dépensé avec parcimonie */
+  --accent: #8b5cf6;
+  --accent-hi: #a78bfa;
+  --accent-ink: #17102a;
+  --accent-wash: #8b5cf61f;
+
+  /* Voyants de régie (palette validée) */
+  --st-idle: #56536a;
+  --st-candidate: #c8820e;
+  --st-armed: #17a268;
+  --st-cooldown: #3aa0c9;
+  --st-live: #e03e4e;
+
+  --font-ui: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --font-data: "Cascadia Mono", "Cascadia Code", ui-monospace, Consolas, monospace;
+
+  --r-control: 7px;
+  --r-panel: 12px;
+
+  --shadow: 0 1px 2px #0006, 0 8px 24px #0003;
+}
+
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; }
+
+html, body { height: 100%; margin: 0; }
+
 body {
-  font: 14px/1.5 system-ui, sans-serif;
-  background: #0f172a;
-  color: #e2e8f0;
+  background: var(--ground);
+  color: var(--ink);
+  font: 400 14px/1.55 var(--font-ui);
+  -webkit-font-smoothing: antialiased;
 }
-h1 { font-size: 20px; margin: 0 0 12px; }
-h2 { font-size: 16px; margin: 0 0 8px; }
-a { color: #38bdf8; }
+
+/* ---- Typographie ---- */
+
+h1 {
+  font-size: 21px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 0 0 16px;
+  text-wrap: balance;
+}
+
+h2 {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  margin: 0 0 10px;
+}
+
+p { margin: 0 0 12px; }
+p:last-child { margin-bottom: 0; }
+
+a { color: var(--accent-hi); text-underline-offset: 2px; }
+
+/* Étiquette de section / légende */
+.lbl {
+  color: var(--ink-2);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+/* Un paragraphe d'aide sous un titre : lisible, pas criard */
+p.lbl { letter-spacing: 0.02em; text-transform: none; font-size: 12.5px; }
+
+/* Tout ce qui est chiffré est un relevé d'instrument */
+.num, .readout {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+}
+
+.readout {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* ---- Panneaux ---- */
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  padding: 18px 20px;
+}
+
+/* ---- Contrôles ---- */
+
 button {
-  font: inherit;
-  padding: 6px 14px;
-  border-radius: 6px;
-  border: 1px solid #334155;
-  background: #1e293b;
-  color: #e2e8f0;
+  font: 500 13px/1 var(--font-ui);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border-radius: var(--r-control);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--ink);
   cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
 }
-button:hover { background: #263449; }
-button.primary { background: #0ea5e9; border-color: #0ea5e9; color: #082f49; font-weight: 600; }
-button.primary:hover { background: #38bdf8; }
-button.danger { border-color: #7f1d1d; color: #fca5a5; }
-button.danger:hover { background: #7f1d1d33; }
-button:disabled { opacity: .45; cursor: default; }
+
+button:hover:not(:disabled) { background: #2b2936; border-color: #3d3a4c; }
+button:active:not(:disabled) { transform: translateY(0.5px); }
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+button.primary:hover:not(:disabled) { background: var(--accent-hi); border-color: var(--accent-hi); }
+
+button.danger { color: #f2a5ad; border-color: #4a2028; background: #2a1119; }
+button.danger:hover:not(:disabled) { background: var(--st-live); border-color: var(--st-live); color: #fff; }
+
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+
 input, select {
-  font: inherit;
-  background: #0b1220;
-  color: #e2e8f0;
-  border: 1px solid #334155;
-  border-radius: 6px;
-  padding: 6px 10px;
+  font: 400 13px/1 var(--font-ui);
+  padding: 8px 11px;
+  border-radius: var(--r-control);
+  border: 1px solid var(--line);
+  background: var(--ground);
+  color: var(--ink);
 }
-.card { background: #1e293b; border-radius: 10px; padding: 16px; }
-.lbl { color: #94a3b8; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
-.badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #334155; }
-.badge.ok { background: #14532d; color: #86efac; }
-.badge.warn { background: #713f12; color: #fde047; }
-.badge.err { background: #7f1d1d; color: #fca5a5; }
+
+input[type="number"] { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+input:hover, select:hover { border-color: #3d3a4c; }
+
+input[type="range"] { accent-color: var(--accent); padding: 0; border: 0; background: none; }
+input[type="checkbox"] { accent-color: var(--accent); width: 17px; height: 17px; }
+
+:focus-visible {
+  outline: 2px solid var(--accent-hi);
+  outline-offset: 2px;
+}
+
+/* ---- Pastilles d'état ---- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.badge.ok { background: #17a2681f; border-color: #17a26859; color: #5fd6a3; }
+.badge.warn { background: #c8820e1f; border-color: #c8820e59; color: #e8b45c; }
+.badge.err { background: #e03e4e1f; border-color: #e03e4e59; color: #f0929c; }
+
+/* Voyant : l'état se lit à la forme autant qu'à la couleur */
+.led {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--st-idle);
+  box-shadow: 0 0 0 3px #ffffff08;
+  flex: none;
+}
+.led.on { background: var(--st-armed); box-shadow: 0 0 8px #17a26899; }
+.led.live { background: var(--st-live); box-shadow: 0 0 8px #e03e4e99; }
+
 .mirror { transform: scaleX(-1); }
+
+/* ---- Défilement discret ---- */
+
+::-webkit-scrollbar { width: 11px; height: 11px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: #34313f;
+  border-radius: 99px;
+  border: 3px solid var(--ground);
+}
+::-webkit-scrollbar-thumb:hover { background: #45414f; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

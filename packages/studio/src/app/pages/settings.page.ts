@@ -9,14 +9,15 @@ import { StoreService } from '../services/store.service'
   imports: [Calibration, VirtualCamCard],
   template: `
     <h1>Réglages</h1>
-    <div style="display:flex; flex-direction:column; gap:16px; max-width:720px">
+    <div class="stack">
       <div class="card">
-        <h2>Caméra</h2>
-        <p style="display:flex; gap:8px; align-items:center">
+        <h2>Caméra de détection</h2>
+        <div class="row">
           <select
-            style="flex:1"
+            class="grow"
             [value]="detection.selectedCameraId()"
             (change)="select($event)"
+            aria-label="Caméra utilisée pour la détection"
           >
             @if (!detection.cameras().length) {
               <option value="">— clique Détecter —</option>
@@ -28,14 +29,11 @@ import { StoreService } from '../services/store.service'
             }
           </select>
           <button (click)="detection.listCameras()">Détecter</button>
-        </p>
+        </div>
         <p class="lbl">
-          Choisis la caméra que tu utilises en stream. Le changement redémarre la
-          détection si elle tourne. {{ detection.status() }}
-        </p>
-        <p class="lbl">
-          Si la caméra virtuelle ci-dessous tourne, sélectionne « meme4me Camera »
-          ici aussi : la webcam physique n'est alors ouverte qu'une seule fois.
+          Choisis la caméra qui te filme. En changer redémarre la détection si elle
+          tourne. Si la caméra virtuelle ci-dessous est active, prends
+          « meme4me Camera » ici aussi : la webcam n'est alors ouverte qu'une fois.
         </p>
       </div>
       <app-virtual-cam />
@@ -45,17 +43,30 @@ import { StoreService } from '../services/store.service'
           Dans OBS : Sources → + → Navigateur, colle cette URL, taille 1920×1080.
           Coche « Contrôler l'audio via OBS » si tes memes ont du son.
         </p>
-        <p style="display:flex; gap:8px">
-          <input readonly [value]="store.overlayUrl()" style="flex:1" (focus)="$any($event.target).select()" />
-          <button class="primary" (click)="copy()">{{ copied() ? 'Copié ✓' : 'Copier' }}</button>
-        </p>
+        <div class="row">
+          <input
+            class="grow url"
+            readonly
+            [value]="store.overlayUrl()"
+            (focus)="$any($event.target).select()"
+            aria-label="URL de l'overlay"
+          />
+          <button class="primary" (click)="copy()">{{ copied() ? 'Copié' : 'Copier' }}</button>
+        </div>
         <p class="lbl">
-          L'URL contient un jeton privé : ne la montre pas à l'écran en stream.
-          Port {{ store.port() }} (127.0.0.1 uniquement).
+          Cette adresse contient un jeton privé : ne la laisse pas apparaître à
+          l'écran pendant un stream. Port <span class="num">{{ store.port() }}</span>,
+          accessible depuis cette machine uniquement.
         </p>
       </div>
       <app-calibration />
     </div>
+  `,
+  styles: `
+    .stack { display: flex; flex-direction: column; gap: 14px; max-width: 760px; }
+    .row { display: flex; gap: 9px; align-items: center; margin-bottom: 12px; }
+    .grow { flex: 1; min-width: 0; }
+    .url { font-family: var(--font-data); font-size: 12px; }
   `,
 })
 export class SettingsPage {

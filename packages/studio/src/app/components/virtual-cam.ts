@@ -1,4 +1,5 @@
 import { Component, OnDestroy, inject, signal } from '@angular/core'
+import { DetectionService } from '../services/detection.service'
 import { TauriService } from '../services/tauri.service'
 
 export interface VcamStatus {
@@ -50,29 +51,32 @@ const EMPTY: VcamStatus = {
 
       <!-- Le filtre est normalement posé par l'installeur ; ce bouton n'est
            qu'un secours (build de dev, ou installation qui a échoué). -->
-      <p>
+      <div class="row">
         <span class="badge" [class.ok]="status().registered" [class.warn]="!status().registered">
-          {{ status().registered ? 'prêt' : 'pilote non installé' }}
+          <i class="led" [class.on]="status().registered"></i>
+          {{ status().registered ? 'pilote prêt' : 'pilote absent' }}
         </span>
         @if (!status().registered) {
           <button class="primary" [disabled]="busy()" (click)="register(false)">
-            Installer le pilote (admin)
+            Installer le pilote
           </button>
-          <span class="lbl">
-            Normalement posé à l'installation de meme4me — ce bouton est un secours.
-          </span>
+          <p class="lbl hint">
+            Normalement posé pendant l'installation de meme4me — ce bouton n'est
+            qu'un secours, et demande les droits administrateur.
+          </p>
         } @else {
           <button [disabled]="busy()" (click)="register(true)">Retirer le pilote</button>
         }
-      </p>
+      </div>
 
       <!-- 2. source + démarrage -->
-      <p style="display:flex; gap:8px; align-items:center">
+      <div class="row">
         <select
-          style="flex:1"
+          class="grow"
           [value]="selected()"
           (change)="selected.set(+$any($event.target).value)"
           [disabled]="status().running"
+          aria-label="Webcam à republier"
         >
           @if (!devices().length) {
             <option value="-1">— aucune caméra détectée —</option>
@@ -93,32 +97,48 @@ const EMPTY: VcamStatus = {
             Démarrer
           </button>
         }
-      </p>
+      </div>
 
       @if (status().running) {
-        <p>
+        <div class="stats">
           <span class="badge ok">
-            diffusion {{ status().width }}×{{ status().height }} · {{ status().fps.toFixed(0) }} fps
+            <i class="led live"></i>en diffusion
+            <b class="num">{{ status().width }}×{{ status().height }}</b>
+            · <b class="num">{{ status().fps.toFixed(0) }}</b> fps
           </span>
           <span class="badge" [class.ok]="status().connected">
-            {{ status().connected ? 'Streamlabs connecté' : 'aucun consommateur' }}
+            <i class="led" [class.on]="status().connected"></i>
+            {{ status().connected ? 'Streamlabs reçoit le flux' : 'personne ne regarde encore' }}
           </span>
-        </p>
+        </div>
         <p class="lbl">
-          Dans Streamlabs : source « Périphérique de capture vidéo » → meme4me Camera.
-          Laisse meme4me ouvert pendant le stream.
+          @if (switched()) {
+            La détection est passée sur meme4me Camera automatiquement.
+          }
+          Dans Streamlabs : ajoute une source « Périphérique de capture vidéo » et
+          choisis <b>meme4me Camera</b>. Laisse meme4me ouvert pendant le stream.
         </p>
       }
     </div>
   `,
+  styles: `
+    .stats { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin-bottom: 12px; }
+    .row:last-child { margin-bottom: 0; }
+    .grow { flex: 1; min-width: 160px; }
+    .hint { flex-basis: 100%; margin: 0; }
+  `,
 })
 export class VirtualCamCard implements OnDestroy {
   private tauri = inject(TauriService)
+  private detection = inject(DetectionService)
 
   status = signal<VcamStatus>(EMPTY)
   devices = signal<VcamDevice[]>([])
   selected = signal(-1)
   busy = signal(false)
+  /** La détection a bien été rebasculée sur la caméra virtuelle. */
+  switched = signal(false)
   private poll = 0
 
   constructor() {
@@ -175,22 +195,51 @@ export class VirtualCamCard implements OnDestroy {
     }
   }
 
+  /**
+   * Séquence complète, sinon Windows refuse (0xC00D3704) : une webcam ne
+   * s'ouvre qu'une fois.
+   *   1. libérer la webcam physique tenue par la détection
+   *   2. la caméra virtuelle la prend et republie
+   *   3. la détection repart sur « meme4me Camera »
+   */
   async start(): Promise<void> {
     this.busy.set(true)
+    const wasDetecting = this.detection.running()
     try {
-      this.status.set(
-        await this.tauri.invoke<VcamStatus>('vcam_start', { cameraIndex: this.selected() }),
-      )
+      if (wasDetecting) this.detection.stop()
+      const s = await this.tauri.invoke<VcamStatus>('vcam_start', {
+        cameraIndex: this.selected(),
+      })
+      this.status.set(s)
+      if (s.running) await this.switchDetectionToVirtual(wasDetecting)
     } catch (e) {
-      this.status.update((s) => ({ ...s, error: String(e) }))
+      this.status.update((st) => ({ ...st, error: String(e) }))
+      if (wasDetecting) await this.detection.start().catch(() => {})
     } finally {
       this.busy.set(false)
     }
   }
 
+  /** Bascule la détection sur la caméra virtuelle (elle seule reste lisible). */
+  private async switchDetectionToVirtual(restart: boolean): Promise<void> {
+    await this.detection.listCameras()
+    const virt = this.detection.cameras().find((c) => /meme4me/i.test(c.label))
+    if (virt) {
+      await this.detection.selectCamera(virt.deviceId)
+      this.switched.set(true)
+    } else {
+      this.switched.set(false)
+    }
+    if (restart && !this.detection.running()) await this.detection.start().catch(() => {})
+  }
+
   async stop(): Promise<void> {
     this.busy.set(true)
+    this.switched.set(false)
     try {
+      // libérer la caméra virtuelle AVANT que la détection ne la relâche,
+      // sinon la webcam physique reste prise par le pompage
+      if (this.detection.running()) this.detection.stop()
       this.status.set(await this.tauri.invoke<VcamStatus>('vcam_stop', {}, EMPTY))
     } catch (e) {
       this.status.update((s) => ({ ...s, error: String(e) }))

@@ -26,9 +26,18 @@ import { DetectionService, type VizFrame } from '../services/detection.service'
     </div>
   `,
   styles: `
-    .wrap { position: relative; width: 480px; height: 360px; background: #0b1220; border-radius: 10px; overflow: hidden; }
+    .wrap {
+      position: relative; width: 480px; height: 360px;
+      background: var(--ground);
+      border: 1px solid var(--line);
+      border-radius: var(--r-panel);
+      overflow: hidden;
+    }
     video, canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-    .off { position: absolute; inset: 0; display: grid; place-items: center; color: #94a3b8; }
+    .off {
+      position: absolute; inset: 0; display: grid; place-items: center;
+      color: var(--ink-3); font-size: 13px; padding: 20px; text-align: center;
+    }
   `,
 })
 export class CameraView implements AfterViewInit, OnDestroy {

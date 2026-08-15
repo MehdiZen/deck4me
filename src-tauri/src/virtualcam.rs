@@ -182,6 +182,23 @@ impl VirtualCam {
     }
 }
 
+/// Traduit les erreurs Media Foundation en consigne actionnable.
+/// 0xC00D3704 (MF_E_HW_MFT_FAILED_START_STREAMING) veut presque toujours dire
+/// « le périphérique est déjà pris », pas « matériel insuffisant » malgré son
+/// libellé Windows.
+fn explain_camera_error(raw: &str) -> String {
+    if raw.contains("0xC00D3704") || raw.contains("C00D3704") {
+        "Cette webcam est déjà utilisée par une autre application \
+         (la détection de meme4me, Streamlabs, Discord, Teams…). \
+         Ferme-la ou arrête la détection, puis redémarre la caméra virtuelle."
+            .into()
+    } else if raw.contains("0xC00D3E85") || raw.contains("not found") {
+        "Webcam introuvable — a-t-elle été débranchée ? Clique « Actualiser ».".into()
+    } else {
+        format!("ouverture caméra : {raw}")
+    }
+}
+
 /// Boucle de pompage : webcam physique (MF partagé) → BGR → softcam.
 /// Tout est créé DANS le thread : aucun handle ne traverse les threads.
 fn pump(
@@ -216,7 +233,7 @@ fn pump(
         CameraFormat::new(Resolution::new(1280, 720), FrameFormat::MJPEG, 30),
     ));
     let mut camera = nokhwa::Camera::new(CameraIndex::Index(camera_index), wanted)
-        .map_err(|e| format!("ouverture caméra : {e}"))?;
+        .map_err(|e| explain_camera_error(&e.to_string()))?;
     let name = camera.info().human_name();
     camera
         .open_stream()
