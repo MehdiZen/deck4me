@@ -380,6 +380,7 @@ fn pump(
     }
 
     let mut bgr = vec![0u8; (w * h * 3) as usize];
+    let mut rgb = vec![0u8; (src_w * src_h * 3) as usize];
     let mut frames = 0u32;
     let mut window_start = Instant::now();
 
@@ -391,23 +392,29 @@ fn pump(
             Ok(f) => f,
             Err(e) => break Err(format!("caméra perdue : {e}")),
         };
-        let img = match frame.decode_image::<RgbFormat>() {
-            Ok(i) => i,
-            Err(e) => break Err(format!("décodage : {e}")),
-        };
-        let rgb = img.as_raw();
+        // Décodage dans un tampon réutilisé : décoder vers une image neuve
+        // à chaque frame, c'est 11 Mo alloués puis jetés 30 fois par seconde
+        // en 1440p — le processeur passe son temps à gérer de la mémoire.
+        if let Err(e) = frame.decode_image_to_buffer::<RgbFormat>(&mut rgb) {
+            break Err(format!("décodage : {e}"))
+        }
+
         // RGB (nokhwa) → BGR (convention DirectShow), avec recadrage éventuel
-        // aux multiples de 4. Boucle serrée : ~27 Mo/s à 720p30, négligeable.
+        // aux multiples de 4. Par tranches plutôt que par indices : le
+        // compilateur élimine les vérifications de bornes et vectorise.
         let src_stride = (src_w * 3) as usize;
-        for y in 0..h as usize {
-            let src_row = y * src_stride;
-            let dst_row = y * (w as usize) * 3;
-            for x in 0..w as usize {
-                let s = src_row + x * 3;
-                let d = dst_row + x * 3;
-                bgr[d] = rgb[s + 2];
-                bgr[d + 1] = rgb[s + 1];
-                bgr[d + 2] = rgb[s];
+        let dst_stride = (w * 3) as usize;
+        for (dst_row, src_row) in bgr
+            .chunks_exact_mut(dst_stride)
+            .zip(rgb.chunks_exact(src_stride))
+        {
+            for (d, s) in dst_row
+                .chunks_exact_mut(3)
+                .zip(src_row.chunks_exact(3))
+            {
+                d[0] = s[2];
+                d[1] = s[1];
+                d[2] = s[0];
             }
         }
         unsafe { sc_send(cam_handle, bgr.as_ptr() as *const c_void) };
