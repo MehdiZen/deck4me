@@ -125,6 +125,7 @@ fn bootstrap(app: tauri::State<App>) -> Value {
         "profiles": db.profiles,
         "gestures": db.gestures,
         "bindings": db.bindings,
+        "macros": db.macros,
         "assets": db.assets,
         "defaultAssetId": db.default_asset_id,
         "settings": db.settings,
@@ -176,6 +177,44 @@ fn delete_gesture(app: tauri::State<App>, id: String) -> Result<(), String> {
     }
     store.save().map_err(|e| e.to_string())?;
     app.state.broadcast(&WsMsg::Clear { binding_id: None });
+    Ok(())
+}
+
+// ---- Macros (enchaînements de gestures) ----
+//
+// Une macro n'a pas besoin de son propre chemin de déclenchement : son binding
+// est un binding ordinaire dont le `gestureId` porte l'identifiant de la macro.
+// `build_trigger` ne trouve alors aucune gesture (donc hold = false, ce qui est
+// exactement le comportement voulu) et trouve le binding. Zéro cas particulier.
+
+#[tauri::command]
+fn save_macro(app: tauri::State<App>, macro_def: Value) -> Result<(), String> {
+    let id = macro_def
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or("macro sans id")?
+        .to_string();
+    let store = &app.state.store;
+    {
+        let mut db = store.db.lock().unwrap();
+        db.macros.retain(|m| m.id() != Some(id.as_str()));
+        db.macros.push(store::MacroRecord(macro_def));
+    }
+    store.save().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_macro(app: tauri::State<App>, id: String) -> Result<(), String> {
+    let store = &app.state.store;
+    {
+        let mut db = store.db.lock().unwrap();
+        db.macros.retain(|m| m.id() != Some(id.as_str()));
+        db.bindings.retain(|b| b.gesture_id() != Some(id.as_str()));
+    }
+    store.save().map_err(|e| e.to_string())?;
+    app.state.broadcast(&WsMsg::Clear {
+        binding_id: Some(id),
+    });
     Ok(())
 }
 
@@ -393,9 +432,20 @@ fn delete_profile(app: tauri::State<App>, id: String) -> Result<Value, String> {
             .collect();
         db.gestures
             .retain(|g| g.profile_id() != Some(id.as_str()));
+        // Les macros du profil partent avec lui, ainsi que leurs bindings :
+        // une macro orpheline désignerait des gestures qui n'existent plus.
+        let doomed_macros: Vec<String> = db
+            .macros
+            .iter()
+            .filter(|m| m.profile_id() == Some(id.as_str()))
+            .filter_map(|m| m.id().map(String::from))
+            .collect();
+        db.macros.retain(|m| m.profile_id() != Some(id.as_str()));
         db.bindings.retain(|b| {
             b.gesture_id()
-                .map(|gid| !doomed.iter().any(|d| d == gid))
+                .map(|gid| {
+                    !doomed.iter().any(|d| d == gid) && !doomed_macros.iter().any(|d| d == gid)
+                })
                 .unwrap_or(true)
         });
         let was_active = db
@@ -410,7 +460,12 @@ fn delete_profile(app: tauri::State<App>, id: String) -> Result<Value, String> {
     store.save().map_err(|e| e.to_string())?;
     app.state.broadcast(&WsMsg::Clear { binding_id: None });
     let db = store.db.lock().unwrap();
-    Ok(json!({ "profiles": db.profiles, "gestures": db.gestures, "bindings": db.bindings }))
+    Ok(json!({
+        "profiles": db.profiles,
+        "gestures": db.gestures,
+        "bindings": db.bindings,
+        "macros": db.macros,
+    }))
 }
 
 #[tauri::command]
@@ -598,6 +653,8 @@ pub fn run() {
             delete_gesture,
             save_binding,
             delete_binding,
+            save_macro,
+            delete_macro,
             upload_asset,
             import_asset_from_url,
             read_asset,

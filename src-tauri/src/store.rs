@@ -44,6 +44,26 @@ impl GestureRecord {
     }
 }
 
+/// Macro : une action déclenchée par un enchaînement de gestures.
+/// Opaque comme les gestures — le core TS est propriétaire du format.
+/// Son binding est un BindingRecord ordinaire dont le `gestureId` porte
+/// l'identifiant de la macro : tout le chemin de déclenchement est réutilisé
+/// tel quel, sans un cas particulier de plus dans le Rust.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MacroRecord(pub Value);
+
+impl MacroRecord {
+    pub fn id(&self) -> Option<&str> {
+        self.0.get("id").and_then(Value::as_str)
+    }
+    pub fn profile_id(&self) -> Option<&str> {
+        self.0
+            .get("profileId")
+            .and_then(Value::as_str)
+            .or(Some("default"))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BindingRecord(pub Value);
 
@@ -121,6 +141,8 @@ pub struct Db {
     pub default_asset_id: Option<String>,
     #[serde(default)]
     pub settings: Settings,
+    #[serde(default)]
+    pub macros: Vec<MacroRecord>,
 }
 
 impl Default for Db {
@@ -137,6 +159,7 @@ impl Default for Db {
             assets: vec![],
             default_asset_id: None,
             settings: Settings::default(),
+            macros: vec![],
         }
     }
 }

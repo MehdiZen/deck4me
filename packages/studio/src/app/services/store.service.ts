@@ -13,6 +13,7 @@ import {
   type GestureSource,
   type HoldMode,
   type RawFrame,
+  type MacroDef,
   type RenderParams,
   type SoundRef,
 } from '@meme4me/core'
@@ -85,6 +86,10 @@ export interface StoredGesture {
   cooldownMs: number
   holdMode: HoldMode
   featurizerVersion: number
+  /** Maillon d'enchaînement : la pose est reconnue et alimente les macros,
+   *  mais ne déclenche pas de meme à elle seule. Sans ce drapeau, faire
+   *  « OK puis 3 » afficherait aussi le meme du OK au passage. */
+  sequenceOnly?: boolean
 }
 
 /** Seuil réellement appliqué : l'auto, modulé par le réglage utilisateur. */
@@ -111,6 +116,7 @@ interface Bootstrap {
   profiles: Profile[]
   gestures: StoredGesture[]
   bindings: StoredBinding[]
+  macros: MacroDef[]
   assets: AssetMeta[]
   defaultAssetId: string | null
   settings: Settings
@@ -131,6 +137,7 @@ export class StoreService {
   readonly profiles = signal<Profile[]>([])
   readonly allGestures = signal<StoredGesture[]>([])
   readonly bindings = signal<StoredBinding[]>([])
+  readonly allMacros = signal<MacroDef[]>([])
   readonly assets = signal<AssetMeta[]>([])
   readonly settings = signal<Settings>({ ...DEFAULT_SETTINGS })
   readonly overlayUrl = signal('')
@@ -151,6 +158,20 @@ export class StoreService {
   readonly gestures = computed(() => {
     const active = this.activeProfile()?.id ?? 'default'
     return this.allGestures().filter((g) => (g.profileId || 'default') === active)
+  })
+
+  /** Comme les gestures, seules celles du profil actif sont armées. */
+  readonly macros = computed(() => {
+    const active = this.activeProfile()?.id ?? 'default'
+    return this.allMacros().filter((m) => (m.profileId || 'default') === active)
+  })
+
+  /** Gestures engagées dans au moins une macro du profil actif : l'interface
+   *  s'en sert pour expliquer pourquoi une pose ne déclenche rien seule. */
+  readonly gesturesInMacros = computed(() => {
+    const out = new Set<string>()
+    for (const m of this.macros()) for (const s of m.steps) out.add(s)
+    return out
   })
 
   readonly imageAssets = computed(() => this.assets().filter((a) => !isAudio(a)))
@@ -200,6 +221,7 @@ export class StoreService {
       profiles: [{ id: 'default', name: 'Défaut', isActive: true }],
       gestures: [],
       bindings: [],
+      macros: [],
       assets: [],
       defaultAssetId: null,
       settings: { ...DEFAULT_SETTINGS },
@@ -213,6 +235,7 @@ export class StoreService {
     this.profiles.set(boot.profiles)
     this.allGestures.set(boot.gestures)
     this.bindings.set(boot.bindings)
+    this.allMacros.set(boot.macros ?? [])
     this.assets.set(boot.assets)
     this.settings.set({ ...DEFAULT_SETTINGS, ...boot.settings })
     this.overlayUrl.set(boot.overlayUrl)
@@ -356,6 +379,22 @@ export class StoreService {
     await this.tauri.invoke('preview_binding', { binding })
   }
 
+  // ---- Macros (enchaînements) ----
+  //
+  // Une macro réutilise tout le chemin des bindings : son binding a pour
+  // `gestureId` l'identifiant de la macro. Aucun cas particulier nulle part.
+
+  async saveMacro(m: MacroDef): Promise<void> {
+    await this.tauri.invoke('save_macro', { macroDef: m })
+    this.allMacros.update((all) => [...all.filter((x) => x.id !== m.id), m])
+  }
+
+  async deleteMacro(id: string): Promise<void> {
+    await this.tauri.invoke('delete_macro', { id })
+    this.allMacros.update((all) => all.filter((x) => x.id !== id))
+    this.bindings.update((all) => all.filter((b) => b.gestureId !== id))
+  }
+
   // ---- Profils (phase 6) ----
 
   async saveProfile(profile: Profile): Promise<void> {
@@ -367,10 +406,12 @@ export class StoreService {
       profiles: Profile[]
       gestures: StoredGesture[]
       bindings: StoredBinding[]
+      macros: MacroDef[]
     }>('delete_profile', { id })
     this.profiles.set(res.profiles)
     this.allGestures.set(res.gestures)
     this.bindings.set(res.bindings)
+    this.allMacros.set(res.macros ?? [])
   }
 
   async setActiveProfile(id: string): Promise<void> {

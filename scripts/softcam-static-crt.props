@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Lie le runtime C++ STATIQUEMENT dans softcam.dll.
+
+  Sans ça, la DLL importe MSVCP140.dll et VCRUNTIME140.dll, c'est-à-dire le
+  redistribuable Visual C++. Sur une machine qui ne l'a pas, le regsvr32 de
+  l'installeur échoue — et l'utilisateur voit « pilote absent » sans la moindre
+  indication, puis ne trouve jamais « meme4me Camera » dans Streamlabs. Le mode
+  d'échec est silencieux et porte justement sur la fonctionnalité qui demande
+  une élévation administrateur.
+
+  Le lien statique supprime la dépendance au lieu de la gérer : quelques
+  dizaines de kilo-octets de plus dans une DLL de 70 Ko, contre une classe
+  entière de pannes en moins chez les utilisateurs.
+
+  Injecté par scripts/build-softcam.mjs via ForceImportAfterCppTargets, ce qui
+  évite de modifier les fichiers vendorisés (vendor/softcam est du code tiers,
+  il doit rester tel quel pour pouvoir suivre l'amont).
+-->
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemDefinitionGroup Condition="'$(Configuration)' == 'Release'">
+    <ClCompile>
+      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
+    </ClCompile>
+  </ItemDefinitionGroup>
+
+  <!--
+    Changer le drapeau de compilation ne suffit pas : softcam.vcxproj liste
+    explicitement msvcrt.lib au linker, c'est-à-dire la bibliothèque d'import
+    du runtime DYNAMIQUE. Elle réintroduit la dépendance à VCRUNTIME140.dll
+    derrière notre dos, et provoque au passage le LNK4098 « conflit entre
+    LIBCMT et les autres bibliothèques ».
+
+    On réécrit donc la liste sans elle. Le runtime statique n'a pas besoin
+    d'être nommé : avec RuntimeLibrary=MultiThreaded, le compilateur inscrit
+    lui-même la directive /DEFAULTLIB:LIBCMT dans les objets.
+
+    Restreint au projet de la DLL — les deux autres sont des bibliothèques
+    statiques, où la section Link ne s'applique pas.
+  -->
+  <ItemDefinitionGroup Condition="'$(Configuration)' == 'Release' and '$(ProjectName)' == 'softcam'">
+    <Link>
+      <!-- Liste FIXÉE, sans %(AdditionalDependencies) : l'héritage
+           réintroduirait msvcrt.lib, qui vient précisément d'être retiré.
+           strmiids.lib est ajouté explicitement — il porte les GUID DirectShow
+           dont BaseClasses a besoin, et il arrivait jusqu'ici par héritage. -->
+      <AdditionalDependencies>winmm.lib;strmiids.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib</AdditionalDependencies>
+      <IgnoreSpecificDefaultLibraries>msvcrt.lib</IgnoreSpecificDefaultLibraries>
+    </Link>
+  </ItemDefinitionGroup>
+</Project>

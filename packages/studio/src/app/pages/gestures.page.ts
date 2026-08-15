@@ -122,6 +122,25 @@ import {
             </div>
           </div>
 
+          @if (store.gesturesInMacros().has(g.id)) {
+            <label class="chainopt" [title]="'Utilisée dans un enchaînement'">
+              <span class="switch">
+                <input
+                  type="checkbox"
+                  [checked]="!!g.sequenceOnly"
+                  (change)="setSequenceOnly(g, $event)"
+                />
+              </span>
+              <span>
+                Maillon seulement
+                <span class="lbl">
+                  Reconnue et comptée dans les macros, mais n'affiche pas son
+                  meme toute seule.
+                </span>
+              </span>
+            </label>
+          }
+
           <div class="ctrl">
             <select
               [value]="g.holdMode"
@@ -260,6 +279,20 @@ import {
     .stats .num { color: var(--ink); }
     .stats .sens { color: var(--accent-hi); }
 
+    /* N'apparaît que si la pose sert dans un enchaînement : hors de ce cas,
+       l'option n'aurait aucun sens et n'ajouterait que du bruit. */
+    .chainopt {
+      display: flex; align-items: flex-start; gap: 10px;
+      margin: 12px 15px 0; padding: 9px 11px;
+      background: #38bdf80e; border: 1px solid #38bdf833;
+      border-radius: var(--r-control);
+      cursor: pointer; font-size: 12.5px;
+    }
+    .chainopt .lbl {
+      display: block; margin-top: 2px;
+      text-transform: none; letter-spacing: 0; font-size: 11px;
+    }
+
     .ctrl { padding: 11px 15px 0; }
     .ctrl select { width: 100%; font-size: 12.5px; padding: 7px 28px 7px 10px; }
 
@@ -325,6 +358,13 @@ export class GesturesPage {
 
   async toggle(g: StoredGesture, ev: Event): Promise<void> {
     await this.store.saveGesture({ ...g, enabled: (ev.target as HTMLInputElement).checked })
+  }
+
+  async setSequenceOnly(g: StoredGesture, ev: Event): Promise<void> {
+    await this.store.saveGesture({
+      ...g,
+      sequenceOnly: (ev.target as HTMLInputElement).checked,
+    })
   }
 
   async setHoldMode(g: StoredGesture, ev: Event): Promise<void> {

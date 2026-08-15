@@ -123,6 +123,28 @@ dès qu'un périphérique est branché ou débranché, et on rouvrirait alors la
 mauvaise caméra sans rien dire. Si la définition retenue n'existe plus sur la
 caméra choisie, on retombe sur « automatique » plutôt que d'échouer à l'ouverture.
 
+### Macros — enchaînements de poses
+
+Un enchaînement (« poing puis trois doigts ») déclenche un meme comme une pose
+simple. Ce n'est pas qu'un confort : **le nombre de poses distinguables est
+fini**. Le seuil d'une gesture est plafonné par sa distance à sa voisine la plus
+proche, donc plus on en ajoute, plus les seuils se resserrent — au-delà d'une
+douzaine, le wizard refuse tout. Deux poses parmi six donnent trente
+combinaisons sans rien ajouter à distinguer. Les macros lèvent le plafond.
+
+Second usage : **une séquence ne part jamais par accident**. Deux gestes
+volontaires d'affilée sont hors d'atteinte d'une gesticulation ordinaire — c'est
+donc là que doivent aller les actions qu'on ne confierait jamais à une pose
+seule.
+
+Les poses d'un enchaînement déclenchent aussi leur propre meme au passage. Pour
+l'éviter, marquer la pose **« maillon seulement »** sur sa carte : elle reste
+reconnue et continue d'alimenter les macros, sans rien afficher toute seule.
+
+La fenêtre se mesure **entre deux maillons consécutifs**, pas depuis le début :
+un enchaînement de trois poses n'est pas plus dur à réussir qu'un de deux.
+Implémentation dans `packages/core/src/sequence.ts`, 14 tests.
+
 ### Profils et raccourcis
 
 Un **profil** est un jeu de gestures armées : « Just Chatting » et « en jeu » ne
@@ -197,6 +219,21 @@ Points d'archi verrouillés (handoff + review 2026-08-15) :
 - Flags WebView2 anti-throttling posés au boot (leçon phase 0, test B2).
 - Store JSON versionné en Rust — déviation assumée vs SQLite+Drizzle : volume minuscule,
   migrations = match sur schemaVersion. Révisable si le schéma explose.
+
+## Caméra virtuelle et redistribuable
+
+`softcam.dll` est compilée avec le **runtime C++ lié statiquement**
+(`scripts/softcam-static-crt.props`, injecté par `scripts/build-softcam.mjs`).
+Sans ça la DLL réclame `MSVCP140.dll` et `VCRUNTIME140.dll`, c'est-à-dire le
+redistribuable Visual C++ : sur une machine qui ne l'a pas, le `regsvr32` de
+l'installeur échoue et l'utilisateur voit « pilote absent » sans la moindre
+indication, puis ne trouve jamais « meme4me Camera » dans Streamlabs. Le mode
+d'échec est silencieux et porte justement sur la fonctionnalité qui demande une
+élévation administrateur.
+
+Le script **vérifie** après compilation que la DLL n'importe plus ces deux
+bibliothèques, et échoue sinon — un lien statique qui saute sans prévenir ne se
+verrait qu'au premier rapport d'utilisateur.
 
 ## Publier une version
 

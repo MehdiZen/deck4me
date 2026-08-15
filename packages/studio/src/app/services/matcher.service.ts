@@ -1,5 +1,12 @@
 import { Injectable, effect, inject, signal } from '@angular/core'
-import { Matcher, featurizeRaw, type GestureSnapshot, type RawFrame } from '@meme4me/core'
+import {
+  Matcher,
+  SequenceMatcher,
+  featurizeRaw,
+  type GestureSnapshot,
+  type MacroProgress,
+  type RawFrame,
+} from '@meme4me/core'
 import { DetectionService } from './detection.service'
 import { StoreService } from './store.service'
 import { TauriService } from './tauri.service'
@@ -41,6 +48,9 @@ export class MatcherService {
   readonly history = new Map<string, number[]>()
 
   private matcher = new Matcher()
+  private sequences = new SequenceMatcher()
+  /** Gestures qui ne déclenchent rien seules — maillons d'enchaînement. */
+  private sequenceOnly = new Set<string>()
   private names = new Map<string, string>()
   private lastHistoryAt = 0
   private matchAcc = 0
@@ -54,6 +64,14 @@ export class MatcherService {
       // Une gesture supprimée ne doit pas laisser sa courbe traîner.
       const live = new Set(gestures.map((g) => g.id))
       for (const id of [...this.history.keys()]) if (!live.has(id)) this.history.delete(id)
+    })
+    effect(() => {
+      const macros = this.store.macros()
+      this.sequences.setMacros(macros)
+      for (const m of macros) this.names.set(m.id, m.name)
+      this.sequenceOnly = new Set(
+        this.store.gestures().filter((g) => g.sequenceOnly).map((g) => g.id),
+      )
     })
     this.detection.onFrame((raw, _viz, ts) => this.onFrame(raw, ts))
   }
@@ -84,14 +102,39 @@ export class MatcherService {
     }
 
     for (const ev of events) {
-      const cmd = ev.type === 'fire' ? 'gesture_fired' : 'gesture_released'
-      const sent = performance.now()
-      void this.tauri
-        .invoke(cmd, { gestureId: ev.gestureId })
-        .then(() => this.ipcMs.set(performance.now() - sent))
-        .catch(() => {})
+      if (ev.type === 'fire') {
+        // Le maillon alimente les enchaînements AVANT toute décision : même une
+        // gesture « séquence seulement » doit faire avancer ses macros.
+        const completed = this.sequences.push(ev.gestureId, ts)
+        for (const m of completed) {
+          this.fire(m.id, m.name)
+          this.log(m.id, 'fire', m.name)
+        }
+        // Une pose marquée maillon ne déclenche rien pour elle-même, sinon
+        // « OK puis 3 » afficherait aussi le meme du OK au passage.
+        if (this.sequenceOnly.has(ev.gestureId)) continue
+      }
+      if (ev.type === 'fire') this.fire(ev.gestureId)
+      else this.release(ev.gestureId)
       this.log(ev.gestureId, ev.type)
     }
+  }
+
+  private fire(id: string, _name?: string): void {
+    const sent = performance.now()
+    void this.tauri
+      .invoke('gesture_fired', { gestureId: id })
+      .then(() => this.ipcMs.set(performance.now() - sent))
+      .catch(() => {})
+  }
+
+  private release(id: string): void {
+    void this.tauri.invoke('gesture_released', { gestureId: id }).catch(() => {})
+  }
+
+  /** Enchaînements en cours — lu par l'écran Macros pour le retour visuel. */
+  progress(): MacroProgress[] {
+    return this.sequences.progress(performance.now())
   }
 
   private pushHistory(snapshots: GestureSnapshot[]): void {
@@ -106,10 +149,10 @@ export class MatcherService {
     }
   }
 
-  private log(gestureId: string, kind: 'fire' | 'release'): void {
+  private log(gestureId: string, kind: 'fire' | 'release', name?: string): void {
     const entry: TriggerLogEntry = {
       at: new Date().toTimeString().slice(0, 8),
-      name: this.names.get(gestureId) ?? gestureId,
+      name: name ?? this.names.get(gestureId) ?? gestureId,
       kind,
       ts: performance.now(),
     }
@@ -119,6 +162,7 @@ export class MatcherService {
   async panic(): Promise<void> {
     this.muted.set(true)
     this.matcher.panic()
+    this.sequences.reset()
     await this.tauri.invoke('panic_clear')
   }
 
