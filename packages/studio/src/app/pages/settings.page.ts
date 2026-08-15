@@ -1,11 +1,12 @@
 import { Component, inject, signal } from '@angular/core'
 import { Calibration } from '../components/calibration'
+import { VirtualCamCard } from '../components/virtual-cam'
 import { DetectionService } from '../services/detection.service'
 import { StoreService } from '../services/store.service'
 
 @Component({
   selector: 'app-settings-page',
-  imports: [Calibration],
+  imports: [Calibration, VirtualCamCard],
   template: `
     <h1>Réglages</h1>
     <div style="display:flex; flex-direction:column; gap:16px; max-width:720px">
@@ -32,7 +33,12 @@ import { StoreService } from '../services/store.service'
           Choisis la caméra que tu utilises en stream. Le changement redémarre la
           détection si elle tourne. {{ detection.status() }}
         </p>
+        <p class="lbl">
+          Si la caméra virtuelle ci-dessous tourne, sélectionne « facememe Camera »
+          ici aussi : la webcam physique n'est alors ouverte qu'une seule fois.
+        </p>
       </div>
+      <app-virtual-cam />
       <div class="card">
         <h2>Overlay OBS</h2>
         <p class="lbl">

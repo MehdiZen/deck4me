@@ -23,8 +23,11 @@ hex = "0.4"
 rand = "0.8"
 imagesize = "0.13"
 base64 = "0.22"
+libloading = "0.8"
+nokhwa = { version = "0.10", features = ["input-msmf"] }
 
 [dev-dependencies]
+libloading = "0.8"
 reqwest = { version = "0.12", default-features = false }
 tokio-tungstenite = "0.24"
 futures-util = "0.3"

@@ -16,3 +16,8 @@ src-tauri/embedded/
 
 # Vidéo de démo alpha du banc phase 0 (4 Mo, retéléchargeable)
 phase0/web/assets/*.webm
+
+# Binaires du filtre caméra virtuelle : rebuild via vendor/softcam/softcam.sln
+vendor/softcam/dist/
+vendor/softcam/x64/
+vendor/softcam/packages/

@@ -1,5 +1,6 @@
 pub mod server;
 pub mod store;
+pub mod virtualcam;
 
 use base64::Engine;
 use serde_json::{json, Value};
@@ -7,10 +8,12 @@ use server::{ServerState, Sound, TriggerEvent, WsMsg, DEFAULT_PORT};
 use std::sync::Arc;
 use store::{AssetMeta, BindingRecord, GestureRecord, Store};
 use tauri::Manager;
+use virtualcam::{VcamDevice, VcamStatus, VirtualCam};
 
 pub struct App {
     pub state: ServerState,
     pub port: u16,
+    pub vcam: Arc<VirtualCam>,
 }
 
 fn overlay_url_of(app: &App) -> String {
@@ -232,6 +235,34 @@ fn overlay_url(app: tauri::State<App>) -> String {
     overlay_url_of(&app)
 }
 
+// ---- Caméra virtuelle ----
+
+#[tauri::command]
+fn vcam_devices() -> Vec<VcamDevice> {
+    VirtualCam::devices()
+}
+
+#[tauri::command]
+fn vcam_status(app: tauri::State<App>) -> VcamStatus {
+    app.vcam.status()
+}
+
+#[tauri::command]
+fn vcam_start(app: tauri::State<App>, camera_index: u32) -> Result<VcamStatus, String> {
+    app.vcam.start(camera_index)
+}
+
+#[tauri::command]
+fn vcam_stop(app: tauri::State<App>) -> VcamStatus {
+    app.vcam.stop()
+}
+
+#[tauri::command]
+fn vcam_register(app: tauri::State<App>, unregister: bool) -> Result<bool, String> {
+    app.vcam.register(unregister)?;
+    Ok(VirtualCam::is_registered())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
@@ -245,9 +276,23 @@ pub fn run() {
                     eprintln!("serveur local KO ({e}) — port {DEFAULT_PORT} occupé ?");
                 }
             });
+            // softcam.dll : ressource du bundle en prod, vendor/ en dev
+            let bundled = app
+                .path()
+                .resource_dir()
+                .map(|d| d.join("softcam.dll"))
+                .ok()
+                .filter(|p| p.exists());
+            let dll = bundled.unwrap_or_else(|| {
+                std::path::PathBuf::from(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../vendor/softcam/dist/bin/x64/softcam.dll"
+                ))
+            });
             app.manage(App {
                 state,
                 port: DEFAULT_PORT,
+                vcam: Arc::new(VirtualCam::new(dll)),
             });
             Ok(())
         })
@@ -263,7 +308,12 @@ pub fn run() {
             gesture_fired,
             gesture_released,
             panic_clear,
-            overlay_url
+            overlay_url,
+            vcam_devices,
+            vcam_status,
+            vcam_start,
+            vcam_stop,
+            vcam_register
         ])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de tauri");

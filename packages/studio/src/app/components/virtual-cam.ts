@@ -1,0 +1,179 @@
+import { Component, OnDestroy, inject, signal } from '@angular/core'
+import { TauriService } from '../services/tauri.service'
+
+export interface VcamStatus {
+  registered: boolean
+  running: boolean
+  connected: boolean
+  width: number
+  height: number
+  fps: number
+  camera: string | null
+  error: string | null
+}
+
+export interface VcamDevice {
+  index: number
+  name: string
+}
+
+const EMPTY: VcamStatus = {
+  registered: false,
+  running: false,
+  connected: false,
+  width: 0,
+  height: 0,
+  fps: 0,
+  camera: null,
+  error: null,
+}
+
+/**
+ * Carte « Caméra virtuelle ». facememe ouvre la webcam physique et republie
+ * « facememe Camera » : Streamlabs et la détection se partagent enfin la même
+ * source, sans conflit DirectShow exclusif.
+ */
+@Component({
+  selector: 'app-virtual-cam',
+  template: `
+    <div class="card">
+      <h2>Caméra virtuelle — pour Streamlabs</h2>
+      <p class="lbl">
+        Streamlabs prend la webcam en accès exclusif. Ici, facememe l'ouvre seul et
+        republie le flux sous le nom « facememe Camera » : dans Streamlabs, choisis
+        cette caméra au lieu de ta webcam.
+      </p>
+
+      @if (status().error) {
+        <p class="badge err" style="display:block">{{ status().error }}</p>
+      }
+
+      <!-- 1. installation du filtre (UAC) -->
+      <p>
+        <span class="badge" [class.ok]="status().registered" [class.warn]="!status().registered">
+          {{ status().registered ? 'filtre installé' : 'filtre non installé' }}
+        </span>
+        @if (!status().registered) {
+          <button class="primary" [disabled]="busy()" (click)="register(false)">
+            Installer (demande admin)
+          </button>
+        } @else {
+          <button [disabled]="busy()" (click)="register(true)">Désinstaller</button>
+        }
+      </p>
+
+      <!-- 2. source + démarrage -->
+      <p style="display:flex; gap:8px; align-items:center">
+        <select
+          style="flex:1"
+          [value]="selected()"
+          (change)="selected.set(+$any($event.target).value)"
+          [disabled]="status().running"
+        >
+          @if (!devices().length) {
+            <option value="-1">— aucune caméra détectée —</option>
+          }
+          @for (d of devices(); track d.index) {
+            <option [value]="d.index">{{ d.name }}</option>
+          }
+        </select>
+        <button [disabled]="busy()" (click)="refresh()">Actualiser</button>
+        @if (status().running) {
+          <button class="danger" [disabled]="busy()" (click)="stop()">Arrêter</button>
+        } @else {
+          <button
+            class="primary"
+            [disabled]="busy() || !status().registered || selected() < 0"
+            (click)="start()"
+          >
+            Démarrer
+          </button>
+        }
+      </p>
+
+      @if (status().running) {
+        <p>
+          <span class="badge ok">
+            diffusion {{ status().width }}×{{ status().height }} · {{ status().fps.toFixed(0) }} fps
+          </span>
+          <span class="badge" [class.ok]="status().connected">
+            {{ status().connected ? 'Streamlabs connecté' : 'aucun consommateur' }}
+          </span>
+        </p>
+        <p class="lbl">
+          Dans Streamlabs : source « Périphérique de capture vidéo » → facememe Camera.
+          Laisse facememe ouvert pendant le stream.
+        </p>
+      }
+    </div>
+  `,
+})
+export class VirtualCamCard implements OnDestroy {
+  private tauri = inject(TauriService)
+
+  status = signal<VcamStatus>(EMPTY)
+  devices = signal<VcamDevice[]>([])
+  selected = signal(-1)
+  busy = signal(false)
+  private poll = 0
+
+  constructor() {
+    void this.refresh()
+    // le statut bouge sans nous (connexion de Streamlabs, perte caméra)
+    this.poll = window.setInterval(() => void this.readStatus(), 2000)
+  }
+
+  ngOnDestroy(): void {
+    clearInterval(this.poll)
+  }
+
+  private async readStatus(): Promise<void> {
+    this.status.set(await this.tauri.invoke<VcamStatus>('vcam_status', {}, EMPTY))
+  }
+
+  async refresh(): Promise<void> {
+    this.busy.set(true)
+    try {
+      const devs = await this.tauri.invoke<VcamDevice[]>('vcam_devices', {}, [])
+      this.devices.set(devs)
+      if (this.selected() < 0 && devs.length) this.selected.set(devs[0].index)
+      await this.readStatus()
+    } finally {
+      this.busy.set(false)
+    }
+  }
+
+  async register(unregister: boolean): Promise<void> {
+    this.busy.set(true)
+    try {
+      await this.tauri.invoke<boolean>('vcam_register', { unregister })
+      await this.readStatus()
+    } catch (e) {
+      this.status.update((s) => ({ ...s, error: String(e) }))
+    } finally {
+      this.busy.set(false)
+    }
+  }
+
+  async start(): Promise<void> {
+    this.busy.set(true)
+    try {
+      this.status.set(
+        await this.tauri.invoke<VcamStatus>('vcam_start', { cameraIndex: this.selected() }),
+      )
+    } catch (e) {
+      this.status.update((s) => ({ ...s, error: String(e) }))
+    } finally {
+      this.busy.set(false)
+    }
+  }
+
+  async stop(): Promise<void> {
+    this.busy.set(true)
+    try {
+      this.status.set(await this.tauri.invoke<VcamStatus>('vcam_stop', {}, EMPTY))
+    } finally {
+      this.busy.set(false)
+    }
+  }
+}

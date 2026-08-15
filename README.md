@@ -34,9 +34,42 @@ Tests : `npm test` (core TS, vitest) · `cargo test` dans `src-tauri/` (serveur 
    test intégrée est utilisée ; lie un png/gif/webp/webm via « image… ».
 5. Onglet **Live** → barres de distance, états, log des triggers, bouton PANIC.
 
+## Partager la webcam avec Streamlabs / OBS
+
+Streamlabs capture la webcam en DirectShow **exclusif** : deux applications ne
+peuvent pas l'ouvrir en même temps (test E de la phase 0, confirmé).
+
+**Solution intégrée — la caméra virtuelle facememe.** facememe devient le seul
+process qui ouvre la webcam physique, et republie le flux sous le nom
+« facememe Camera » :
+
+```
+webcam physique → facememe (détection) → « facememe Camera » → Streamlabs
+```
+
+Dans **Réglages → Caméra virtuelle** :
+1. « Installer » (demande une élévation admin, une seule fois — enregistre le
+   filtre DirectShow via `regsvr32`).
+2. Choisir la webcam physique, « Démarrer ».
+3. Dans Streamlabs : source « Périphérique de capture vidéo » → **facememe Camera**.
+4. Dans Réglages → Caméra (détection), choisir **facememe Camera** également.
+
+Le voyant « Streamlabs connecté » confirme qu'une application consomme le flux.
+Laisser facememe ouvert pendant le stream.
+
+Implémentation : `src-tauri/src/virtualcam.rs` — capture Media Foundation
+(nokhwa) côté Rust, republication via le filtre DirectShow
+[softcam](https://github.com/tshino/softcam) (MIT, vendorisé dans `vendor/`,
+`FriendlyName` renommé). Le CLSID du filtre est verrouillé par un test.
+
+Alternatives sans installer de filtre : SplitCam (gratuit), la caméra virtuelle
+d'OBS Studio réglée sur *source* et non sur scène, ou une deuxième webcam.
+
 ## Architecture
 
 ```
+vendor/softcam     filtre DirectShow (MIT) pour la caméra virtuelle — à builder
+                   avec MSBuild : softcam.sln, Release x64
 packages/core      featurizer + matcher + state machine (TS pur, vitest)
 packages/overlay   renderer overlay vanilla TS → bundlé en 1 html, embarqué dans le Rust
 packages/studio    Angular 20 zoneless (hors workspace npm), MediaPipe vendoré dans public/
