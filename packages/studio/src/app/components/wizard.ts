@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Output, computed, inject, signal } from '@angular/core'
+import { Component, EventEmitter, Input, OnInit, Output, inject, signal } from '@angular/core'
 import { FormsModule } from '@angular/forms'
 import {
   FEATURIZER_VERSION,
@@ -14,6 +14,7 @@ import {
 import { DetectionService } from '../services/detection.service'
 import { StoreService, type StoredGesture } from '../services/store.service'
 import { CameraView } from './camera-view'
+import { Icon } from './icon'
 
 type Step = 'config' | 'countdown' | 'capture' | 'between' | 'result'
 
@@ -24,13 +25,22 @@ const SAMPLES_PER_TAKE = 8 // unique est artificiellement basse → seuil irréa
  *  mode avancé, jamais en premier. */
 @Component({
   selector: 'app-wizard',
-  imports: [FormsModule, CameraView],
+  imports: [FormsModule, CameraView, Icon],
   template: `
     <div class="modal-bg">
       <div class="modal card">
         @switch (step()) {
           @case ('config') {
-            <h2>Nouvelle gesture</h2>
+            <h2>{{ replacing ? 'Réenregistrer la pose' : 'Nouvelle gesture' }}</h2>
+            @if (replacing) {
+              <p class="keep">
+                <app-icon name="check" [size]="15" />
+                <span>
+                  Le meme, son cadrage, son son et sa sensibilité sont conservés.
+                  Seule la pose qui le déclenche est remplacée.
+                </span>
+              </p>
+            }
             <p>
               <label class="lbl">Nom</label><br />
               <input [(ngModel)]="name" placeholder="ex. Sourire forcé" style="width:100%" />
@@ -115,7 +125,9 @@ const SAMPLES_PER_TAKE = 8 // unique est artificiellement basse → seuil irréa
               <button (click)="retry()">Refaire les prises</button>
               <button (click)="cancel.emit()">Abandonner</button>
               @if (verdict()?.verdict !== 'collision') {
-                <button class="primary" (click)="save()">Enregistrer</button>
+                <button class="primary" (click)="save()">
+                  {{ replacing ? 'Remplacer la pose' : 'Enregistrer' }}
+                </button>
               }
             </p>
           }
@@ -174,9 +186,24 @@ const SAMPLES_PER_TAKE = 8 // unique est artificiellement basse → seuil irréa
     li:last-child { border-bottom: 0; }
     li b { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
     .verdict { display: block; padding: 11px 13px; line-height: 1.55; white-space: normal; }
+    /* Ce qui est conservé mérite d'être dit avant la première prise : sans ça,
+       on hésite à réenregistrer de peur de tout perdre. */
+    .keep {
+      display: flex; align-items: flex-start; gap: 9px;
+      padding: 10px 12px; margin-bottom: 14px;
+      font-size: 12.5px; line-height: 1.55; color: #a6e3c6;
+      background: #17a26814; border: 1px solid #17a26840;
+      border-radius: var(--r-control);
+    }
+    .keep app-icon { color: var(--st-armed); margin-top: 1px; }
   `,
 })
-export class Wizard {
+export class Wizard implements OnInit {
+  /** Gesture dont on refait la pose. Null = création.
+   *  Tout ce qui n'est pas la pose elle-même est conservé : identité, meme lié,
+   *  cadrage, son, sensibilité. Sans ça, corriger une pose qui déclenche mal
+   *  obligeait à supprimer puis tout refaire, y compris relier l'image. */
+  @Input() replacing: StoredGesture | null = null
   @Output() cancel = new EventEmitter<void>()
   @Output() saved = new EventEmitter<void>()
 
@@ -201,6 +228,14 @@ export class Wizard {
 
   private takes: RawFrame[][] = []
   private keptRaw: RawFrame[] = []
+
+  ngOnInit(): void {
+    const g = this.replacing
+    if (!g) return
+    this.name = g.name
+    this.source = g.source
+    this.holdMode = g.holdMode
+  }
 
   nameOf(id: string): string {
     return this.store.gestures().find((g) => g.id === id)?.name ?? id
@@ -278,8 +313,12 @@ export class Wizard {
     this.keptRaw = keptIdx.map((i) => allRaw[i]!)
     this.keptCount.set(kept.length)
 
+    // La gesture qu'on réenregistre est exclue de la comparaison : sinon elle
+    // entrerait en collision avec sa PROPRE ancienne pose, et refaire une pose
+    // à peine corrigée serait toujours refusé.
     const others = this.store
       .runtimeGestures()
+      .filter((g) => g.id !== this.replacing?.id)
       .map((g) => ({ gestureId: g.id, samples: g.samples, source: g.source }))
     const v = computeThreshold(kept, this.source, others, this.store.negatives())
     this.verdict.set(v)
@@ -296,21 +335,28 @@ export class Wizard {
     const v = this.verdict()
     if (!v || v.verdict === 'collision') return
     const baseline = this.store.baseline()
+    const old = this.replacing
     const gesture: StoredGesture = {
-      id: crypto.randomUUID(),
+      // Réenregistrement : on garde l'identité et tous les réglages qui ne
+      // décrivent pas la pose. L'identifiant surtout — c'est lui qui relie le
+      // meme, son cadrage et son son.
+      ...old,
+      id: old?.id ?? crypto.randomUUID(),
       // La gesture naît dans le profil affiché : c'est celui que l'utilisateur
       // regardait en cliquant « Enregistrer ».
-      profileId: this.store.activeProfile()?.id ?? 'default',
+      profileId: old?.profileId ?? this.store.activeProfile()?.id ?? 'default',
       name: this.name.trim(),
-      enabled: true,
+      enabled: old?.enabled ?? true,
       source: this.source,
       samples: this.keptRaw.map((r) => blocksToJson(featurizeRaw(r, baseline))),
       rawSamples: this.keptRaw,
+      // Le seuil suit forcément la nouvelle pose ; le multiplicateur de
+      // sensibilité, lui, reste celui que l'utilisateur avait réglé à la main.
       threshold: v.threshold,
       thresholdAuto: v.threshold,
-      sensitivity: 1,
-      framesToTrigger: 5,
-      cooldownMs: 1500,
+      sensitivity: old?.sensitivity ?? 1,
+      framesToTrigger: old?.framesToTrigger ?? 5,
+      cooldownMs: old?.cooldownMs ?? 1500,
       holdMode: this.holdMode,
       featurizerVersion: FEATURIZER_VERSION,
     }

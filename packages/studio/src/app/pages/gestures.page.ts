@@ -33,7 +33,7 @@ import {
         </p>
       </div>
       <span class="spacer"></span>
-      <button class="primary" [disabled]="!store.calibration()" (click)="wizardOpen.set(true)">
+      <button class="primary" [disabled]="!store.calibration()" (click)="newGesture()">
         <app-icon name="plus" [size]="16" /> Enregistrer une gesture
       </button>
     </div>
@@ -55,6 +55,8 @@ import {
         <div>
           <b>{{ store.staleGestures().length }} gesture(s) à réenregistrer.</b>
           Elles viennent d'une version antérieure et n'ont plus les données nécessaires.
+          Utilise l'icône <b>main</b> sur la carte : la pose est refaite, le meme
+          et son cadrage restent en place.
         </div>
       </div>
     }
@@ -143,6 +145,13 @@ import {
             <button class="sm" (click)="matcher.testTrigger(g.id)" title="Affiche le meme dans OBS">
               <app-icon name="zap" [size]="14" /> Tester
             </button>
+            <button
+              class="ghost sm"
+              (click)="rerecord(g)"
+              title="Refaire la pose en gardant le meme, le cadrage et le son"
+            >
+              <app-icon name="hand" [size]="15" />
+            </button>
             <span class="spacer"></span>
             <button class="ghost sm" (click)="remove(g)" [attr.aria-label]="'Supprimer ' + g.name">
               <app-icon name="trash" [size]="15" />
@@ -160,7 +169,11 @@ import {
     </div>
 
     @if (wizardOpen()) {
-      <app-wizard (cancel)="wizardOpen.set(false)" (saved)="wizardOpen.set(false)" />
+      <app-wizard
+        [replacing]="rerecording()"
+        (cancel)="closeWizard()"
+        (saved)="closeWizard()"
+      />
     }
     @if (editing(); as e) {
       <app-binding-editor
@@ -259,7 +272,26 @@ export class GesturesPage {
   protected store = inject(StoreService)
   protected matcher = inject(MatcherService)
   wizardOpen = signal(false)
+  /** Gesture dont on refait la pose ; null = création. */
+  rerecording = signal<StoredGesture | null>(null)
   editing = signal<{ gesture: StoredGesture; binding: StoredBinding } | null>(null)
+
+  /** Refaire la pose sans toucher au reste — c'est aussi la façon de repasser
+   *  une vieille gesture au featurizer courant sans relier son meme. */
+  rerecord(g: StoredGesture): void {
+    this.rerecording.set(g)
+    this.wizardOpen.set(true)
+  }
+
+  newGesture(): void {
+    this.rerecording.set(null)
+    this.wizardOpen.set(true)
+  }
+
+  closeWizard(): void {
+    this.wizardOpen.set(false)
+    this.rerecording.set(null)
+  }
 
   readonly bound = computed(
     () => this.store.gestures().filter((g) => this.store.binding(g.id)).length,

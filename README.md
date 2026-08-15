@@ -29,7 +29,11 @@ Tests : `npm test` (core TS, vitest) · `cargo test` dans `src-tauri/` (serveur 
 1. Onglet **Réglages** → choisir la **caméra** (persisté), puis calibration neutre
    (20 s, garde tes lunettes de stream).
 2. Copier l'**URL overlay** → OBS → Source Navigateur 1920×1080.
-3. Onglet **Gestures** → enregistrer une pose (3 prises de 2 s).
+3. Onglet **Gestures** → enregistrer une pose (3 prises de 2 s). L'icône **main**
+   sur une carte **refait la pose** sans rien toucher d'autre : le meme, son
+   cadrage, son son et sa sensibilité restent en place. C'est la façon de
+   corriger une pose qui déclenche mal, et de repasser une vieille gesture au
+   featurizer courant sans avoir à relier son image.
 4. Lier une image — fichier, **adresse web collée**, ou reprise d'une image déjà
    importée → l'**éditeur de rendu** s'ouvre : glisse le meme dans le cadre 16:9,
    tire le coin pour la taille, choisis les effets et le son. Sans image liée, le
