@@ -188,14 +188,43 @@ impl VirtualCam {
 /// libellé Windows.
 fn explain_camera_error(raw: &str) -> String {
     if raw.contains("0xC00D3704") || raw.contains("C00D3704") {
-        "Cette webcam est déjà utilisée par une autre application \
-         (la détection de meme4me, Streamlabs, Discord, Teams…). \
-         Ferme-la ou arrête la détection, puis redémarre la caméra virtuelle."
+        "Impossible de démarrer le flux de cette webcam. Elle est presque \
+         toujours déjà utilisée : ferme OBS, Streamlabs, Discord ou Teams \
+         (il suffit qu'une source caméra y soit ouverte), puis réessaie."
             .into()
     } else if raw.contains("0xC00D3E85") || raw.contains("not found") {
         "Webcam introuvable — a-t-elle été débranchée ? Clique « Actualiser ».".into()
+    } else if raw.contains("0xC00DABE0") || raw.contains("access") || raw.contains("Access") {
+        "Accès à la webcam refusé. Vérifie Paramètres Windows → Confidentialité \
+         → Caméra, et autorise les applications de bureau."
+            .into()
     } else {
-        format!("ouverture caméra : {raw}")
+        raw.to_string()
+    }
+}
+
+/// Ouvre la caméra dans un format donné et vérifie qu'elle délivre vraiment une
+/// image : sous Media Foundation, l'ouverture peut réussir et le flux échouer
+/// juste après. Tant qu'aucune frame n'est arrivée, rien n'est acquis.
+fn try_open(
+    index: u32,
+    req: nokhwa::utils::RequestedFormatType,
+) -> Result<(nokhwa::Camera, nokhwa::Buffer), String> {
+    use nokhwa::pixel_format::RgbFormat;
+    use nokhwa::utils::{CameraIndex, RequestedFormat};
+
+    let mut cam = nokhwa::Camera::new(
+        CameraIndex::Index(index),
+        RequestedFormat::new::<RgbFormat>(req),
+    )
+    .map_err(|e| e.to_string())?;
+    cam.open_stream().map_err(|e| e.to_string())?;
+    match cam.frame() {
+        Ok(f) => Ok((cam, f)),
+        Err(e) => {
+            let _ = cam.stop_stream(); // libérer avant d'essayer le format suivant
+            Err(e.to_string())
+        }
     }
 }
 
@@ -208,9 +237,7 @@ fn pump(
     status: &Mutex<VcamStatus>,
 ) -> Result<(), String> {
     use nokhwa::pixel_format::RgbFormat;
-    use nokhwa::utils::{
-        CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType, Resolution,
-    };
+    use nokhwa::utils::{CameraFormat, FrameFormat, RequestedFormatType, Resolution};
 
     {
         let mut s = status.lock().unwrap();
@@ -228,19 +255,46 @@ fn pump(
     let sc_connected: libloading::Symbol<ScIsConnected> =
         unsafe { lib.get(b"scIsConnected") }.map_err(|e| e.to_string())?;
 
-    // 720p30 en MJPEG si possible, sinon le plus proche disponible.
-    let wanted = RequestedFormat::new::<RgbFormat>(RequestedFormatType::Closest(
-        CameraFormat::new(Resolution::new(1280, 720), FrameFormat::MJPEG, 30),
-    ));
-    let mut camera = nokhwa::Camera::new(CameraIndex::Index(camera_index), wanted)
-        .map_err(|e| explain_camera_error(&e.to_string()))?;
+    // Une webcam n'accepte pas n'importe quelle combinaison résolution/codec :
+    // exiger du 720p MJPEG en dur fait échouer le démarrage du flux avec le
+    // même 0xC00D3704 qu'un périphérique occupé. On essaie donc plusieurs
+    // formats, du plus souhaitable au plus permissif, et on ne retient que
+    // celui qui délivre réellement une image.
+    let candidates = [
+        RequestedFormatType::Closest(CameraFormat::new(
+            Resolution::new(1280, 720),
+            FrameFormat::MJPEG,
+            30,
+        )),
+        RequestedFormatType::Closest(CameraFormat::new(
+            Resolution::new(640, 480),
+            FrameFormat::MJPEG,
+            30,
+        )),
+        RequestedFormatType::AbsoluteHighestFrameRate,
+        RequestedFormatType::AbsoluteHighestResolution,
+        RequestedFormatType::None,
+    ];
+
+    let mut camera = None;
+    let mut first_frame = None;
+    let mut last_err = String::new();
+    for req in candidates {
+        match try_open(camera_index, req) {
+            Ok((cam, frame)) => {
+                camera = Some(cam);
+                first_frame = Some(frame);
+                break;
+            }
+            Err(e) => last_err = e,
+        }
+    }
+    let (Some(mut camera), Some(first)) = (camera, first_frame) else {
+        return Err(explain_camera_error(&last_err));
+    };
     let name = camera.info().human_name();
-    camera
-        .open_stream()
-        .map_err(|e| format!("démarrage du flux : {e}"))?;
 
     // Première frame → dimensions réelles (multiples de 4 exigés par softcam)
-    let first = camera.frame().map_err(|e| e.to_string())?;
     let img = first.decode_image::<RgbFormat>().map_err(|e| e.to_string())?;
     let (src_w, src_h) = (img.width(), img.height());
     let w = src_w & !3;

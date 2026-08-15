@@ -46,7 +46,7 @@ const EMPTY: VcamStatus = {
       </p>
 
       @if (status().error) {
-        <p class="badge err" style="display:block">{{ status().error }}</p>
+        <p class="badge err fault">{{ status().error }}</p>
       }
 
       <!-- Le filtre est normalement posé par l'installeur ; ce bouton n'est
@@ -122,6 +122,10 @@ const EMPTY: VcamStatus = {
     </div>
   `,
   styles: `
+    .fault {
+      display: block; white-space: normal; line-height: 1.5;
+      padding: 10px 13px; margin-bottom: 12px;
+    }
     .stats { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
     .row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin-bottom: 12px; }
     .row:last-child { margin-bottom: 0; }
