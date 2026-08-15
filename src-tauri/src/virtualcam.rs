@@ -18,6 +18,16 @@ use std::time::Instant;
 
 pub const FILTER_CLSID: &str = "{AEF3B972-5FA5-4647-9571-358EB472BC9E}";
 
+/// CREATE_NO_WINDOW : empêche l'apparition d'une console quand une app GUI
+/// lance un processus.
+#[cfg(windows)]
+fn no_window(cmd: &mut std::process::Command) {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(0x0800_0000);
+}
+#[cfg(not(windows))]
+fn no_window(_cmd: &mut std::process::Command) {}
+
 type ScCreateCamera = unsafe extern "C" fn(i32, i32, f32) -> *mut c_void;
 type ScDeleteCamera = unsafe extern "C" fn(*mut c_void);
 type ScSendFrame = unsafe extern "C" fn(*mut c_void, *const c_void);
@@ -79,18 +89,19 @@ impl VirtualCam {
         }
     }
 
+    /// Lecture directe du registre — surtout PAS un `reg.exe` : depuis une app
+    /// GUI, chaque processus console fait clignoter une fenêtre, et le statut
+    /// est sondé en continu par l'UI.
     pub fn is_registered() -> bool {
-        std::process::Command::new("reg")
-            .args([
-                "query",
-                &format!("HKCR\\CLSID\\{FILTER_CLSID}\\InprocServer32"),
-            ])
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
+        use winreg::enums::HKEY_CLASSES_ROOT;
+        use winreg::RegKey;
+        RegKey::predef(HKEY_CLASSES_ROOT)
+            .open_subkey(format!("CLSID\\{FILTER_CLSID}\\InprocServer32"))
+            .is_ok()
     }
 
     /// Lance regsvr32 élevé (UAC) via PowerShell. `unregister` pour retirer.
+    /// Seul le dialogue UAC doit être visible : l'hôte PowerShell est masqué.
     pub fn register(&self, unregister: bool) -> Result<(), String> {
         let dll = self
             .dll_path
@@ -102,14 +113,19 @@ impl VirtualCam {
         }
         let flag = if unregister { "'/u','/s'," } else { "'/s'," };
         let ps = format!(
-            "Start-Process regsvr32 -ArgumentList {flag}'\"{dll}\"' -Verb RunAs -Wait"
+            "Start-Process regsvr32 -ArgumentList {flag}'\"{dll}\"' -Verb RunAs -Wait -WindowStyle Hidden"
         );
-        let out = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-Command", &ps])
-            .output()
-            .map_err(|e| e.to_string())?;
+        let mut cmd = std::process::Command::new("powershell");
+        cmd.args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &ps]);
+        no_window(&mut cmd);
+        let out = cmd.output().map_err(|e| e.to_string())?;
         if !out.status.success() {
-            return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+            let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            return Err(if err.is_empty() {
+                "élévation refusée ou annulée".into()
+            } else {
+                err
+            });
         }
         Ok(())
     }

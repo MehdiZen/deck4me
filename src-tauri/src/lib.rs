@@ -237,9 +237,15 @@ fn overlay_url(app: tauri::State<App>) -> String {
 
 // ---- Caméra virtuelle ----
 
+// Ces trois commandes bloquent (énumération Media Foundation, UAC, ouverture
+// de la caméra). Une commande Tauri SYNCHRONE s'exécute sur le thread
+// principal : elle y gèlerait la webview. D'où async + spawn_blocking.
+
 #[tauri::command]
-fn vcam_devices() -> Vec<VcamDevice> {
-    VirtualCam::devices()
+async fn vcam_devices() -> Result<Vec<VcamDevice>, String> {
+    tauri::async_runtime::spawn_blocking(VirtualCam::devices)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -248,19 +254,30 @@ fn vcam_status(app: tauri::State<App>) -> VcamStatus {
 }
 
 #[tauri::command]
-fn vcam_start(app: tauri::State<App>, camera_index: u32) -> Result<VcamStatus, String> {
-    app.vcam.start(camera_index)
+async fn vcam_start(app: tauri::State<'_, App>, camera_index: u32) -> Result<VcamStatus, String> {
+    let vcam = app.vcam.clone();
+    tauri::async_runtime::spawn_blocking(move || vcam.start(camera_index))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
-fn vcam_stop(app: tauri::State<App>) -> VcamStatus {
-    app.vcam.stop()
+async fn vcam_stop(app: tauri::State<'_, App>) -> Result<VcamStatus, String> {
+    let vcam = app.vcam.clone();
+    tauri::async_runtime::spawn_blocking(move || vcam.stop())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn vcam_register(app: tauri::State<App>, unregister: bool) -> Result<bool, String> {
-    app.vcam.register(unregister)?;
-    Ok(VirtualCam::is_registered())
+async fn vcam_register(app: tauri::State<'_, App>, unregister: bool) -> Result<bool, String> {
+    let vcam = app.vcam.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        vcam.register(unregister)?;
+        Ok::<bool, String>(VirtualCam::is_registered())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 pub fn run() {

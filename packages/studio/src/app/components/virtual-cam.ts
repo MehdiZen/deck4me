@@ -118,9 +118,11 @@ export class VirtualCamCard implements OnDestroy {
   private poll = 0
 
   constructor() {
-    void this.refresh()
-    // le statut bouge sans nous (connexion de Streamlabs, perte caméra)
-    this.poll = window.setInterval(() => void this.readStatus(), 2000)
+    void this.readStatus()
+    // Le statut bouge sans nous (Streamlabs se connecte, caméra perdue).
+    // Sondage léger : simple lecture mémoire + registre côté Rust, aucun
+    // processus lancé — sinon des fenêtres de console clignotent sans fin.
+    this.poll = window.setInterval(() => void this.readStatus(), 3000)
   }
 
   ngOnDestroy(): void {
@@ -128,19 +130,31 @@ export class VirtualCamCard implements OnDestroy {
   }
 
   private async readStatus(): Promise<void> {
-    this.status.set(await this.tauri.invoke<VcamStatus>('vcam_status', {}, EMPTY))
+    if (this.busy()) return // ne pas empiler les appels
+    try {
+      const s = await this.tauri.invoke<VcamStatus | null>('vcam_status', {}, null)
+      // en cas d'échec, on garde le dernier état connu plutôt que de faire
+      // clignoter l'UI entre « installé » et « non installé »
+      if (s) this.status.set(s)
+    } catch {
+      /* transitoire, on réessaiera au prochain tick */
+    }
   }
 
+  /** Énumération des caméras : à la demande uniquement (Media Foundation met
+   *  parfois une seconde à répondre). */
   async refresh(): Promise<void> {
     this.busy.set(true)
     try {
       const devs = await this.tauri.invoke<VcamDevice[]>('vcam_devices', {}, [])
       this.devices.set(devs)
       if (this.selected() < 0 && devs.length) this.selected.set(devs[0].index)
-      await this.readStatus()
+    } catch (e) {
+      this.status.update((s) => ({ ...s, error: String(e) }))
     } finally {
       this.busy.set(false)
     }
+    await this.readStatus()
   }
 
   async register(unregister: boolean): Promise<void> {
@@ -172,6 +186,8 @@ export class VirtualCamCard implements OnDestroy {
     this.busy.set(true)
     try {
       this.status.set(await this.tauri.invoke<VcamStatus>('vcam_stop', {}, EMPTY))
+    } catch (e) {
+      this.status.update((s) => ({ ...s, error: String(e) }))
     } finally {
       this.busy.set(false)
     }

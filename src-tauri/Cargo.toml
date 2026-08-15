@@ -25,6 +25,7 @@ imagesize = "0.13"
 base64 = "0.22"
 libloading = "0.8"
 nokhwa = { version = "0.10", features = ["input-msmf"] }
+winreg = "0.52"
 
 [dev-dependencies]
 libloading = "0.8"
