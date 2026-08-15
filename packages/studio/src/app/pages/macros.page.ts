@@ -12,6 +12,7 @@ import {
   MACRO_MIN_STEPS,
   type MacroDef,
 } from '@meme4me/core'
+import { ActionList } from '../components/action-list'
 import { AssetPicker } from '../components/asset-picker'
 import { BindingEditor } from '../components/binding-editor'
 import { Icon } from '../components/icon'
@@ -35,7 +36,7 @@ import {
  */
 @Component({
   selector: 'app-macros-page',
-  imports: [Icon, RangeFill, AssetPicker, BindingEditor, RouterLink],
+  imports: [Icon, RangeFill, AssetPicker, BindingEditor, RouterLink, ActionList],
   template: `
     <div class="head">
       <div>
@@ -68,7 +69,9 @@ import {
           Enchaîne deux poses très différentes — un poing puis trois doigts, par
           exemple. Deux gestes volontaires d'affilée, c'est hors d'atteinte d'une
           gesticulation ordinaire : c'est là que doivent aller les actions que tu
-          ne confierais jamais à une pose seule.
+          ne confierais jamais à une pose seule. Et une macro n'est pas obligée
+          d'afficher quoi que ce soit — elle peut se contenter d'ouvrir une app,
+          de lancer un morceau ou d'appeler un webhook.
         </p>
       </div>
     }
@@ -95,7 +98,11 @@ import {
             @if (progressOf(m.id); as p) {
               <span class="badge ok"><i class="led on"></i>{{ p }}/{{ m.steps.length }} en cours</span>
             }
-            <button class="sm" (click)="matcher.testTrigger(m.id)" title="Affiche le meme dans OBS">
+            <button
+              class="sm"
+              (click)="matcher.testTrigger(m.id)"
+              title="Joue la macro entière : meme et actions"
+            >
               <app-icon name="zap" [size]="14" /> Tester
             </button>
             <button class="ghost sm" (click)="remove(m)" [attr.aria-label]="'Supprimer ' + m.name">
@@ -159,12 +166,17 @@ import {
                   <button class="sm" (click)="edit(m)">
                     <app-icon name="sliders" [size]="14" /> Régler
                   </button>
+                  <button class="ghost sm" (click)="detach(m)" aria-label="Retirer le meme">
+                    <app-icon name="close" [size]="14" />
+                  </button>
                 </div>
               } @else {
-                <app-asset-picker label="Meme de cette macro" (picked)="attach(m, $event)" />
+                <app-asset-picker label="Meme (facultatif)" (picked)="attach(m, $event)" />
               }
             </div>
           </div>
+
+          <app-action-list [ownerId]="m.id" />
 
           @if (warning(m); as w) {
             <p class="badge warn block">{{ w }}</p>
@@ -382,6 +394,12 @@ export class MacrosPage implements OnDestroy {
   edit(m: MacroDef): void {
     const binding = this.store.binding(m.id)
     if (binding) this.editing.set({ gesture: this.asGesture(m), binding })
+  }
+
+  /** Retirer le meme d'une macro qui ne sert qu'à exécuter des actions. Sans ce
+   *  bouton, une image choisie par curiosité resterait à l'écran pour toujours. */
+  async detach(m: MacroDef): Promise<void> {
+    await this.store.unbind(m.id)
   }
 
   /** L'éditeur n'a besoin que d'un nom et d'un mode d'affichage : une macro est

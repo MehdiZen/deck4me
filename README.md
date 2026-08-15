@@ -145,6 +145,63 @@ La fenêtre se mesure **entre deux maillons consécutifs**, pas depuis le début
 un enchaînement de trois poses n'est pas plus dur à réussir qu'un de deux.
 Implémentation dans `packages/core/src/sequence.ts`, 14 tests.
 
+### Actions — faire faire des choses à la machine
+
+Afficher un meme est **un cas particulier**. Le cas général : un déclencheur
+(gesture *ou* macro, indifféremment) porte une **chaîne d'actions**, exécutée
+dans l'ordre. Une macro peut n'avoir aucun meme et ne servir qu'à ça.
+
+| Genre | Ce que ça fait | Ce que ça ouvre comme usages |
+| --- | --- | --- |
+| **Ouvrir** | `ShellExecuteW` — ce que ferait un double-clic | une app, un dossier, un site, ou un lien applicatif : `spotify:playlist:…`, `steam://`, `obsidian://` |
+| **Exécuter** | lance un programme avec des arguments | scripts PowerShell / Python / batch |
+| **Raccourci** | envoie un accord clavier au système | **la passerelle universelle** — OBS, Discord, Streamlabs écoutent des raccourcis globaux ; Spotify et VLC répondent à `MediaPlayPause` |
+| **Taper** | frappe une chaîne, en Unicode | commandes de chat |
+| **HTTP** | GET/POST/PUT/DELETE avec en-têtes et corps | webhook Discord, Home Assistant, pont Hue, Streamer.bot, obs-websocket |
+| **Attendre** | pause | espacer deux actions de la même chaîne |
+
+Le raccourci clavier est le point d'entrée le plus rentable : il ne demande
+d'intégration à personne. Donner à OBS un raccourci global sur `F13` (touche qui
+existe et n'a aucune contrepartie physique, donc zéro collision) suffit à piloter
+une scène depuis un geste.
+
+**Ce qui est délibéré :**
+
+- **Aucun shell.** `Exécuter` reçoit un programme et un tableau d'arguments — un
+  par ligne — jamais une ligne de commande à redécouper. C'est ce redécoupage qui
+  fabrique les injections de commande, et son absence veut dire qu'un chemin avec
+  des espaces n'a besoin d'aucun guillemet.
+- **Le réseau local est autorisé pour HTTP**, contrairement à l'import d'image
+  (`fetch.rs`) qui le refuse. La différence n'est pas technique mais de
+  provenance : là-bas l'URL vient d'un collage, ici de la configuration de
+  l'utilisateur — et la moitié des usages intéressants sont précisément locaux.
+- **Un budget de lancement glissant** (20 processus / 10 s, global). Une gesture
+  au seuil trop permissif peut partir plusieurs fois par seconde ; sans plafond,
+  « ouvrir Notepad » devient une bombe à processus.
+- **Une seule chaîne à la fois par déclencheur.** Sinon deux exécutions
+  s'entrelaceraient dans le désordre.
+- **Les échecs remontent dans le journal des triggers** de l'écran Live, pas
+  seulement dans le fichier de log. Une action qui ne part pas silencieusement,
+  c'est une heure perdue à chercher du côté d'OBS.
+
+**Sur la sécurité.** Oui, ceci exécute des programmes arbitraires. Ce n'est pas
+une élévation de privilège : la configuration vit dans `db.json`, et tout ce qui
+peut écrire ce fichier peut déjà exécuter du code sous ton compte. Le vrai risque
+est ailleurs — **le jour où un profil s'importera depuis l'extérieur, ses actions
+ne devront jamais suivre en silence.** Il n'existe aucun import aujourd'hui ;
+c'est une contrainte à tenir si on en ajoute un.
+
+Deux limites inhérentes à l'injection clavier, à connaître : elle part dans la
+fenêtre **active** (sauf raccourci global, que l'app destinataire reçoit sans
+focus), et Windows la bloque si la fenêtre au premier plan tourne en
+administrateur alors que meme4me non — l'erreur le dit explicitement.
+
+Implémentation : `packages/core/src/action.ts` (14 tests) et
+`src-tauri/src/actions.rs` (14 tests, dont la table des touches vérifiée contre
+son propre analyseur). La table des noms de touches vit côté Rust et l'interface
+la lit par la commande `key_names` : deux listes à maintenir, c'est deux listes
+qui divergent, et l'écart ne se verrait qu'au moment où le raccourci ne part pas.
+
 ### Profils et raccourcis
 
 Un **profil** est un jeu de gestures armées : « Just Chatting » et « en jeu » ne
@@ -196,6 +253,7 @@ packages/core      featurizer + matcher + state machine (TS pur, vitest)
 packages/overlay   renderer overlay vanilla TS → bundlé en 1 html, embarqué dans le Rust
 packages/studio    Angular 20 zoneless (hors workspace npm), MediaPipe vendoré dans public/
 src-tauri          shell Tauri v2 + axum (overlay, /assets, WS /events, token) + store JSON
+                   actions.rs : moteur d'actions (ouvrir / exécuter / clavier / HTTP)
 phase0/            banc de faisabilité autonome (voir phase0/README.md)
 ```
 
@@ -219,6 +277,12 @@ Points d'archi verrouillés (handoff + review 2026-08-15) :
 - Flags WebView2 anti-throttling posés au boot (leçon phase 0, test B2).
 - Store JSON versionné en Rust — déviation assumée vs SQLite+Drizzle : volume minuscule,
   migrations = match sur schemaVersion. Révisable si le schéma explose.
+- Une macro n'a **pas** de chemin de déclenchement propre : son binding et ses actions
+  portent son identifiant dans `gestureId` / `ownerId`. `gesture_fired(id)` sert les deux
+  sans un seul cas particulier — et `build_trigger`, ne trouvant pas de gesture, en déduit
+  correctement qu'il n'y a pas de mode « tenu ».
+- Les actions ne passent **jamais** par un shell (programme + argv), et la table des noms
+  de touches fait autorité côté Rust, lue par l'interface via `key_names`.
 
 ## Caméra virtuelle et redistribuable
 

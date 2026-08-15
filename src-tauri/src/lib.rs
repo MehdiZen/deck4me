@@ -1,3 +1,4 @@
+pub mod actions;
 pub mod diag;
 pub mod fetch;
 pub mod hotkeys;
@@ -9,7 +10,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 use server::{OverlayStats, ServerState, Sound, TriggerEvent, WsMsg, DEFAULT_PORT};
 use std::sync::{Arc, Mutex};
-use store::{AssetMeta, BindingRecord, GestureRecord, Profile, Settings, Store};
+use store::{ActionRecord, AssetMeta, BindingRecord, GestureRecord, Profile, Settings, Store};
 use tauri::Manager;
 use virtualcam::{VcamDevice, VcamFormat, VcamStatus, VirtualCam};
 
@@ -21,6 +22,10 @@ pub struct App {
     /// occupé laissait l'application se lancer parfaitement silencieuse : rien
     /// n'arrivait jamais dans OBS et on cherchait du côté d'OBS.
     pub server_error: Arc<Mutex<Option<String>>>,
+    /// Ordonnanceur des actions : temps de repos, chaînes en cours, budget de
+    /// lancement. Il vit ici parce qu'il est à l'échelle de l'application —
+    /// deux gestures qui partent en même temps partagent le même plafond.
+    pub actions: Arc<actions::Runner>,
 }
 
 fn overlay_url_of(app: &App) -> String {
@@ -126,6 +131,7 @@ fn bootstrap(app: tauri::State<App>) -> Value {
         "gestures": db.gestures,
         "bindings": db.bindings,
         "macros": db.macros,
+        "actions": db.actions,
         "assets": db.assets,
         "defaultAssetId": db.default_asset_id,
         "settings": db.settings,
@@ -174,6 +180,7 @@ fn delete_gesture(app: tauri::State<App>, id: String) -> Result<(), String> {
         let mut db = store.db.lock().unwrap();
         db.gestures.retain(|g| g.id() != Some(id.as_str()));
         db.bindings.retain(|b| b.gesture_id() != Some(id.as_str()));
+        db.actions.retain(|a| a.owner_id() != Some(id.as_str()));
     }
     store.save().map_err(|e| e.to_string())?;
     app.state.broadcast(&WsMsg::Clear { binding_id: None });
@@ -210,6 +217,7 @@ fn delete_macro(app: tauri::State<App>, id: String) -> Result<(), String> {
         let mut db = store.db.lock().unwrap();
         db.macros.retain(|m| m.id() != Some(id.as_str()));
         db.bindings.retain(|b| b.gesture_id() != Some(id.as_str()));
+        db.actions.retain(|a| a.owner_id() != Some(id.as_str()));
     }
     store.save().map_err(|e| e.to_string())?;
     app.state.broadcast(&WsMsg::Clear {
@@ -323,11 +331,102 @@ fn save_calibration(app: tauri::State<App>, calibration: Value) -> Result<(), St
         .map_err(|e| e.to_string())
 }
 
+/// Déclenchement, gesture ou macro indifféremment.
+///
+/// Deux choses en partent, dans cet ordre et sans s'attendre l'une l'autre :
+/// la chaîne d'actions (asynchrone — une pause de deux secondes dedans ne doit
+/// pas retarder l'image) et le meme.
 #[tauri::command]
-fn gesture_fired(app: tauri::State<App>, gesture_id: String) -> Result<(), String> {
+fn gesture_fired(
+    app_handle: tauri::AppHandle,
+    app: tauri::State<App>,
+    gesture_id: String,
+) -> Result<(), String> {
+    let has_actions = fire_actions(&app_handle, &app, &gesture_id);
+
+    // Un déclencheur qui n'a QUE des actions n'affiche rien du tout. L'image de
+    // test embarquée n'existe que pour rendre une gesture démontrable avant
+    // qu'elle ait son meme ; la faire apparaître dans l'overlay de quelqu'un
+    // qui s'en sert pour piloter sa machine serait absurde.
+    if has_actions && !has_binding(&app, &gesture_id) {
+        return Ok(());
+    }
     let trigger = build_trigger(&app, &gesture_id)?;
     app.state.broadcast_trigger(trigger);
     Ok(())
+}
+
+fn has_binding(app: &App, owner_id: &str) -> bool {
+    let db = app.state.store.db.lock().unwrap();
+    db.bindings.iter().any(|b| b.gesture_id() == Some(owner_id))
+}
+
+/// Lance la chaîne d'actions du déclencheur. Renvoie `true` s'il en avait.
+fn fire_actions(handle: &tauri::AppHandle, app: &App, owner_id: &str) -> bool {
+    let list: Vec<Value> = {
+        let db = app.state.store.db.lock().unwrap();
+        db.actions
+            .iter()
+            .filter(|a| a.owner_id() == Some(owner_id))
+            .map(|a| a.0.clone())
+            .collect()
+    };
+    if list.is_empty() {
+        return false;
+    }
+    actions::fire(
+        handle.clone(),
+        app.actions.clone(),
+        actions::parse(&list),
+        owner_id.to_string(),
+    );
+    true
+}
+
+// ---- Actions -------------------------------------------------------------
+
+#[tauri::command]
+fn save_action(app: tauri::State<App>, action: Value) -> Result<(), String> {
+    let id = action
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or("action sans id")?
+        .to_string();
+    let store = &app.state.store;
+    {
+        let mut db = store.db.lock().unwrap();
+        db.actions.retain(|a| a.id() != Some(id.as_str()));
+        db.actions.push(ActionRecord(action));
+    }
+    store.save().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn delete_action(app: tauri::State<App>, id: String) -> Result<(), String> {
+    let store = &app.state.store;
+    {
+        let mut db = store.db.lock().unwrap();
+        db.actions.retain(|a| a.id() != Some(id.as_str()));
+    }
+    store.save().map_err(|e| e.to_string())
+}
+
+/// Exécute une action seule, et REMONTE son erreur — au contraire du chemin de
+/// déclenchement, qui la met au journal. Sans ce bouton, régler un webhook ou un
+/// raccourci se ferait à l'aveugle, en se contorsionnant devant la webcam.
+#[tauri::command]
+async fn test_action(app: tauri::State<'_, App>, action: Value) -> Result<(), String> {
+    let parsed = serde_json::from_value::<actions::Action>(action)
+        .map_err(|e| format!("action illisible : {e}"))?;
+    actions::execute_one(app.actions.clone(), parsed).await
+}
+
+/// Noms de touches acceptés. La table vit dans le Rust — l'interface la lit au
+/// lieu d'en garder une copie, sinon les deux divergent et l'écart ne se voit
+/// qu'au moment où le raccourci ne part pas.
+#[tauri::command]
+fn key_names() -> Vec<&'static str> {
+    actions::key_names()
 }
 
 #[tauri::command]
@@ -441,13 +540,15 @@ fn delete_profile(app: tauri::State<App>, id: String) -> Result<Value, String> {
             .filter_map(|m| m.id().map(String::from))
             .collect();
         db.macros.retain(|m| m.profile_id() != Some(id.as_str()));
-        db.bindings.retain(|b| {
-            b.gesture_id()
-                .map(|gid| {
-                    !doomed.iter().any(|d| d == gid) && !doomed_macros.iter().any(|d| d == gid)
-                })
-                .unwrap_or(true)
-        });
+        let orphan = |owner: Option<&str>| match owner {
+            Some(o) => doomed.iter().any(|d| d == o) || doomed_macros.iter().any(|d| d == o),
+            None => false,
+        };
+        db.bindings.retain(|b| !orphan(b.gesture_id()));
+        // Les actions partent avec leur déclencheur. En laisser une derrière,
+        // c'est laisser sur la machine un « lance ce script » que plus aucun
+        // écran n'affiche et que plus rien ne peut supprimer.
+        db.actions.retain(|a| !orphan(a.owner_id()));
         let was_active = db
             .profiles
             .iter()
@@ -465,6 +566,7 @@ fn delete_profile(app: tauri::State<App>, id: String) -> Result<Value, String> {
         "gestures": db.gestures,
         "bindings": db.bindings,
         "macros": db.macros,
+        "actions": db.actions,
     }))
 }
 
@@ -639,6 +741,7 @@ pub fn run() {
                 port: DEFAULT_PORT,
                 vcam: Arc::new(VirtualCam::new(dll)),
                 server_error,
+                actions: Arc::new(actions::Runner::default()),
             });
             // Un raccourci déjà pris par un autre logiciel ne doit pas empêcher
             // l'app de démarrer : l'échec est signalé, pas fatal.
@@ -655,6 +758,10 @@ pub fn run() {
             delete_binding,
             save_macro,
             delete_macro,
+            save_action,
+            delete_action,
+            test_action,
+            key_names,
             upload_asset,
             import_asset_from_url,
             read_asset,

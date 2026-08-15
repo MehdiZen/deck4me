@@ -64,6 +64,22 @@ impl MacroRecord {
     }
 }
 
+/// Action : ce qu'un déclencheur exécute sur la machine (ouvrir, lancer,
+/// raccourci clavier, requête HTTP…). Son `ownerId` est un identifiant de
+/// gesture OU de macro — le format ne distingue pas, et n'a pas à le faire.
+/// Opaque comme le reste : le core TS est propriétaire du schéma.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActionRecord(pub Value);
+
+impl ActionRecord {
+    pub fn id(&self) -> Option<&str> {
+        self.0.get("id").and_then(Value::as_str)
+    }
+    pub fn owner_id(&self) -> Option<&str> {
+        self.0.get("ownerId").and_then(Value::as_str)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BindingRecord(pub Value);
 
@@ -143,6 +159,8 @@ pub struct Db {
     pub settings: Settings,
     #[serde(default)]
     pub macros: Vec<MacroRecord>,
+    #[serde(default)]
+    pub actions: Vec<ActionRecord>,
 }
 
 impl Default for Db {
@@ -160,6 +178,7 @@ impl Default for Db {
             default_asset_id: None,
             settings: Settings::default(),
             macros: vec![],
+            actions: vec![],
         }
     }
 }

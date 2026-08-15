@@ -80,10 +80,10 @@ import { StoreService, effectiveThreshold, type StoredGesture } from '../service
           }
           <ul class="log">
             @for (t of matcher.triggerLog(); track t.ts) {
-              <li class="rise">
-                <i class="led" [class.on]="t.kind === 'fire'"></i>
+              <li class="rise" [class.failed]="t.kind === 'error'" [title]="t.detail ?? ''">
+                <i class="led" [class.on]="t.kind === 'fire'" [class.bad]="t.kind === 'error'"></i>
                 <span class="nm">{{ t.name }}</span>
-                <span class="kind lbl">{{ t.kind === 'fire' ? 'affiché' : 'retiré' }}</span>
+                <span class="kind lbl">{{ label(t.kind) }}</span>
                 <span class="at num">{{ t.at }}</span>
               </li>
             }
@@ -185,6 +185,10 @@ import { StoreService, effectiveThreshold, type StoredGesture } from '../service
     .log .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .log .kind { font-size: 10px; }
     .log .at { color: var(--ink-3); font-size: 11.5px; }
+    /* Un échec d'action se lit dans le même journal que les déclenchements —
+       c'est là qu'on regarde quand quelque chose ne s'est pas produit. */
+    .log li.failed .nm, .log li.failed .kind { color: var(--st-live); }
+    .log .led.bad { background: var(--st-live); box-shadow: 0 0 8px var(--st-live); }
 
     .sens { display: flex; flex-direction: column; gap: 2px; }
     .sensrow {
@@ -213,6 +217,11 @@ export class LivePage implements AfterViewInit, OnDestroy {
   readonly armed = computed(() => this.store.gestures().filter((g) => g.enabled).length)
   readonly flash = signal(false)
   private lastLogged = 0
+
+  label(kind: 'fire' | 'release' | 'error'): string {
+    if (kind === 'fire') return 'affiché'
+    return kind === 'release' ? 'retiré' : 'action en échec'
+  }
 
   constructor() {
     effect(() => {

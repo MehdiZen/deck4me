@@ -7,6 +7,8 @@ import {
   computeBaseline,
   featurizeRaw,
   migrateRenderParams,
+  normalizeAction,
+  type ActionDef,
   type FeatureBlocks,
   type FeatureBlocksJson,
   type GestureDef,
@@ -117,6 +119,7 @@ interface Bootstrap {
   gestures: StoredGesture[]
   bindings: StoredBinding[]
   macros: MacroDef[]
+  actions: ActionDef[]
   assets: AssetMeta[]
   defaultAssetId: string | null
   settings: Settings
@@ -138,6 +141,9 @@ export class StoreService {
   readonly allGestures = signal<StoredGesture[]>([])
   readonly bindings = signal<StoredBinding[]>([])
   readonly allMacros = signal<MacroDef[]>([])
+  /** Actions de TOUS les profils : leur propriétaire est une gesture ou une
+   *  macro, et c'est lui qui porte le profil. Elles n'en ont pas besoin. */
+  readonly actions = signal<ActionDef[]>([])
   readonly assets = signal<AssetMeta[]>([])
   readonly settings = signal<Settings>({ ...DEFAULT_SETTINGS })
   readonly overlayUrl = signal('')
@@ -222,6 +228,7 @@ export class StoreService {
       gestures: [],
       bindings: [],
       macros: [],
+      actions: [],
       assets: [],
       defaultAssetId: null,
       settings: { ...DEFAULT_SETTINGS },
@@ -236,6 +243,7 @@ export class StoreService {
     this.allGestures.set(boot.gestures)
     this.bindings.set(boot.bindings)
     this.allMacros.set(boot.macros ?? [])
+    this.actions.set((boot.actions ?? []).map(normalizeAction))
     this.assets.set(boot.assets)
     this.settings.set({ ...DEFAULT_SETTINGS, ...boot.settings })
     this.overlayUrl.set(boot.overlayUrl)
@@ -307,6 +315,7 @@ export class StoreService {
     await this.tauri.invoke('delete_gesture', { id })
     this.allGestures.update((all) => all.filter((x) => x.id !== id))
     this.bindings.update((all) => all.filter((x) => x.gestureId !== id))
+    this.actions.update((all) => all.filter((a) => a.ownerId !== id))
   }
 
   async uploadAsset(file: File): Promise<AssetMeta> {
@@ -393,6 +402,48 @@ export class StoreService {
     await this.tauri.invoke('delete_macro', { id })
     this.allMacros.update((all) => all.filter((x) => x.id !== id))
     this.bindings.update((all) => all.filter((b) => b.gestureId !== id))
+    this.actions.update((all) => all.filter((a) => a.ownerId !== id))
+  }
+
+  // ---- Actions ----
+  //
+  // Le propriétaire d'une action est une gesture OU une macro : `ownerId` ne
+  // distingue pas, et les deux passent déjà par le même chemin de déclenchement.
+
+  /** Actions d'un déclencheur, dans l'ordre d'exécution. */
+  actionsOf(ownerId: string): ActionDef[] {
+    return this.actions()
+      .filter((a) => a.ownerId === ownerId)
+      .sort((x, y) => x.order - y.order)
+  }
+
+  async saveAction(a: ActionDef): Promise<void> {
+    await this.tauri.invoke('save_action', { action: a })
+    this.actions.update((all) => [...all.filter((x) => x.id !== a.id), a])
+  }
+
+  async deleteAction(id: string): Promise<void> {
+    await this.tauri.invoke('delete_action', { id })
+    this.actions.update((all) => all.filter((a) => a.id !== id))
+  }
+
+  /** Réécrit les rangs après un déplacement — le tableau reçu fait foi. */
+  async reorderActions(list: ActionDef[]): Promise<void> {
+    for (const [i, a] of list.entries()) {
+      if (a.order !== i) await this.saveAction({ ...a, order: i })
+    }
+  }
+
+  /** Exécute une action seule et REMONTE l'erreur : sans ça, régler un webhook
+   *  ou un raccourci se ferait à l'aveugle, en se contorsionnant devant la
+   *  webcam pour voir si quelque chose se passe. */
+  async testAction(a: ActionDef): Promise<void> {
+    await this.tauri.invoke('test_action', { action: a })
+  }
+
+  /** Noms de touches acceptés — la table fait autorité côté Rust. */
+  async keyNames(): Promise<string[]> {
+    return this.tauri.invoke<string[]>('key_names', {}, [])
   }
 
   // ---- Profils (phase 6) ----
@@ -407,11 +458,13 @@ export class StoreService {
       gestures: StoredGesture[]
       bindings: StoredBinding[]
       macros: MacroDef[]
+      actions: ActionDef[]
     }>('delete_profile', { id })
     this.profiles.set(res.profiles)
     this.allGestures.set(res.gestures)
     this.bindings.set(res.bindings)
     this.allMacros.set(res.macros ?? [])
+    this.actions.set((res.actions ?? []).map(normalizeAction))
   }
 
   async setActiveProfile(id: string): Promise<void> {

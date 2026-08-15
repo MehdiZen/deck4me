@@ -14,7 +14,12 @@ import { TauriService } from './tauri.service'
 export interface TriggerLogEntry {
   at: string
   name: string
-  kind: 'fire' | 'release'
+  /** `error` : une action a échoué. Elle apparaît dans le MÊME journal que les
+   *  déclenchements, parce que c'est là qu'on regarde quand quelque chose ne
+   *  s'est pas produit — pas dans un fichier au fond des données d'application. */
+  kind: 'fire' | 'release' | 'error'
+  /** Détail de l'échec, en infobulle. */
+  detail?: string
   /** Horodatage haute résolution — sert au fondu de la ligne la plus récente. */
   ts: number
 }
@@ -74,10 +79,38 @@ export class MatcherService {
       )
     })
     this.detection.onFrame((raw, _viz, ts) => this.onFrame(raw, ts))
+    void this.listenActionFailures()
   }
 
   /** L'injection du service suffit à l'armer (appelé par App). */
   init(): void {}
+
+  /** Une action qui échoue doit se voir immédiatement. Sinon on refait le geste
+   *  cinq fois devant la webcam en se demandant si c'est la pose qui rate. */
+  private async listenActionFailures(): Promise<void> {
+    try {
+      const { listen } = await import('@tauri-apps/api/event')
+      await listen<{ ownerId: string; action: string; error: string }>(
+        'action-failed',
+        ({ payload }) => {
+          this.triggerLog.update((l) =>
+            [
+              {
+                at: new Date().toTimeString().slice(0, 8),
+                name: payload.action,
+                kind: 'error' as const,
+                detail: payload.error,
+                ts: performance.now(),
+              },
+              ...l,
+            ].slice(0, 24),
+          )
+        },
+      )
+    } catch {
+      /* hors webview Tauri : rien à écouter */
+    }
+  }
 
   private onFrame(raw: RawFrame, ts: number): void {
     if (this.muted()) {
