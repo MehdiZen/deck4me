@@ -34,7 +34,16 @@ export class DetectionService {
   /** MediaStream partagé avec les previews (un <video> par vue, même stream). */
   stream: MediaStream | null = null
 
+  /** Dimensions réellement délivrées par la source (peut être du 1440p). */
+  readonly sourceSize = signal<{ w: number; h: number } | null>(null)
+
   private video: HTMLVideoElement | null = null
+  /** Toile de travail : la détection tourne TOUJOURS en petit, quelle que
+   *  soit la définition de la source. Sans ça, brancher la détection sur une
+   *  caméra virtuelle 720p/1440p effondre la cadence (le handoff est clair :
+   *  monter au-dessus de 640 px n'améliore pas la détection et coûte cher). */
+  private work: HTMLCanvasElement | null = null
+  private workCtx: CanvasRenderingContext2D | null = null
   private face: FaceLandmarker | null = null
   private hand: HandLandmarker | null = null
   private listeners = new Set<FrameListener>()
@@ -137,11 +146,37 @@ export class DetectionService {
   private loop(): void {
     const video = this.video
     if (!video) return
+    const DETECT_LONG_SIDE = 640
+
     const tick = () => {
       if (this.stopped || !this.video) return
       const ts = performance.now()
-      const faceRes = this.face!.detectForVideo(video, ts)
-      const handRes = this.hand!.detectForVideo(video, ts)
+
+      // Réduction de la source à ~640 px de côté long, en CONSERVANT le
+      // rapport d'image : les landmarks restent normalisés sur le même cadre
+      // que l'aperçu, donc les points tombent au bon endroit.
+      const vw = video.videoWidth
+      const vh = video.videoHeight
+      if (!vw || !vh) {
+        schedule()
+        return
+      }
+      if (!this.work) {
+        this.work = document.createElement('canvas')
+        this.workCtx = this.work.getContext('2d', { willReadFrequently: false })
+      }
+      const scale = Math.min(1, DETECT_LONG_SIDE / Math.max(vw, vh))
+      const dw = Math.round(vw * scale)
+      const dh = Math.round(vh * scale)
+      if (this.work.width !== dw || this.work.height !== dh) {
+        this.work.width = dw
+        this.work.height = dh
+        this.sourceSize.set({ w: vw, h: vh })
+      }
+      this.workCtx!.drawImage(video, 0, 0, dw, dh)
+
+      const faceRes = this.face!.detectForVideo(this.work, ts)
+      const handRes = this.hand!.detectForVideo(this.work, ts)
 
       // Ancre visage (featurizer v2) : nez + écart inter-oculaire, pour situer
       // les mains par rapport à la tête indépendamment de la distance caméra.

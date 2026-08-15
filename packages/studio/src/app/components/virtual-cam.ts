@@ -18,6 +18,12 @@ export interface VcamDevice {
   name: string
 }
 
+export interface VcamFormat {
+  width: number
+  height: number
+  fps: number
+}
+
 const EMPTY: VcamStatus = {
   registered: false,
   running: false,
@@ -86,6 +92,23 @@ const EMPTY: VcamStatus = {
           }
         </select>
         <button [disabled]="busy()" (click)="refresh()">Actualiser</button>
+      </div>
+
+      <div class="row">
+        <select
+          class="grow"
+          [value]="formatKey()"
+          (change)="formatKey.set($any($event.target).value)"
+          [disabled]="status().running || !formats().length"
+          aria-label="Définition diffusée"
+        >
+          <option value="">Automatique</option>
+          @for (f of formats(); track f.width + 'x' + f.height) {
+            <option [value]="f.width + 'x' + f.height + '@' + f.fps">
+              {{ f.width }}×{{ f.height }} · {{ f.fps }} fps
+            </option>
+          }
+        </select>
         @if (status().running) {
           <button class="danger" [disabled]="busy()" (click)="stop()">Arrêter</button>
         } @else {
@@ -97,6 +120,11 @@ const EMPTY: VcamStatus = {
             Démarrer
           </button>
         }
+        <p class="lbl hint">
+          C'est la définition que verra Streamlabs. La détection, elle, réduit
+          toujours l'image de son côté : monter en définition améliore ta facecam,
+          pas la reconnaissance des poses — et coûte du CPU.
+        </p>
       </div>
 
       @if (status().running) {
@@ -139,6 +167,9 @@ export class VirtualCamCard implements OnDestroy {
 
   status = signal<VcamStatus>(EMPTY)
   devices = signal<VcamDevice[]>([])
+  formats = signal<VcamFormat[]>([])
+  /** "" = automatique, sinon "LxH@fps". */
+  formatKey = signal('')
   selected = signal(-1)
   busy = signal(false)
   /** La détection a bien été rebasculée sur la caméra virtuelle. */
@@ -179,12 +210,31 @@ export class VirtualCamCard implements OnDestroy {
       const devs = await this.tauri.invoke<VcamDevice[]>('vcam_devices', {}, [])
       this.devices.set(devs)
       if (this.selected() < 0 && devs.length) this.selected.set(devs[0].index)
+      if (this.selected() >= 0 && !this.status().running) await this.loadFormats()
     } catch (e) {
       this.status.update((s) => ({ ...s, error: String(e) }))
     } finally {
       this.busy.set(false)
     }
     await this.readStatus()
+  }
+
+  /** Modes réellement supportés — il faut ouvrir la caméra pour les connaître,
+   *  d'où l'échec silencieux si elle est occupée (on reste en automatique). */
+  private async loadFormats(): Promise<void> {
+    try {
+      this.formats.set(
+        await this.tauri.invoke<VcamFormat[]>('vcam_formats', { cameraIndex: this.selected() }, []),
+      )
+    } catch {
+      this.formats.set([])
+    }
+  }
+
+  private chosenFormat(): VcamFormat | null {
+    const key = this.formatKey()
+    if (!key) return null
+    return this.formats().find((f) => `${f.width}x${f.height}@${f.fps}` === key) ?? null
   }
 
   async register(unregister: boolean): Promise<void> {
@@ -213,6 +263,7 @@ export class VirtualCamCard implements OnDestroy {
       if (wasDetecting) this.detection.stop()
       const s = await this.tauri.invoke<VcamStatus>('vcam_start', {
         cameraIndex: this.selected(),
+        format: this.chosenFormat(),
       })
       this.status.set(s)
       if (s.running) await this.switchDetectionToVirtual(wasDetecting)

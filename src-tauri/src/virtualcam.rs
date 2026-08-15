@@ -54,6 +54,15 @@ pub struct VcamDevice {
     pub name: String,
 }
 
+/// Un mode réellement supporté par la webcam (pas une supposition).
+#[derive(Debug, Clone, Copy, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VcamFormat {
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+}
+
 pub struct VirtualCam {
     dll_path: PathBuf,
     stop: Arc<AtomicBool>,
@@ -92,6 +101,40 @@ impl VirtualCam {
     /// Lecture directe du registre — surtout PAS un `reg.exe` : depuis une app
     /// GUI, chaque processus console fait clignoter une fenêtre, et le statut
     /// est sondé en continu par l'UI.
+    /// Modes réellement diffusables par la webcam. Il faut l'ouvrir pour les
+    /// connaître : si elle est occupée, on renvoie une liste vide et l'UI
+    /// retombe sur la négociation automatique.
+    pub fn formats(index: u32) -> Vec<VcamFormat> {
+        use nokhwa::pixel_format::RgbFormat;
+        use nokhwa::utils::{CameraIndex, RequestedFormat, RequestedFormatType};
+
+        let Ok(mut cam) = nokhwa::Camera::new(
+            CameraIndex::Index(index),
+            RequestedFormat::new::<RgbFormat>(RequestedFormatType::None),
+        ) else {
+            return vec![];
+        };
+        let Ok(list) = cam.compatible_camera_formats() else {
+            return vec![];
+        };
+
+        // Une seule entrée par résolution : la meilleure cadence disponible.
+        let mut best: std::collections::HashMap<(u32, u32), u32> = Default::default();
+        for f in list {
+            let key = (f.resolution().width(), f.resolution().height());
+            let e = best.entry(key).or_insert(0);
+            *e = (*e).max(f.frame_rate());
+        }
+        let mut out: Vec<VcamFormat> = best
+            .into_iter()
+            // softcam exige des dimensions multiples de 4
+            .filter(|((w, h), _)| w % 4 == 0 && h % 4 == 0 && *w >= 320)
+            .map(|((width, height), fps)| VcamFormat { width, height, fps })
+            .collect();
+        out.sort_by_key(|f| std::cmp::Reverse((f.width * f.height, f.fps)));
+        out
+    }
+
     pub fn is_registered() -> bool {
         use winreg::enums::HKEY_CLASSES_ROOT;
         use winreg::RegKey;
@@ -144,12 +187,16 @@ impl VirtualCam {
         self.status()
     }
 
-    pub fn start(&self, camera_index: u32) -> Result<VcamStatus, String> {
+    pub fn start(
+        &self,
+        camera_index: u32,
+        wanted: Option<VcamFormat>,
+    ) -> Result<VcamStatus, String> {
         if self.status.lock().unwrap().running {
             return Ok(self.status());
         }
         if !Self::is_registered() {
-            return Err("Le filtre n'est pas installé (bouton « Installer »)".into());
+            return Err("Le pilote n'est pas installé (bouton « Installer le pilote »)".into());
         }
         self.stop.store(false, Ordering::SeqCst);
         let dll_path = self.dll_path.clone();
@@ -159,7 +206,7 @@ impl VirtualCam {
         let handle = std::thread::Builder::new()
             .name("vcam-pump".into())
             .spawn(move || {
-                if let Err(e) = pump(dll_path, camera_index, &stop, &status) {
+                if let Err(e) = pump(dll_path, camera_index, wanted, &stop, &status) {
                     let mut s = status.lock().unwrap();
                     s.error = Some(e);
                 }
@@ -233,6 +280,7 @@ fn try_open(
 fn pump(
     dll_path: PathBuf,
     camera_index: u32,
+    wanted: Option<VcamFormat>,
     stop: &AtomicBool,
     status: &Mutex<VcamStatus>,
 ) -> Result<(), String> {
@@ -260,21 +308,33 @@ fn pump(
     // même 0xC00D3704 qu'un périphérique occupé. On essaie donc plusieurs
     // formats, du plus souhaitable au plus permissif, et on ne retient que
     // celui qui délivre réellement une image.
-    let candidates = [
+    // Le mode choisi par l'utilisateur passe en premier ; les suivants sont
+    // des filets, pour qu'un choix impossible ne bloque jamais le démarrage.
+    let chosen = wanted.map(|f| {
         RequestedFormatType::Closest(CameraFormat::new(
-            Resolution::new(1280, 720),
+            Resolution::new(f.width, f.height),
             FrameFormat::MJPEG,
-            30,
-        )),
-        RequestedFormatType::Closest(CameraFormat::new(
-            Resolution::new(640, 480),
-            FrameFormat::MJPEG,
-            30,
-        )),
-        RequestedFormatType::AbsoluteHighestFrameRate,
-        RequestedFormatType::AbsoluteHighestResolution,
-        RequestedFormatType::None,
-    ];
+            f.fps,
+        ))
+    });
+    let candidates: Vec<RequestedFormatType> = chosen
+        .into_iter()
+        .chain([
+            RequestedFormatType::Closest(CameraFormat::new(
+                Resolution::new(1280, 720),
+                FrameFormat::MJPEG,
+                30,
+            )),
+            RequestedFormatType::Closest(CameraFormat::new(
+                Resolution::new(640, 480),
+                FrameFormat::MJPEG,
+                30,
+            )),
+            RequestedFormatType::AbsoluteHighestFrameRate,
+            RequestedFormatType::AbsoluteHighestResolution,
+            RequestedFormatType::None,
+        ])
+        .collect();
 
     let mut camera = None;
     let mut first_frame = None;

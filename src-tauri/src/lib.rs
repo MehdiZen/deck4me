@@ -8,7 +8,7 @@ use server::{ServerState, Sound, TriggerEvent, WsMsg, DEFAULT_PORT};
 use std::sync::Arc;
 use store::{AssetMeta, BindingRecord, GestureRecord, Store};
 use tauri::Manager;
-use virtualcam::{VcamDevice, VcamStatus, VirtualCam};
+use virtualcam::{VcamDevice, VcamFormat, VcamStatus, VirtualCam};
 
 pub struct App {
     pub state: ServerState,
@@ -254,9 +254,20 @@ fn vcam_status(app: tauri::State<App>) -> VcamStatus {
 }
 
 #[tauri::command]
-async fn vcam_start(app: tauri::State<'_, App>, camera_index: u32) -> Result<VcamStatus, String> {
+async fn vcam_formats(camera_index: u32) -> Result<Vec<VcamFormat>, String> {
+    tauri::async_runtime::spawn_blocking(move || VirtualCam::formats(camera_index))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn vcam_start(
+    app: tauri::State<'_, App>,
+    camera_index: u32,
+    format: Option<VcamFormat>,
+) -> Result<VcamStatus, String> {
     let vcam = app.vcam.clone();
-    tauri::async_runtime::spawn_blocking(move || vcam.start(camera_index))
+    tauri::async_runtime::spawn_blocking(move || vcam.start(camera_index, format))
         .await
         .map_err(|e| e.to_string())?
 }
@@ -327,6 +338,7 @@ pub fn run() {
             panic_clear,
             overlay_url,
             vcam_devices,
+            vcam_formats,
             vcam_status,
             vcam_start,
             vcam_stop,
