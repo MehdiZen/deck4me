@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Phase 0 — Bench détection</title>
+<style>
+  body { font: 14px/1.5 system-ui; background: #0f172a; color: #e2e8f0; margin: 0; padding: 16px; }
+  h1 { font-size: 18px; margin: 0 0 8px; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; }
+  .mirror { position: relative; width: 640px; height: 480px; }
+  .mirror video, .mirror canvas { position: absolute; inset: 0; transform: scaleX(-1); }
+  .card { background: #1e293b; border-radius: 8px; padding: 12px 16px; min-width: 300px; }
+  .big { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .lbl { color: #94a3b8; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+  .kpi { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; }
+  #events { white-space: pre; font: 12px/1.6 ui-monospace, monospace; color: #94a3b8; max-height: 180px; overflow-y: auto; }
+  button { font-size: 16px; padding: 8px 20px; border-radius: 6px; border: 0; background: #38bdf8; color: #082f49; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: .4; }
+  a { color: #38bdf8; }
+  #spark { background: #0b1220; border-radius: 4px; }
+  fieldset { border: 1px solid #334155; border-radius: 6px; }
+</style>
+</head>
+<body>
+<h1>Phase 0 — Bench détection (face + 2 mains, 640×480)</h1>
+<p id="env">–</p>
+<p>
+  <button id="start">Démarrer</button>
+  &nbsp; <a id="delegatelink" href="#">–</a>
+  &nbsp; <span id="status">En attente (autorise la caméra au clic)</span>
+</p>
+<div class="row">
+  <div class="mirror">
+    <video id="cam" width="640" height="480" muted playsinline></video>
+    <canvas id="overlay" width="640" height="480"></canvas>
+  </div>
+  <div class="card">
+    <div class="kpi">
+      <div><div class="lbl">fps détection (5 s)</div><div class="big" id="fps">–</div></div>
+      <div><div class="lbl">fps caméra</div><div class="big" id="camfps">–</div></div>
+      <div><div class="lbl">face ms p50 / p95</div><div class="big" id="facems">–</div></div>
+      <div><div class="lbl">mains ms p50 / p95</div><div class="big" id="handms">–</div></div>
+      <div><div class="lbl">total ms p50 / p95</div><div class="big" id="totalms">–</div></div>
+    </div>
+    <p><canvas id="spark" width="560" height="80"></canvas><br>
+    <span class="lbl">coût/frame, ligne jaune = 33 ms</span></p>
+    <fieldset>
+      <legend class="lbl">cadence</legend>
+      <label><input type="radio" name="mode" value="both30" checked> 30 Hz tout</label>
+      <label><input type="radio" name="mode" value="both15"> 15 Hz tout</label>
+      <label><input type="radio" name="mode" value="face15hands30"> mains 30 / face 15</label>
+    </fieldset>
+    <p class="lbl">blendshapes actifs</p><div id="blend">–</div>
+    <p class="lbl">mains détectées</p><div id="hands">–</div>
+  </div>
+  <div class="card" style="flex:1; min-width: 340px;">
+    <p class="lbl">journal</p>
+    <div id="events"></div>
+    <p class="lbl" style="margin-top:12px">test arrière-plan</p>
+    <p>Ouvre <a href="/stats.html" target="_blank">stats.html</a> dans une autre fenêtre,
+    puis minimise/recouvre CETTE fenêtre. stats.html montre si la détection continue.</p>
+  </div>
+</div>
+<script type="module" src="/bench.js"></script>
+</body>
+</html>

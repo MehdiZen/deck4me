@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Phase 0 — Moniteur externe</title>
+<style>
+  body { font: 14px/1.5 system-ui; background: #0f172a; color: #e2e8f0; margin: 0; padding: 16px; }
+  h1 { font-size: 18px; }
+  .big { font-size: 44px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .ok { color: #34d399; } .warn { color: #fbbf24; } .bad { color: #f87171; }
+  table { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  td, th { padding: 3px 12px; text-align: right; border-bottom: 1px solid #1e293b; }
+  th { color: #94a3b8; font-size: 12px; text-transform: uppercase; }
+</style>
+</head>
+<body>
+<h1>Moniteur externe — reçoit les heartbeats du bench via le serveur</h1>
+<p>Cette fenêtre reste visible pendant que la fenêtre bench est minimisée / recouverte / derrière un jeu.
+Si « âge » dérive au-delà de ~3 s, la page bench est throttlée par le navigateur.</p>
+<div>
+  <span class="big" id="age">–</span> <span>âge du dernier heartbeat</span><br>
+  <span class="big" id="fps">–</span> <span>fps détection rapporté</span>
+  &nbsp;&nbsp;<span id="vis"></span>
+</div>
+<table>
+  <thead><tr><th>reçu (serveur)</th><th>fps</th><th>fps cam</th><th>face p95</th><th>mains p95</th><th>visibilité</th><th>mode</th></tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+<script>
+async function poll() {
+  try {
+    const r = await fetch('/stats', { cache: 'no-store' })
+    const { serverNow, beats } = await r.json()
+    const last = beats[beats.length - 1]
+    const ageEl = document.getElementById('age')
+    if (!last) { ageEl.textContent = 'aucun heartbeat'; ageEl.className = 'bad'; return }
+    const age = (serverNow - last.serverReceived) / 1000
+    ageEl.textContent = age.toFixed(1) + ' s'
+    ageEl.className = 'big ' + (age < 3 ? 'ok' : age < 10 ? 'warn' : 'bad')
+    const fpsEl = document.getElementById('fps')
+    fpsEl.textContent = (last.fps5s ?? 0).toFixed(1)
+    fpsEl.className = 'big ' + (last.fps5s > 25 ? 'ok' : last.fps5s > 12 ? 'warn' : 'bad')
+    document.getElementById('vis').textContent = `fenêtre bench : ${last.visible}`
+    document.getElementById('rows').innerHTML = beats.slice(-25).reverse().map(b =>
+      `<tr><td>${new Date(b.serverReceived).toTimeString().slice(0, 8)}</td>` +
+      `<td>${(b.fps5s ?? 0).toFixed(1)}</td><td>${(b.camFps ?? 0).toFixed(1)}</td>` +
+      `<td>${(b.faceP95 ?? 0).toFixed(1)}</td><td>${(b.handP95 ?? 0).toFixed(1)}</td>` +
+      `<td>${b.visible}</td><td>${b.mode}</td></tr>`).join('')
+  } catch { document.getElementById('age').textContent = 'serveur injoignable' }
+}
+setInterval(poll, 1000); poll()
+</script>
+</body>
+</html>

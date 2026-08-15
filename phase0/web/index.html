@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Phase 0 — Faisabilité</title>
+<style>
+  body { font: 15px/1.6 system-ui; background: #0f172a; color: #e2e8f0; max-width: 760px; margin: 0 auto; padding: 24px; }
+  a { color: #38bdf8; } code { background: #1e293b; padding: 1px 6px; border-radius: 4px; }
+  li { margin-bottom: 10px; }
+</style>
+</head>
+<body>
+<h1>Phase 0 — banc de faisabilité</h1>
+<ol>
+  <li><a href="/bench.html">bench.html</a> — détection face + mains, mesure fps / coût par frame.
+      Variante CPU : <a href="/bench.html?delegate=CPU">?delegate=CPU</a></li>
+  <li><a href="/stats.html">stats.html</a> — moniteur externe, à garder visible pendant les tests
+      d'arrière-plan (la fenêtre bench ne peut pas s'observer elle-même quand elle est cachée)</li>
+  <li><a href="/overlay.html">overlay.html</a> — à coller dans OBS en Browser Source
+      (1920×1080). Dans un navigateur normal, utiliser <a href="/overlay.html?bg=1">?bg=1</a>
+      pour visualiser la transparence sur damier</li>
+</ol>
+<p>Protocole complet et grille de décision : voir <code>phase0/README.md</code> dans le repo.</p>
+</body>
+</html>

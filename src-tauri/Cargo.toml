@@ -1,0 +1,38 @@
+[package]
+name = "facememe"
+version = "0.1.0"
+description = "facememe — gesture overlay pour stream"
+authors = []
+edition = "2021"
+
+[lib]
+name = "facememe_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs"] }
+axum = { version = "0.8", features = ["ws"] }
+sha1 = "0.10"
+hex = "0.4"
+rand = "0.8"
+imagesize = "0.13"
+base64 = "0.22"
+
+[dev-dependencies]
+reqwest = { version = "0.12", default-features = false }
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+tempfile = "3"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

@@ -1,0 +1,18 @@
+node_modules/
+dist/
+target/
+data/
+.angular/
+*.tsbuildinfo
+
+# Binaires MediaPipe (~90 Mo, dupliqués) : récupérés par `npm run vendor`.
+# Jamais chargés depuis un CDN à l'exécution — voir scripts/fetch-vendor.mjs.
+phase0/web/vendor/
+packages/studio/public/vendor/
+
+# Icônes et image de test : générées par `npm run icons`
+src-tauri/icons/
+src-tauri/embedded/
+
+# Vidéo de démo alpha du banc phase 0 (4 Mo, retéléchargeable)
+phase0/web/assets/*.webm

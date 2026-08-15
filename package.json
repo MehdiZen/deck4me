@@ -1,0 +1,26 @@
+{
+  "name": "facememe",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/core",
+    "packages/overlay"
+  ],
+  "scripts": {
+    "test": "npm run test -w @facememe/core",
+    "vendor": "node scripts/fetch-vendor.mjs",
+    "icons": "node scripts/gen-icons.mjs",
+    "setup": "npm install && npm run vendor && npm run icons",
+    "postinstall": "node scripts/gen-icons.mjs",
+    "build:overlay": "npm run build -w @facememe/overlay",
+    "build:studio": "npm --prefix packages/studio run build",
+    "build:front": "npm run build:overlay && npm run build:studio",
+    "dev:front": "npm run build:overlay && npm --prefix packages/studio start",
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build:app": "tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}

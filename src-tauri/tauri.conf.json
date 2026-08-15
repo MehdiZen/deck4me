@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "facememe",
+  "version": "0.1.0",
+  "identifier": "dev.facememe.app",
+  "build": {
+    "frontendDist": "../packages/studio/dist/studio/browser",
+    "devUrl": "http://localhost:4200",
+    "beforeDevCommand": "npm run dev:front",
+    "beforeBuildCommand": "npm run build:front"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "title": "facememe Studio",
+        "width": 1320,
+        "height": 860,
+        "minWidth": 1080,
+        "minHeight": 700,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"]
+  }
+}

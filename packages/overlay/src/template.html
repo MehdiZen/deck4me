@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>facememe overlay</title>
+<style>
+  html, body { margin: 0; width: 100vw; height: 100vh; overflow: hidden; background: transparent; }
+  .fm-item { position: absolute; will-change: transform, opacity; }
+  .fm-media { display: block; transform-origin: center; }
+  @keyframes fm-pop { 0% { transform: scale(.4); opacity: 0 } 70% { transform: scale(1.08); opacity: 1 } 100% { transform: scale(1) } }
+  @keyframes fm-fade-in { from { opacity: 0 } to { opacity: 1 } }
+  @keyframes fm-slide { from { transform: translateY(36px); opacity: 0 } to { transform: none; opacity: 1 } }
+  @keyframes fm-fade-out { to { opacity: 0 } }
+  @keyframes fm-shrink { to { transform: scale(.55); opacity: 0 } }
+  .fm-enter-pop { animation: fm-pop 160ms ease-out both }
+  .fm-enter-fade { animation: fm-fade-in 180ms ease-out both }
+  .fm-enter-slide { animation: fm-slide 200ms ease-out both }
+  .fm-exit-fade { animation: fm-fade-out 220ms ease-in both }
+  .fm-exit-shrink { animation: fm-shrink 200ms ease-in both }
+  #fm-status { position: fixed; left: 6px; bottom: 6px; width: 7px; height: 7px;
+    border-radius: 50%; background: #ef4444; display: none; }
+</style>
+</head>
+<body>
+<div id="fm-status"></div>
+<!--SCRIPT-->
+</body>
+</html>

@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Phase 0 — Test overlay OBS</title>
+<style>
+  /* Fond transparent : c'est OBS qui doit voir à travers. ?bg=1 pour tester dans un navigateur. */
+  body { background: transparent; margin: 0; font: 16px/1.5 system-ui; color: #fff; }
+  body.checker { background: repeating-conic-gradient(#666 0% 25%, #999 0% 50%) 0 0 / 40px 40px; }
+  .box { display: inline-block; margin: 12px; padding: 10px 14px; vertical-align: top;
+         border: 2px solid #38bdf8; border-radius: 8px;
+         background: rgba(15, 23, 42, .55); text-shadow: 0 1px 3px #000; }
+  .lbl { font-size: 12px; text-transform: uppercase; color: #7dd3fc; letter-spacing: .05em; }
+  .big { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  video { display: block; max-width: 380px; }
+  ul { margin: 4px 0; padding-left: 18px; font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="lbl">webm VP8 + alpha</div>
+  <video src="/assets/alpha-vp8.webm" autoplay muted loop playsinline></video>
+  <div>Attendu : danseuse SANS fond (transparence propre, pas de fond noir/blanc)</div>
+</div>
+<div class="box">
+  <div class="lbl">horloges (détection de gel)</div>
+  <div>rAF : <span class="big" id="raf">–</span></div>
+  <div>interval 250 ms : <span class="big" id="itv">–</span></div>
+  <div>Si une horloge fige quand OBS est minimisé ou la scène inactive → source throttlée</div>
+  <div class="lbl" style="margin-top:8px">canvas animé</div>
+  <canvas id="anim" width="340" height="60"></canvas>
+</div>
+<div class="box">
+  <div class="lbl">support codecs (canPlayType)</div>
+  <ul id="codecs"></ul>
+  <div class="lbl">audio</div>
+  <div>AudioContext : <span class="big" id="audio">–</span></div>
+  <div>Blip discret toutes les 15 s — vérifier « Contrôler l'audio via OBS »</div>
+</div>
+<script>
+if (new URLSearchParams(location.search).get('bg')) document.body.classList.add('checker')
+
+let rafTicks = 0
+const t0 = performance.now()
+function raf(now) {
+  rafTicks++
+  document.getElementById('raf').textContent = ((now - t0) / 1000).toFixed(1) + ' s'
+  const ctx = document.getElementById('anim').getContext('2d')
+  ctx.clearRect(0, 0, 340, 60)
+  ctx.fillStyle = '#f472b6'
+  const x = 20 + (Math.sin(now / 500) + 1) * 150
+  ctx.beginPath(); ctx.arc(x, 30, 14, 0, 7); ctx.fill()
+  requestAnimationFrame(raf)
+}
+requestAnimationFrame(raf)
+
+let itvTicks = 0
+setInterval(() => {
+  itvTicks++
+  document.getElementById('itv').textContent = (itvTicks / 4).toFixed(1) + ' s'
+}, 250)
+
+const tests = [
+  'video/webm; codecs="vp8"',
+  'video/webm; codecs="vp9"',
+  'video/webm; codecs="av01.0.05M.08"',
+]
+const v = document.createElement('video')
+document.getElementById('codecs').innerHTML =
+  tests.map(t => `<li>${t} → <b>${v.canPlayType(t) || 'non'}</b></li>`).join('')
+
+// Autoplay policy : dans OBS (CEF, no-user-gesture-required) le contexte doit être "running".
+// Dans un navigateur normal il sera "suspended" : c'est la différence qu'on veut voir.
+const ac = new AudioContext()
+const show = () => document.getElementById('audio').textContent = ac.state
+ac.onstatechange = show; show()
+setInterval(() => {
+  if (ac.state !== 'running') { ac.resume().catch(() => {}); return }
+  const o = ac.createOscillator(), g = ac.createGain()
+  g.gain.value = 0.04
+  o.frequency.value = 880
+  o.connect(g).connect(ac.destination)
+  o.start(); o.stop(ac.currentTime + 0.1)
+}, 15000)
+</script>
+</body>
+</html>
