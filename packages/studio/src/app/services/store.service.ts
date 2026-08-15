@@ -1,10 +1,12 @@
 import { Injectable, computed, inject, signal } from '@angular/core'
 import {
+  DEFAULT_RENDER,
   FEATURIZER_VERSION,
   blocksFromJson,
   blocksToJson,
   computeBaseline,
   featurizeRaw,
+  migrateRenderParams,
   type FeatureBlocks,
   type FeatureBlocksJson,
   type GestureDef,
@@ -12,6 +14,7 @@ import {
   type HoldMode,
   type RawFrame,
   type RenderParams,
+  type SoundRef,
 } from '@meme4me/core'
 import { TauriService } from './tauri.service'
 
@@ -23,6 +26,20 @@ export interface AssetMeta {
   width: number
   height: number
   sizeBytes: number
+}
+
+export const isAudio = (a: AssetMeta): boolean => a.mime.startsWith('audio/')
+
+export interface Profile {
+  id: string
+  name: string
+  isActive: boolean
+}
+
+/** action → accélérateur ("CmdOrCtrl+Shift+P"). Vide = non assigné. */
+export interface Settings {
+  hotkeys: Record<string, string>
+  autoUpdateCheck: boolean
 }
 
 /** Gesture telle que persistée (samples en JSON, frames brutes incluses). */
@@ -56,6 +73,8 @@ export interface StoredBinding extends RenderParams {
   assetId: string
 }
 
+export { DEFAULT_RENDER }
+
 export interface Calibration {
   featurizerVersion: number
   baseline: number[]
@@ -64,13 +83,16 @@ export interface Calibration {
 }
 
 interface Bootstrap {
+  profiles: Profile[]
   gestures: StoredGesture[]
   bindings: StoredBinding[]
   assets: AssetMeta[]
   defaultAssetId: string | null
+  settings: Settings
   overlayUrl: string
   hasCalibration: boolean
   port: number
+  version: string
 }
 
 @Injectable({ providedIn: 'root' })
@@ -78,12 +100,29 @@ export class StoreService {
   private tauri = inject(TauriService)
 
   readonly loaded = signal(false)
-  readonly gestures = signal<StoredGesture[]>([])
+  readonly profiles = signal<Profile[]>([])
+  readonly allGestures = signal<StoredGesture[]>([])
   readonly bindings = signal<StoredBinding[]>([])
   readonly assets = signal<AssetMeta[]>([])
+  readonly settings = signal<Settings>({ hotkeys: {}, autoUpdateCheck: true })
   readonly overlayUrl = signal('')
   readonly port = signal(47821)
+  readonly version = signal('')
   readonly calibration = signal<Calibration | null>(null)
+
+  readonly activeProfile = computed<Profile | null>(
+    () => this.profiles().find((p) => p.isActive) ?? this.profiles()[0] ?? null,
+  )
+
+  /** Tout l'écran ne voit QUE le profil actif : c'est ce qui rend le
+   *  basculement instantané (aucune gesture d'un autre profil n'est armée). */
+  readonly gestures = computed(() => {
+    const active = this.activeProfile()?.id ?? 'default'
+    return this.allGestures().filter((g) => (g.profileId || 'default') === active)
+  })
+
+  readonly imageAssets = computed(() => this.assets().filter((a) => !isAudio(a)))
+  readonly soundAssets = computed(() => this.assets().filter((a) => isAudio(a)))
 
   readonly baseline = computed<Float32Array | null>(() => {
     const c = this.calibration()
@@ -112,32 +151,45 @@ export class StoreService {
     }))
   })
 
-  private token = computed(() => new URL(this.overlayUrl() || 'http://x/?t=').searchParams.get('t') ?? '')
+  private token = computed(
+    () => new URL(this.overlayUrl() || 'http://x/?t=').searchParams.get('t') ?? '',
+  )
 
   assetUrl(a: AssetMeta): string {
     return `http://127.0.0.1:${this.port()}/assets/${a.id}.${a.ext}?t=${this.token()}`
   }
 
+  asset(id: string | null | undefined): AssetMeta | null {
+    return id ? (this.assets().find((a) => a.id === id) ?? null) : null
+  }
+
   async load(): Promise<void> {
     const boot = await this.tauri.invoke<Bootstrap>('bootstrap', {}, {
+      profiles: [{ id: 'default', name: 'Défaut', isActive: true }],
       gestures: [],
       bindings: [],
       assets: [],
       defaultAssetId: null,
+      settings: { hotkeys: {}, autoUpdateCheck: true },
       overlayUrl: '',
       hasCalibration: false,
       port: 47821,
+      version: '',
     })
-    this.gestures.set(boot.gestures)
+    this.profiles.set(boot.profiles)
+    this.allGestures.set(boot.gestures)
     this.bindings.set(boot.bindings)
     this.assets.set(boot.assets)
+    this.settings.set(boot.settings ?? { hotkeys: {}, autoUpdateCheck: true })
     this.overlayUrl.set(boot.overlayUrl)
     this.port.set(boot.port)
+    this.version.set(boot.version)
     if (boot.hasCalibration) {
       const cal = await this.tauri.invoke<Calibration | null>('get_calibration', {}, null)
       this.calibration.set(cal)
     }
     await this.migrateFeaturizerVersion()
+    await this.migrateRenderModel()
     this.loaded.set(true)
   }
 
@@ -145,14 +197,24 @@ export class StoreService {
    *  persistée. « 3 gestures à réenregistrer » n'est que le fallback sans raw. */
   private async migrateFeaturizerVersion(): Promise<void> {
     const b = this.baseline()
-    for (const g of this.gestures()) {
+    for (const g of this.allGestures()) {
       if (g.featurizerVersion === FEATURIZER_VERSION || !g.rawSamples.length) continue
-      const migrated: StoredGesture = {
+      await this.saveGesture({
         ...g,
         samples: g.rawSamples.map((r) => blocksToJson(featurizeRaw(r, b))),
         featurizerVersion: FEATURIZER_VERSION,
-      }
-      await this.saveGesture(migrated)
+      })
+    }
+  }
+
+  /** Rendu v1 → v2, une fois, à la lecture. La conversion elle-même vit dans
+   *  le core (elle appartient au format) et y est couverte par des tests. */
+  private async migrateRenderModel(): Promise<void> {
+    for (const b of this.bindings()) {
+      if (typeof b.sizePct === 'number') continue
+      const a = this.asset(b.assetId)
+      const params = migrateRenderParams(b, a ? { width: a.width, height: a.height } : null)
+      await this.saveBinding({ ...params, id: b.id, gestureId: b.gestureId, assetId: b.assetId })
     }
   }
 
@@ -165,28 +227,26 @@ export class StoreService {
 
   async saveGesture(g: StoredGesture): Promise<void> {
     await this.tauri.invoke('save_gesture', { gesture: g })
-    this.gestures.update((all) => [...all.filter((x) => x.id !== g.id), g])
+    this.allGestures.update((all) => [...all.filter((x) => x.id !== g.id), g])
   }
 
   /** Réglage en direct pendant le glissement du curseur : mémoire seulement,
    *  pour que le matcher et les barres réagissent sans écrire sur le disque
    *  à chaque pixel. */
   setSensitivityLocal(id: string, sensitivity: number): void {
-    this.gestures.update((all) =>
-      all.map((g) => (g.id === id ? { ...g, sensitivity } : g)),
-    )
+    this.allGestures.update((all) => all.map((g) => (g.id === id ? { ...g, sensitivity } : g)))
   }
 
   /** Persiste l'état courant d'une gesture (fin de glissement). */
   async persistGesture(id: string): Promise<void> {
-    const g = this.gestures().find((x) => x.id === id)
+    const g = this.allGestures().find((x) => x.id === id)
     if (!g) return
     await this.tauri.invoke('save_gesture', { gesture: g })
   }
 
   async deleteGesture(id: string): Promise<void> {
     await this.tauri.invoke('delete_gesture', { id })
-    this.gestures.update((all) => all.filter((x) => x.id !== id))
+    this.allGestures.update((all) => all.filter((x) => x.id !== id))
     this.bindings.update((all) => all.filter((x) => x.gestureId !== id))
   }
 
@@ -204,41 +264,88 @@ export class StoreService {
     return meta
   }
 
-  /** Binding minimal phase 3 : défauts sains, le réglage fin arrive en phase 4.
-   *  Changer d'image conserve les réglages de rendu déjà faits. */
-  async bindAsset(gestureId: string, assetId: string): Promise<void> {
-    const existing = this.bindings().find((b) => b.gestureId === gestureId)
+  binding(gestureId: string): StoredBinding | null {
+    return this.bindings().find((b) => b.gestureId === gestureId) ?? null
+  }
+
+  /** Écrit un binding tel quel — l'éditeur est propriétaire de son objet. */
+  async saveBinding(binding: StoredBinding): Promise<void> {
+    await this.tauri.invoke('save_binding', { binding })
+    this.bindings.update((all) => [...all.filter((b) => b.id !== binding.id), binding])
+  }
+
+  /** Associe une image à une gesture. Changer d'image conserve les réglages
+   *  de rendu déjà faits — repartir des défauts effacerait le cadrage. */
+  async bindAsset(gestureId: string, assetId: string): Promise<StoredBinding> {
+    const existing = this.binding(gestureId)
     const binding: StoredBinding = {
-      anchor: 'center',
-      x: 0,
-      y: 0,
-      scale: 1,
-      durationMs: 3000,
-      enter: 'pop',
-      exit: 'fade',
-      layer: 0,
+      ...DEFAULT_RENDER,
       ...existing,
       id: existing?.id ?? crypto.randomUUID(),
       gestureId,
       assetId,
     }
-    await this.tauri.invoke('save_binding', { binding })
-    this.bindings.update((all) => [...all.filter((b) => b.id !== binding.id), binding])
+    await this.saveBinding(binding)
+    return binding
   }
 
   async updateBinding(gestureId: string, patch: Partial<RenderParams>): Promise<void> {
-    const existing = this.bindings().find((b) => b.gestureId === gestureId)
+    const existing = this.binding(gestureId)
     if (!existing) return
-    const binding: StoredBinding = { ...existing, ...patch }
-    await this.tauri.invoke('save_binding', { binding })
-    this.bindings.update((all) => [...all.filter((b) => b.id !== binding.id), binding])
+    await this.saveBinding({ ...existing, ...patch })
+  }
+
+  async setSound(gestureId: string, sound: SoundRef | null): Promise<void> {
+    await this.updateBinding(gestureId, { sound })
   }
 
   async unbind(gestureId: string): Promise<void> {
-    const b = this.bindings().find((x) => x.gestureId === gestureId)
+    const b = this.binding(gestureId)
     if (!b) return
     await this.tauri.invoke('delete_binding', { id: b.id })
     this.bindings.update((all) => all.filter((x) => x.id !== b.id))
+  }
+
+  /** Aperçu dans OBS d'un binding pas encore enregistré (éditeur). */
+  async previewBinding(binding: StoredBinding): Promise<void> {
+    await this.tauri.invoke('preview_binding', { binding })
+  }
+
+  // ---- Profils (phase 6) ----
+
+  async saveProfile(profile: Profile): Promise<void> {
+    this.profiles.set(await this.tauri.invoke<Profile[]>('save_profile', { profile }, []))
+  }
+
+  async deleteProfile(id: string): Promise<void> {
+    const res = await this.tauri.invoke<{
+      profiles: Profile[]
+      gestures: StoredGesture[]
+      bindings: StoredBinding[]
+    }>('delete_profile', { id })
+    this.profiles.set(res.profiles)
+    this.allGestures.set(res.gestures)
+    this.bindings.set(res.bindings)
+  }
+
+  async setActiveProfile(id: string): Promise<void> {
+    this.profiles.set(await this.tauri.invoke<Profile[]>('set_active_profile', { id }, []))
+  }
+
+  /** Rotation utilisée par le raccourci global « profil suivant ». */
+  async nextProfile(): Promise<void> {
+    const all = this.profiles()
+    if (all.length < 2) return
+    const i = all.findIndex((p) => p.isActive)
+    await this.setActiveProfile(all[(i + 1) % all.length]!.id)
+  }
+
+  // ---- Réglages (phase 6) ----
+
+  async saveSettings(patch: Partial<Settings>): Promise<void> {
+    const next = { ...this.settings(), ...patch }
+    this.settings.set(next)
+    await this.tauri.invoke('save_settings', { settings: next })
   }
 
   async saveCalibration(negativesRaw: RawFrame[]): Promise<void> {
@@ -253,7 +360,7 @@ export class StoreService {
     this.calibration.set(cal)
     // Nouvelle baseline → les caches persistés des gestures sont refaits en douce
     const b = this.baseline()
-    for (const g of this.gestures()) {
+    for (const g of this.allGestures()) {
       if (!g.rawSamples.length) continue
       await this.saveGesture({
         ...g,

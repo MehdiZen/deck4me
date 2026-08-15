@@ -7,16 +7,21 @@ interface TriggerMsg {
   type: 'trigger'
   bindingId: string
   assetUrl: string
-  anchor: Anchor
+  /** v2 : centre de l'élément en % du cadre. */
   x: number
   y: number
-  scale: number
+  /** v2 : largeur en % de la largeur du cadre. */
+  sizePct?: number
   durationMs: number
-  enter: 'pop' | 'fade' | 'slide'
-  exit: 'fade' | 'shrink'
+  enter: string
+  exit: string
   layer: number
   hold: boolean
   sound?: { url: string; volume: number }
+  seq?: number
+  /** v1 — encore reçu si un vieux binding n'a pas été migré. */
+  anchor?: Anchor
+  scale?: number
 }
 
 type WsMsg =
@@ -37,6 +42,7 @@ const statusDot = document.getElementById('fm-status')!
 
 const images = new Map<string, HTMLImageElement>()
 const videoPools = new Map<string, HTMLVideoElement[]>()
+const sounds = new Map<string, HTMLAudioElement>()
 
 function warmVideo(url: string): HTMLVideoElement {
   const v = document.createElement('video')
@@ -59,9 +65,17 @@ function warmVideo(url: string): HTMLVideoElement {
   return v
 }
 
+const AUDIO_RE = /\.(mp3|wav|ogg)$/i
+
 function preload(assets: string[]) {
   for (const url of assets) {
-    if (url.endsWith('.webm')) {
+    if (AUDIO_RE.test(url)) {
+      if (!sounds.has(url)) {
+        const a = new Audio(withToken(url))
+        a.preload = 'auto'
+        sounds.set(url, a)
+      }
+    } else if (url.endsWith('.webm')) {
       if (!videoPools.has(url)) videoPools.set(url, [warmVideo(url), warmVideo(url)])
     } else if (!images.has(url)) {
       const img = new Image()
@@ -72,6 +86,9 @@ function preload(assets: string[]) {
 }
 
 // ---- Positionnement ------------------------------------------------------
+// v2 : tout est relatif au cadre. left/top = centre en %, largeur en % de la
+// largeur du cadre → le rendu est identique quelle que soit la définition de
+// la source de navigateur OBS.
 
 const ANCHOR_CSS: Record<Anchor, Partial<CSSStyleDeclaration>> = {
   tl: { left: '0', top: '0' },
@@ -100,6 +117,7 @@ interface ActiveItem {
   wrapper: HTMLDivElement
   msg: TriggerMsg
   video: HTMLVideoElement | null
+  audio: HTMLAudioElement | null
   timer: number | null
 }
 const active = new Map<string, ActiveItem[]>() // par bindingId
@@ -114,13 +132,27 @@ function takeVideo(url: string): HTMLVideoElement {
   return v
 }
 
+/** Place le conteneur : v2 en % de cadre, v1 par ancre (bindings non migrés). */
+function place(wrapper: HTMLDivElement, msg: TriggerMsg): void {
+  if (msg.sizePct !== undefined) {
+    wrapper.style.left = `${msg.x}%`
+    wrapper.style.top = `${msg.y}%`
+    wrapper.style.width = `${msg.sizePct}%`
+    wrapper.style.transform = 'translate(-50%,-50%)'
+    return
+  }
+  const anchor = msg.anchor ?? 'center'
+  Object.assign(wrapper.style, ANCHOR_CSS[anchor])
+  wrapper.style.transform = `${ANCHOR_TRANSLATE[anchor]} translate(${msg.x}vw, ${msg.y}vh)`
+}
+
 function show(msg: TriggerMsg) {
   const wrapper = document.createElement('div')
   wrapper.className = 'fm-item'
-  Object.assign(wrapper.style, ANCHOR_CSS[msg.anchor])
   wrapper.style.zIndex = String(1000 + msg.layer)
-  wrapper.style.transform = `${ANCHOR_TRANSLATE[msg.anchor]} translate(${msg.x}vw, ${msg.y}vh)`
+  place(wrapper, msg)
 
+  const relative = msg.sizePct !== undefined
   let media: HTMLImageElement | HTMLVideoElement
   let video: HTMLVideoElement | null = null
   if (msg.assetUrl.endsWith('.webm')) {
@@ -129,27 +161,33 @@ function show(msg: TriggerMsg) {
     video.currentTime = 0
     video.loop = msg.hold // while_held : la vidéo boucle tant que la pose tient
     media = video
-    const w = video.videoWidth
-    if (w) media.style.width = `${w * msg.scale}px`
+    if (relative) media.style.width = '100%'
+    else if (video.videoWidth) media.style.width = `${video.videoWidth * (msg.scale ?? 1)}px`
     video.play().catch(() => {})
   } else {
     const src = images.get(msg.assetUrl)
     media = new Image()
     ;(media as HTMLImageElement).src = src?.src ?? withToken(msg.assetUrl)
-    const w = src?.naturalWidth
-    if (w) media.style.width = `${w * msg.scale}px`
+    if (relative) media.style.width = '100%'
+    else if (src?.naturalWidth) media.style.width = `${src.naturalWidth * (msg.scale ?? 1)}px`
   }
   media.classList.add('fm-media', `fm-enter-${msg.enter}`)
   wrapper.appendChild(media)
   document.body.appendChild(wrapper)
 
+  // Un <audio> préchauffé par asset : rejouer depuis 0 évite le hoquet de
+  // décodage du premier trigger. Deux triggers rapprochés se recouvrent —
+  // acceptable pour un stinger court, et bien moins coûteux qu'un pool.
+  let audio: HTMLAudioElement | null = null
   if (msg.sound) {
-    const a = new Audio(withToken(msg.sound.url))
-    a.volume = Math.min(1, Math.max(0, msg.sound.volume))
-    a.play().catch(() => {})
+    audio = sounds.get(msg.sound.url) ?? new Audio(withToken(msg.sound.url))
+    sounds.set(msg.sound.url, audio)
+    audio.volume = Math.min(1, Math.max(0, msg.sound.volume))
+    audio.currentTime = 0
+    audio.play().catch(() => {})
   }
 
-  const item: ActiveItem = { wrapper, msg, video, timer: null }
+  const item: ActiveItem = { wrapper, msg, video, audio, timer: null }
   const list = active.get(msg.bindingId) ?? []
   list.push(item)
   active.set(msg.bindingId, list)
@@ -172,13 +210,15 @@ function hide(item: ActiveItem, instant = false) {
       item.video.currentTime = 0
       delete item.video.dataset['busy']
     }
+    // Le son d'un meme retiré n'a plus de raison de traîner sur le stream.
+    if (item.audio && instant) item.audio.pause()
   }
   if (instant) return done()
   const media = item.wrapper.firstElementChild as HTMLElement
-  media.classList.remove('fm-enter-pop', 'fm-enter-fade', 'fm-enter-slide')
+  media.className = 'fm-media'
   media.classList.add(`fm-exit-${item.msg.exit}`)
   media.addEventListener('animationend', done, { once: true })
-  window.setTimeout(done, 500) // filet si animationend ne part pas
+  window.setTimeout(done, 600) // filet si animationend ne part pas
 }
 
 function release(bindingId: string) {
@@ -213,6 +253,9 @@ function connect() {
         break
       case 'trigger':
         show(msg)
+        // Accusé immédiat : le Rust en déduit l'aller-retour réel (écran Debug).
+        if (msg.seq !== undefined && ws.readyState === WebSocket.OPEN)
+          ws.send(JSON.stringify({ type: 'ack', seq: msg.seq }))
         break
       case 'release':
         release(msg.bindingId)

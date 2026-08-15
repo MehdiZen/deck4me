@@ -1,83 +1,218 @@
-import { Component, inject } from '@angular/core'
+import { Component, effect, inject } from '@angular/core'
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router'
+import { listen } from '@tauri-apps/api/event'
+import { Icon } from './components/icon'
 import { DetectionService } from './services/detection.service'
 import { MatcherService } from './services/matcher.service'
 import { StoreService } from './services/store.service'
+import { UpdateService } from './services/update.service'
 
+/**
+ * Coque de l'application : rail à gauche, écran à droite.
+ *
+ * Le rail n'est pas qu'une navigation. Son tiers bas est une régie toujours
+ * visible — profil actif, cadence, coupure d'urgence — parce que ce sont les
+ * trois choses qu'on cherche en panique pendant un live, et qu'aller les
+ * chercher dans un écran serait déjà trop long.
+ */
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, Icon],
   template: `
-    <header>
-      <span class="logo">meme4me</span>
-      <nav>
-        <a routerLink="/gestures" routerLinkActive="on">Gestures</a>
-        <a routerLink="/live" routerLinkActive="on">Live</a>
-        <a routerLink="/reglages" routerLinkActive="on">Réglages</a>
-      </nav>
-      <span class="spacer"></span>
-      @if (matcher.muted()) {
-        <span class="badge err"><i class="led live"></i>gestures coupées</span>
-        <button class="primary" (click)="matcher.unmute()">Réactiver</button>
-      } @else if (detection.running()) {
-        <span class="badge ok">
-          <i class="led on"></i>détection
-          <b class="num">{{ detection.fps() }}</b> fps
-        </span>
-        <button class="danger" (click)="matcher.panic()">Panic</button>
-      } @else {
-        <span class="badge"><i class="led"></i>caméra à l'arrêt</span>
-      }
-    </header>
-    <main>
-      <router-outlet />
-    </main>
+    <div class="shell">
+      <aside class="rail">
+        <div class="brand">
+          <span class="mark"></span>
+          <span class="word">meme<b>4</b>me</span>
+        </div>
+
+        <nav>
+          <a routerLink="/live" routerLinkActive="on"><app-icon name="live" /> Live</a>
+          <a routerLink="/gestures" routerLinkActive="on"><app-icon name="hand" /> Gestures</a>
+          <a routerLink="/debug" routerLinkActive="on"><app-icon name="pulse" /> Debug</a>
+          <a routerLink="/reglages" routerLinkActive="on"><app-icon name="sliders" /> Réglages</a>
+        </nav>
+
+        <span class="spacer"></span>
+
+        <!-- Régie -->
+        <div class="console">
+          @if (store.profiles().length > 1) {
+            <label class="prof">
+              <app-icon name="layers" [size]="15" />
+              <select
+                [value]="store.activeProfile()?.id ?? ''"
+                (change)="switchProfile($event)"
+                aria-label="Profil actif"
+              >
+                @for (p of store.profiles(); track p.id) {
+                  <option [value]="p.id">{{ p.name }}</option>
+                }
+              </select>
+            </label>
+          }
+
+          <div class="meter" [class.armed]="detection.running()">
+            <span class="lbl">cadence</span>
+            <span class="val num">{{ detection.running() ? detection.fps() : '—' }}</span>
+            <span class="unit">fps</span>
+          </div>
+
+          @if (matcher.muted()) {
+            <button class="primary wide" (click)="matcher.unmute()">
+              <app-icon name="play" [size]="16" /> Réactiver
+            </button>
+            <p class="cut">Gestures coupées.</p>
+          } @else {
+            <button class="danger wide" (click)="matcher.panic()">
+              <app-icon name="power" [size]="16" /> Panic
+            </button>
+          }
+        </div>
+      </aside>
+
+      <main>
+        <router-outlet />
+      </main>
+    </div>
   `,
   styles: `
-    header {
-      display: flex; align-items: center; gap: 22px;
-      padding: 11px 22px;
-      background: var(--panel);
-      border-bottom: 1px solid var(--line);
-      position: sticky; top: 0; z-index: 10;
+    .shell { display: flex; height: 100vh; overflow: hidden; }
+
+    .rail {
+      width: var(--rail);
+      flex: none;
+      display: flex;
+      flex-direction: column;
+      padding: 18px 14px 14px;
+      gap: 4px;
+      background: linear-gradient(180deg, #17161f, #121118);
+      border-right: 1px solid var(--line);
+      box-shadow: 1px 0 0 #ffffff06;
+      z-index: 5;
     }
-    .logo {
-      font-weight: 700; font-size: 15px; letter-spacing: -0.02em;
-      color: var(--ink);
+
+    /* Marque : le carré d'accent porte l'identité, le mot la porte en creux.
+       Le 4 en violet fait le lien entre le pictogramme et le nom. */
+    .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 20px; }
+    .mark {
+      width: 22px; height: 22px; border-radius: 7px;
+      background: linear-gradient(145deg, var(--accent-hi), var(--accent-lo));
+      box-shadow: 0 4px 14px -4px var(--accent-glow), inset 0 1px 0 #ffffff40;
+      position: relative;
     }
-    .logo::before {
-      content: ''; display: inline-block;
-      width: 8px; height: 8px; margin-right: 9px; vertical-align: 1px;
-      border-radius: 2px; background: var(--accent);
+    .mark::after {
+      content: '';
+      position: absolute; inset: 6px 6px auto 6px; height: 3px;
+      border-radius: 99px; background: #ffffffd0;
+      box-shadow: 0 5px 0 #ffffff70;
     }
-    .spacer { flex: 1; }
-    /* Navigation en segments : on voit où on est, pas juste où on peut aller */
-    nav {
-      display: flex; gap: 2px;
-      background: var(--ground);
-      border: 1px solid var(--line-soft);
-      border-radius: 9px;
-      padding: 3px;
-    }
+    .word { font-size: 15.5px; font-weight: 640; letter-spacing: -0.025em; }
+    .word b { color: var(--accent-hi); font-weight: 640; }
+
+    nav { display: flex; flex-direction: column; gap: 2px; }
     nav a {
+      position: relative;
+      display: flex; align-items: center; gap: 11px;
+      padding: 9px 11px; border-radius: 9px;
       color: var(--ink-2); text-decoration: none;
-      padding: 5px 13px; border-radius: 6px;
-      font-size: 13px; font-weight: 500;
-      transition: color 120ms ease, background 120ms ease;
+      font-size: 13.5px; font-weight: 520;
+      transition: color 160ms var(--ease), background 160ms var(--ease);
     }
-    nav a:hover { color: var(--ink); }
-    nav a.on { background: var(--panel-2); color: var(--ink); box-shadow: var(--shadow); }
-    header .badge b { font-weight: 600; }
-    main { padding: 22px; }
+    nav a app-icon { color: var(--ink-3); transition: color 160ms var(--ease); }
+    nav a:hover { color: var(--ink); background: #ffffff08; }
+    nav a:hover app-icon { color: var(--ink-2); }
+    nav a.on { color: var(--ink); background: var(--accent-wash); font-weight: 580; }
+    nav a.on app-icon { color: var(--accent-hi); }
+    /* Marqueur de position : un trait lumineux collé au bord du rail */
+    nav a.on::before {
+      content: '';
+      position: absolute; left: -14px; top: 50%; transform: translateY(-50%);
+      width: 3px; height: 20px; border-radius: 0 3px 3px 0;
+      background: var(--accent-hi);
+      box-shadow: 0 0 12px var(--accent);
+    }
+
+    .console {
+      display: flex; flex-direction: column; gap: 9px;
+      padding: 12px; border-radius: var(--r-panel);
+      background: #0d0c12;
+      border: 1px solid var(--line-soft);
+      box-shadow: var(--edge);
+    }
+
+    .prof { display: flex; align-items: center; gap: 8px; color: var(--ink-3); }
+    .prof select {
+      flex: 1; min-width: 0; padding: 6px 26px 6px 9px;
+      font-size: 12.5px; background-color: var(--panel-2);
+      background-position: right 8px center;
+    }
+
+    /* Cadran de cadence : le chiffre domine, l'unité s'efface */
+    .meter {
+      display: flex; align-items: baseline; gap: 6px;
+      padding: 2px 2px 4px;
+    }
+    .meter .lbl { flex: 1; font-size: 10px; }
+    .meter .val {
+      font-size: 21px; font-weight: 600; letter-spacing: -0.03em;
+      color: var(--ink-3); transition: color 300ms var(--ease);
+    }
+    .meter.armed .val { color: var(--st-armed); text-shadow: 0 0 18px #17a26866; }
+    .meter .unit { font-size: 10.5px; color: var(--ink-3); }
+
+    .wide { width: 100%; }
+    .cut { margin: 0; font-size: 11.5px; color: var(--st-live); text-align: center; }
+
+    main { flex: 1; min-width: 0; overflow-y: auto; padding: 26px 30px 40px; }
   `,
 })
 export class App {
   protected detection = inject(DetectionService)
   protected matcher = inject(MatcherService)
-  private store = inject(StoreService)
+  protected store = inject(StoreService)
+  private updates = inject(UpdateService)
 
   constructor() {
-    void this.store.load()
+    // La vérification de mise à jour attend que les réglages soient lus :
+    // c'est eux qui disent si elle doit avoir lieu.
+    void this.store.load().then(() => this.updates.checkOnStartup())
     this.matcher.init()
+    void this.bindHotkeys()
+
+    // Le raccourci « panic » est traité côté Rust (l'overlay est nettoyé même
+    // si la webview rame) ; ici on ne fait que refléter l'état.
+    effect(() => {
+      if (this.matcher.muted()) document.title = 'meme4me — COUPÉ'
+      else document.title = 'meme4me Studio'
+    })
+  }
+
+  private async bindHotkeys(): Promise<void> {
+    try {
+      await listen<string>('hotkey', ({ payload }) => {
+        switch (payload) {
+          case 'panic':
+            void this.matcher.panic()
+            break
+          case 'resume':
+            this.matcher.unmute()
+            break
+          case 'toggle_detection':
+            if (this.detection.running()) this.detection.stop()
+            else void this.detection.start().catch(() => {})
+            break
+          case 'next_profile':
+            void this.store.nextProfile()
+            break
+        }
+      })
+    } catch {
+      /* hors webview Tauri : pas de raccourcis, le reste marche */
+    }
+  }
+
+  async switchProfile(ev: Event): Promise<void> {
+    await this.store.setActiveProfile((ev.target as HTMLSelectElement).value)
   }
 }

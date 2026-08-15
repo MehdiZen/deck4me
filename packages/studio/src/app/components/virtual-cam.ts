@@ -158,7 +158,7 @@ const EMPTY: VcamStatus = {
     .row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin-bottom: 12px; }
     .row:last-child { margin-bottom: 0; }
     .grow { flex: 1; min-width: 160px; }
-    .hint { flex-basis: 100%; margin: 0; }
+    .hint { flex-basis: 100%; margin: 0; text-transform: none; letter-spacing: 0; }
   `,
 })
 export class VirtualCamCard implements OnDestroy {

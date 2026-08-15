@@ -27,6 +27,14 @@ export class DetectionService {
   readonly status = signal<string>('caméra arrêtée')
   readonly fps = signal(0)
 
+  /** Métrologie (phase 5), en millisecondes, lissée sur ~1 s.
+   *  `inferenceMs` = les deux passes MediaPipe ; `prepMs` = réduction de la
+   *  source. Ensemble ils expliquent la cadence bien mieux que le fps seul. */
+  readonly inferenceMs = signal(0)
+  readonly prepMs = signal(0)
+  private infAcc = 0
+  private prepAcc = 0
+
   /** Caméras disponibles + sélection persistée (localStorage). */
   readonly cameras = signal<MediaDeviceInfo[]>([])
   readonly selectedCameraId = signal<string>(localStorage.getItem('meme4me.cameraId') ?? '')
@@ -175,8 +183,12 @@ export class DetectionService {
       }
       this.workCtx!.drawImage(video, 0, 0, dw, dh)
 
+      const tPrep = performance.now()
       const faceRes = this.face!.detectForVideo(this.work, ts)
       const handRes = this.hand!.detectForVideo(this.work, ts)
+      const tInfer = performance.now()
+      this.prepAcc += tPrep - ts
+      this.infAcc += tInfer - tPrep
 
       // Ancre visage (featurizer v2) : nez + écart inter-oculaire, pour situer
       // les mains par rapport à la tête indépendamment de la distance caméra.
@@ -205,7 +217,12 @@ export class DetectionService {
 
       this.frameCount++
       if (ts - this.lastFpsAt > 1000) {
+        const n = this.frameCount || 1
         this.fps.set(Math.round((this.frameCount * 1000) / (ts - this.lastFpsAt || 1)))
+        this.inferenceMs.set(this.infAcc / n)
+        this.prepMs.set(this.prepAcc / n)
+        this.infAcc = 0
+        this.prepAcc = 0
         this.frameCount = 0
         this.lastFpsAt = ts
       }

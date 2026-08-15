@@ -26,6 +26,8 @@ base64 = "0.22"
 libloading = "0.8"
 nokhwa = { version = "0.10", features = ["input-msmf"] }
 winreg = "0.52"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-updater = "2"
 
 [dev-dependencies]
 libloading = "0.8"

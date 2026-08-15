@@ -126,37 +126,54 @@ const SAMPLES_PER_TAKE = 8 // unique est artificiellement basse → seuil irréa
   styles: `
     .modal-bg {
       position: fixed; inset: 0; z-index: 50;
-      background: #0b0a0ecc;
-      backdrop-filter: blur(3px);
+      background: #07060acc;
+      backdrop-filter: blur(5px);
       display: grid; place-items: center;
-      animation: fade 140ms ease-out;
+      animation: fade 160ms ease-out;
     }
     @keyframes fade { from { opacity: 0 } }
     .modal {
-      width: 560px; max-height: 90vh; overflow-y: auto;
-      box-shadow: 0 24px 60px #0009;
+      width: 580px; max-height: 90vh; overflow-y: auto;
+      border-radius: var(--r-big);
+      box-shadow: var(--edge), 0 40px 90px -20px #000d;
+      animation: pop 220ms var(--spring) both;
     }
-    .modal h2 { margin-bottom: 14px; }
-    /* Compte à rebours : un relevé d'instrument, pas un titre */
+    @keyframes pop { from { opacity: 0; transform: translateY(10px) scale(.985) } }
+    .modal h2 { margin-bottom: 14px; font-size: 17px; }
+    app-camera-view {
+      display: block; border-radius: var(--r-control); overflow: hidden;
+      border: 1px solid var(--line);
+    }
+    /* Compte à rebours : un relevé d'instrument, pas un titre.
+       Il pulse à chaque seconde — sans ça, on ne sait pas s'il tourne. */
     .count {
       font-family: var(--font-data);
       font-variant-numeric: tabular-nums;
-      font-size: 60px; font-weight: 600; line-height: 1.1;
-      text-align: center; margin: 14px 0 4px;
+      font-size: 68px; font-weight: 600; line-height: 1.05;
+      text-align: center; margin: 16px 0 4px;
       color: var(--accent-hi);
+      text-shadow: 0 0 40px var(--accent-glow);
+      animation: tickpulse 1s infinite var(--ease);
     }
+    @keyframes tickpulse { 0% { transform: scale(1.14); opacity: .75 } 30%, 100% { transform: none; opacity: 1 } }
     .progress {
-      height: 8px; background: var(--ground); border-radius: 99px;
-      margin: 14px 0; overflow: hidden; border: 1px solid var(--line-soft);
+      height: 9px; background: var(--void); border-radius: 99px;
+      margin: 16px 0; overflow: hidden; border: 1px solid var(--line-soft);
     }
     .progress > div {
-      height: 100%; background: var(--accent); border-radius: 99px;
+      height: 100%; border-radius: 99px;
+      background: linear-gradient(90deg, var(--accent-lo), var(--accent-hi));
+      box-shadow: 0 0 16px var(--accent-glow);
       transition: width .1s linear;
     }
-    ul { margin: 10px 0; padding-left: 18px; font-size: 13px; }
-    li { margin-bottom: 3px; }
+    ul { margin: 12px 0; padding: 0; list-style: none; font-size: 13px; }
+    li {
+      display: flex; align-items: baseline; gap: 10px;
+      padding: 7px 0; border-bottom: 1px solid var(--line-soft);
+    }
+    li:last-child { border-bottom: 0; }
     li b { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
-    .verdict { display: block; padding: 10px 12px; line-height: 1.5; white-space: normal; }
+    .verdict { display: block; padding: 11px 13px; line-height: 1.55; white-space: normal; }
   `,
 })
 export class Wizard {
@@ -281,7 +298,9 @@ export class Wizard {
     const baseline = this.store.baseline()
     const gesture: StoredGesture = {
       id: crypto.randomUUID(),
-      profileId: 'default',
+      // La gesture naît dans le profil affiché : c'est celui que l'utilisateur
+      // regardait en cliquant « Enregistrer ».
+      profileId: this.store.activeProfile()?.id ?? 'default',
       name: this.name.trim(),
       enabled: true,
       source: this.source,

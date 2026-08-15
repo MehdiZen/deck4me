@@ -5,18 +5,63 @@
 <title>meme4me overlay</title>
 <style>
   html, body { margin: 0; width: 100vw; height: 100vh; overflow: hidden; background: transparent; }
+  /* v2 : le conteneur porte la largeur (% du cadre), le média la remplit. */
   .fm-item { position: absolute; will-change: transform, opacity; }
-  .fm-media { display: block; transform-origin: center; }
-  @keyframes fm-pop { 0% { transform: scale(.4); opacity: 0 } 70% { transform: scale(1.08); opacity: 1 } 100% { transform: scale(1) } }
+  .fm-media { display: block; width: 100%; height: auto; transform-origin: center; }
+
+  /* Entrées. Les courbes comptent autant que les images : un ressort léger
+     (cubic-bezier au-delà de 1) donne le « claquant » qu'un ease-out plat n'a
+     pas. Durées courtes — au-delà de 250 ms le bit tombe à plat. */
+  @keyframes fm-pop {
+    0%   { transform: scale(.3) rotate(-6deg); opacity: 0 }
+    60%  { transform: scale(1.12) rotate(2deg); opacity: 1 }
+    80%  { transform: scale(.96) rotate(-1deg) }
+    100% { transform: none }
+  }
   @keyframes fm-fade-in { from { opacity: 0 } to { opacity: 1 } }
-  @keyframes fm-slide { from { transform: translateY(36px); opacity: 0 } to { transform: none; opacity: 1 } }
+  @keyframes fm-slide {
+    from { transform: translateX(-14%) scale(.94); opacity: 0 }
+    to   { transform: none; opacity: 1 }
+  }
+  @keyframes fm-drop {
+    0%   { transform: translateY(-60%) scale(.9); opacity: 0 }
+    65%  { transform: translateY(6%) scale(1.04); opacity: 1 }
+    82%  { transform: translateY(-2%) scale(.99) }
+    100% { transform: none }
+  }
+  @keyframes fm-shake {
+    0%   { transform: scale(.6); opacity: 0 }
+    35%  { transform: scale(1.06) rotate(0deg); opacity: 1 }
+    50%  { transform: rotate(-7deg) }
+    65%  { transform: rotate(6deg) }
+    78%  { transform: rotate(-4deg) }
+    90%  { transform: rotate(2deg) }
+    100% { transform: none }
+  }
+  @keyframes fm-spin {
+    0%   { transform: scale(.2) rotate(-320deg); opacity: 0 }
+    70%  { transform: scale(1.08) rotate(8deg); opacity: 1 }
+    100% { transform: none }
+  }
+
+  /* Sorties : plus rapides que les entrées, on ne fait pas attendre le cadre. */
   @keyframes fm-fade-out { to { opacity: 0 } }
-  @keyframes fm-shrink { to { transform: scale(.55); opacity: 0 } }
-  .fm-enter-pop { animation: fm-pop 160ms ease-out both }
-  .fm-enter-fade { animation: fm-fade-in 180ms ease-out both }
-  .fm-enter-slide { animation: fm-slide 200ms ease-out both }
-  .fm-exit-fade { animation: fm-fade-out 220ms ease-in both }
-  .fm-exit-shrink { animation: fm-shrink 200ms ease-in both }
+  @keyframes fm-shrink { to { transform: scale(.45) rotate(4deg); opacity: 0 } }
+  @keyframes fm-slide-out { to { transform: translateX(16%); opacity: 0 } }
+  @keyframes fm-drop-out { to { transform: translateY(70%) rotate(9deg); opacity: 0 } }
+
+  .fm-enter-pop   { animation: fm-pop   260ms cubic-bezier(.34,1.56,.64,1) both }
+  .fm-enter-fade  { animation: fm-fade-in 180ms ease-out both }
+  .fm-enter-slide { animation: fm-slide 220ms cubic-bezier(.22,1,.36,1) both }
+  .fm-enter-drop  { animation: fm-drop  380ms cubic-bezier(.3,1.4,.5,1) both }
+  .fm-enter-shake { animation: fm-shake 460ms ease-out both }
+  .fm-enter-spin  { animation: fm-spin  380ms cubic-bezier(.28,1.3,.5,1) both }
+
+  .fm-exit-fade   { animation: fm-fade-out 200ms ease-in both }
+  .fm-exit-shrink { animation: fm-shrink 190ms cubic-bezier(.55,0,.85,.3) both }
+  .fm-exit-slide  { animation: fm-slide-out 200ms cubic-bezier(.55,0,.85,.3) both }
+  .fm-exit-drop   { animation: fm-drop-out 260ms cubic-bezier(.55,0,.85,.3) both }
+
   #fm-status { position: fixed; left: 6px; bottom: 6px; width: 7px; height: 7px;
     border-radius: 50%; background: #ef4444; display: none; }
 </style>

@@ -34,6 +34,14 @@ impl GestureRecord {
             .and_then(Value::as_str)
             .unwrap_or("fixed_duration")
     }
+    /// Absent des enregistrements antérieurs aux profils : ils appartiennent
+    /// alors au profil « default », que `normalize_profiles` garantit présent.
+    pub fn profile_id(&self) -> Option<&str> {
+        self.0
+            .get("profileId")
+            .and_then(Value::as_str)
+            .or(Some("default"))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -63,6 +71,26 @@ pub struct AssetMeta {
     pub size_bytes: u64,
 }
 
+/// Réglages d'application (phase 6). `#[serde(default)]` partout : une base
+/// écrite par une version antérieure se relit sans perdre une gesture.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Settings {
+    /// action → accélérateur Tauri ("CmdOrCtrl+Shift+P"). Vide = non assigné.
+    pub hotkeys: std::collections::BTreeMap<String, String>,
+    /// Vérification des mises à jour au démarrage.
+    pub auto_update_check: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            hotkeys: std::collections::BTreeMap::new(),
+            auto_update_check: true,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Db {
@@ -73,6 +101,8 @@ pub struct Db {
     pub assets: Vec<AssetMeta>,
     /// Asset embarqué servant d'image de test quand une gesture n'a pas de binding.
     pub default_asset_id: Option<String>,
+    #[serde(default)]
+    pub settings: Settings,
 }
 
 impl Default for Db {
@@ -88,6 +118,7 @@ impl Default for Db {
             bindings: vec![],
             assets: vec![],
             default_asset_id: None,
+            settings: Settings::default(),
         }
     }
 }
@@ -111,6 +142,10 @@ pub fn sha1_hex(bytes: &[u8]) -> String {
     hex::encode(Sha1::digest(bytes))
 }
 
+/// Reconnaissance par octets d'en-tête — jamais par extension : le nom vient
+/// de l'utilisateur, les octets viennent du fichier.
+/// Le webm et l'ogg partagent des conteneurs proches de leurs cousins audio ;
+/// on tranche sur le conteneur, l'overlay route ensuite sur l'extension.
 pub fn sniff(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
     match bytes {
         [0x89, b'P', b'N', b'G', ..] => Some(("image/png", "png")),
@@ -118,9 +153,22 @@ pub fn sniff(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
         [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'E', b'B', b'P', ..] => {
             Some(("image/webp", "webp"))
         }
+        [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'A', b'V', b'E', ..] => {
+            Some(("audio/wav", "wav"))
+        }
         [0x1a, 0x45, 0xdf, 0xa3, ..] => Some(("video/webm", "webm")),
+        [b'O', b'g', b'g', b'S', ..] => Some(("audio/ogg", "ogg")),
+        [b'I', b'D', b'3', ..] => Some(("audio/mpeg", "mp3")),
+        // MP3 sans tag ID3 : trame MPEG audio (11 bits de synchro à 1)
+        [0xff, b, ..] if b & 0xe0 == 0xe0 => Some(("audio/mpeg", "mp3")),
         _ => None,
     }
+}
+
+/// Un asset audio ne se place pas sur le cadre : il se joue. Les deux familles
+/// ne se mélangent jamais dans l'interface, d'où ce prédicat partagé.
+pub fn is_audio(mime: &str) -> bool {
+    mime.starts_with("audio/")
 }
 
 /// Identifiants utilisés avant le renommage en meme4me. Les données vivent
@@ -162,6 +210,38 @@ fn adopt_legacy_data(dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+fn now_stamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Invariant tenu à l'ouverture plutôt qu'à chaque lecture : au moins un
+/// profil, exactement un actif. Toute l'app peut ensuite supposer que
+/// `active_profile()` répond.
+fn normalize_profiles(db: &mut Db) {
+    if db.profiles.is_empty() {
+        db.profiles.push(Profile {
+            id: "default".into(),
+            name: "Défaut".into(),
+            is_active: true,
+        });
+    }
+    if !db.profiles.iter().any(|p| p.is_active) {
+        db.profiles[0].is_active = true;
+    }
+    let mut seen = false;
+    for p in db.profiles.iter_mut() {
+        if p.is_active {
+            if seen {
+                p.is_active = false;
+            }
+            seen = true;
+        }
+    }
+}
+
 impl Store {
     pub fn open(dir: PathBuf) -> std::io::Result<Store> {
         fs::create_dir_all(&dir)?;
@@ -169,11 +249,23 @@ impl Store {
         fs::create_dir_all(dir.join("assets"))?;
         let db_path = dir.join("db.json");
         let mut db: Db = match fs::read(&db_path) {
-            Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_default(),
+            Ok(bytes) => match serde_json::from_slice(&bytes) {
+                Ok(db) => db,
+                Err(e) => {
+                    // Repartir sur une base vierge écraserait des heures
+                    // d'enregistrement. On met l'illisible de côté, nommé, pour
+                    // pouvoir le récupérer à la main.
+                    let backup = dir.join(format!("db.corrompu.{}.json", now_stamp()));
+                    let _ = fs::write(&backup, &bytes);
+                    eprintln!("db.json illisible ({e}) — sauvegardé dans {}", backup.display());
+                    Db::default()
+                }
+            },
             Err(_) => Db::default(),
         };
         // Migrations futures : match db.schema_version { ... }
         db.schema_version = SCHEMA_VERSION;
+        normalize_profiles(&mut db);
         let store = Store {
             dir,
             db: Mutex::new(db),
@@ -206,7 +298,7 @@ impl Store {
         let (mime, ext) = sniff(bytes).ok_or_else(|| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                "format non supporté (png, gif, webp, webm)",
+                "format non supporté (images png/gif/webp, vidéo webm, sons mp3/wav/ogg)",
             )
         })?;
         let id = sha1_hex(bytes);

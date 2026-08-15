@@ -4,141 +4,202 @@ import {
   ElementRef,
   OnDestroy,
   ViewChild,
+  computed,
+  effect,
   inject,
+  signal,
 } from '@angular/core'
 import { HYSTERESIS, type BlockDiag } from '@meme4me/core'
 import { CameraView } from '../components/camera-view'
+import { Icon } from '../components/icon'
+import { RangeFill } from '../range-fill'
 import { DetectionService } from '../services/detection.service'
 import { MatcherService } from '../services/matcher.service'
 import { StoreService, effectiveThreshold, type StoredGesture } from '../services/store.service'
 
 /**
- * Écran Live (pré-version de l'écran Debug de la phase 5).
- * Barres de distance + indicateurs par bloc en canvas, PAS en DOM : 30 Hz.
- * Les curseurs de sensibilité sont en DOM : ils ne changent qu'à la main.
+ * Écran Live : ce qu'on regarde pendant qu'on stream.
+ * Les barres de distance sont en canvas, PAS en DOM — elles se redessinent à
+ * 30 Hz et feraient tourner la change detection sur chaque frame.
+ * Les curseurs de sensibilité restent en DOM : ils ne bougent qu'à la main.
  */
 @Component({
   selector: 'app-live-page',
-  imports: [CameraView],
+  imports: [CameraView, Icon, RangeFill],
   template: `
     <div class="head">
-      <h1>Live</h1>
-      <span class="badge">
-        <i class="led" [class.on]="detection.running()"></i>{{ detection.status() }}
-        @if (detection.running()) {
-          · <b class="num">{{ detection.fps() }}</b> fps
-        }
-      </span>
+      <div>
+        <h1>Live</h1>
+        <p class="lbl sub">{{ detection.status() }}</p>
+      </div>
       <span class="spacer"></span>
       @if (!detection.running()) {
-        <button class="primary" (click)="detection.start()">Démarrer la caméra</button>
+        <button class="primary" (click)="detection.start()">
+          <app-icon name="play" [size]="16" /> Démarrer la caméra
+        </button>
       } @else {
-        <button (click)="detection.stop()">Arrêter la caméra</button>
+        <button (click)="detection.stop()"><app-icon name="stop" [size]="15" /> Arrêter</button>
       }
       @if (matcher.muted()) {
         <button class="primary" (click)="matcher.unmute()">Réactiver les gestures</button>
       } @else {
-        <button class="danger" (click)="matcher.panic()">Panic — tout couper</button>
+        <button class="danger" (click)="matcher.panic()">
+          <app-icon name="power" [size]="15" /> Panic
+        </button>
       }
     </div>
 
     <div class="cols">
-      <app-camera-view />
+      <div class="left">
+        <div class="card viewport" [class.fired]="flash()">
+          <app-camera-view />
+          <!-- Bandeau d'instrument sur l'image : ce qui compte pendant un live
+               se lit sans quitter la vidéo des yeux. -->
+          <div class="hud">
+            <span class="badge" [class.ok]="detection.running()">
+              <i class="led" [class.on]="detection.running()"></i>
+              {{ detection.running() ? 'détection' : 'arrêt' }}
+            </span>
+            @if (detection.running()) {
+              <span class="badge"><b class="num">{{ detection.fps() }}</b> fps</span>
+              @if (detection.sourceSize(); as s) {
+                <span class="badge"><span class="num">{{ s.w }}×{{ s.h }}</span></span>
+              }
+            }
+            <span class="spacer"></span>
+            @if (armed(); as n) {
+              <span class="badge ok"><span class="num">{{ n }}</span> armée(s)</span>
+            }
+          </div>
+        </div>
 
-      <div class="card grow">
-        <h2>Distances</h2>
-        <p class="lbl legend">
-          Barre = distance à la pose · trait plein = seuil · pointillé = relâche
-          (×{{ HYSTERESIS }}). Sous chaque barre, le détail par partie du corps.
-        </p>
-        <canvas #bars></canvas>
-
-        <div class="sep"></div>
-
-        <h2>Sensibilité</h2>
-        <p class="lbl legend">
-          Vers la droite, la pose déclenche plus facilement — et les faux positifs
-          arrivent plus vite. Prends la pose, regarde où s'arrête la barre, puis
-          amène le seuil juste au-delà.
-        </p>
-        @if (!store.gestures().length) {
-          <p class="empty">Aucune gesture enregistrée pour l'instant.</p>
-        }
-        <div class="sens">
-          @for (g of store.gestures(); track g.id) {
-            <div class="sensrow">
-              <span class="nm">{{ g.name }}</span>
-              <input
-                type="range"
-                min="0.4"
-                max="3"
-                step="0.05"
-                [value]="g.sensitivity ?? 1"
-                (input)="onSlide(g, $event)"
-                (change)="onCommit(g)"
-                [attr.aria-label]="'Sensibilité de ' + g.name"
-              />
-              <span class="pct num">{{ ((g.sensitivity ?? 1) * 100).toFixed(0) }}%</span>
-              <span class="thr num">{{ effective(g).toFixed(3) }}</span>
-              <button (click)="resetSens(g)" [disabled]="(g.sensitivity ?? 1) === 1">Auto</button>
-            </div>
+        <div class="card log-panel">
+          <h2>Derniers triggers</h2>
+          @if (!matcher.triggerLog().length) {
+            <p class="empty">Rien encore. Prends une pose enregistrée.</p>
           }
+          <ul class="log">
+            @for (t of matcher.triggerLog(); track t.ts) {
+              <li class="rise">
+                <i class="led" [class.on]="t.kind === 'fire'"></i>
+                <span class="nm">{{ t.name }}</span>
+                <span class="kind lbl">{{ t.kind === 'fire' ? 'affiché' : 'retiré' }}</span>
+                <span class="at num">{{ t.at }}</span>
+              </li>
+            }
+          </ul>
         </div>
       </div>
 
-      <div class="card log-panel">
-        <h2>Derniers triggers</h2>
-        @if (!matcher.triggerLog().length) {
-          <p class="empty">Rien encore. Prends une pose enregistrée.</p>
-        }
-        <ul class="log">
-          @for (t of matcher.triggerLog(); track $index) {
-            <li>
-              <i class="led" [class.on]="t.kind === 'fire'"></i>
-              <span class="nm">{{ t.name }}</span>
-              <span class="at num">{{ t.at }}</span>
-            </li>
+      <div class="right">
+        <div class="card">
+          <div class="cardhead">
+            <h2>Distances</h2>
+            <span class="lbl legend">
+              trait plein = seuil · pointillé = relâche (×{{ HYSTERESIS }})
+            </span>
+          </div>
+          <canvas #bars></canvas>
+        </div>
+
+        <div class="card">
+          <div class="cardhead">
+            <h2>Sensibilité</h2>
+          </div>
+          <p class="lbl hint">
+            Vers la droite, la pose déclenche plus facilement — et les faux positifs
+            arrivent plus vite. Prends la pose, regarde où s'arrête la barre, puis
+            amène le seuil juste au-delà.
+          </p>
+          @if (!store.gestures().length) {
+            <p class="empty">Aucune gesture enregistrée pour l'instant.</p>
           }
-        </ul>
+          <div class="sens">
+            @for (g of store.gestures(); track g.id) {
+              <div class="sensrow">
+                <span class="nm" [title]="g.name">{{ g.name }}</span>
+                <input
+                  type="range"
+                  min="0.4"
+                  max="3"
+                  step="0.05"
+                  [value]="g.sensitivity ?? 1"
+                  (input)="onSlide(g, $event)"
+                  (change)="onCommit(g)"
+                  [attr.aria-label]="'Sensibilité de ' + g.name"
+                />
+                <span class="pct num">{{ ((g.sensitivity ?? 1) * 100).toFixed(0) }}%</span>
+                <span class="thr num">{{ effective(g).toFixed(3) }}</span>
+                <button class="ghost sm" (click)="resetSens(g)" [disabled]="(g.sensitivity ?? 1) === 1">
+                  Auto
+                </button>
+              </div>
+            }
+          </div>
+        </div>
       </div>
     </div>
   `,
   styles: `
-    .head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-    .head h1 { margin: 0; }
-    .spacer { flex: 1; }
-    .cols { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
-    .grow { flex: 1 1 460px; min-width: 0; }
-    .log-panel { flex: 0 1 250px; min-width: 220px; }
-    canvas { display: block; width: 100%; }
-    .legend { max-width: 62ch; margin-bottom: 14px; }
-    .empty { color: var(--ink-3); font-size: 13px; }
-    .sep { height: 1px; background: var(--line-soft); margin: 20px 0 18px; }
+    .head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 20px; }
+    .head h1 { margin: 0 0 4px; }
+    .sub { margin: 0; text-transform: none; letter-spacing: 0; }
 
-    .log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+    .cols { display: flex; gap: 16px; align-items: flex-start; }
+    .left { flex: 0 1 500px; min-width: 340px; display: flex; flex-direction: column; gap: 16px; }
+    .right { flex: 1 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+    @media (max-width: 1120px) { .cols { flex-wrap: wrap; } .left, .right { flex-basis: 100%; } }
+
+    /* La vidéo occupe toute la carte : aucune marge ne vient la « décorer ». */
+    .viewport { padding: 0; overflow: hidden; transition: box-shadow 200ms var(--ease), border-color 200ms var(--ease); }
+    /* Un meme part à l'antenne : la carte s'allume une demi-seconde. C'est le
+       seul retour visuel qu'on peut capter du coin de l'œil sans lâcher la
+       caméra des yeux. */
+    .viewport.fired {
+      border-color: var(--st-armed);
+      box-shadow: var(--edge), 0 0 0 1px #17a26866, 0 0 34px -4px #17a268aa;
+    }
+    .viewport app-camera-view { display: block; }
+    .hud {
+      display: flex; align-items: center; gap: 7px;
+      padding: 10px 12px; border-top: 1px solid var(--line-soft);
+      background: #100f16;
+    }
+
+    .cardhead { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+    .cardhead h2 { margin: 0; }
+    .legend { flex: 1; text-align: right; text-transform: none; letter-spacing: 0; font-size: 11px; }
+    .hint { max-width: 64ch; margin-bottom: 14px; }
+
+    canvas { display: block; width: 100%; }
+    .empty { color: var(--ink-3); font-size: 13px; }
+
+    .log-panel { max-height: 320px; display: flex; flex-direction: column; }
+    .log { list-style: none; margin: 0; padding: 0; overflow-y: auto; }
     .log li {
-      display: flex; align-items: center; gap: 9px;
-      padding: 7px 0; border-bottom: 1px solid var(--line-soft);
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 0; border-bottom: 1px solid var(--line-soft);
       font-size: 13px;
     }
     .log li:last-child { border-bottom: 0; }
     .log .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .log .kind { font-size: 10px; }
     .log .at { color: var(--ink-3); font-size: 11.5px; }
 
-    .sens { display: flex; flex-direction: column; gap: 4px; }
+    .sens { display: flex; flex-direction: column; gap: 2px; }
     .sensrow {
       display: flex; align-items: center; gap: 12px;
-      padding: 5px 8px; border-radius: var(--r-control);
+      padding: 6px 9px; border-radius: var(--r-control);
+      transition: background 140ms var(--ease);
     }
-    .sensrow:hover { background: var(--panel-2); }
+    .sensrow:hover { background: #ffffff07; }
     .sensrow .nm {
-      flex: 0 0 118px; font-size: 13px;
+      flex: 0 0 122px; font-size: 13px;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .sensrow input[type='range'] { flex: 1; min-width: 80px; }
     .sensrow .pct { flex: 0 0 40px; text-align: right; font-size: 12px; }
     .sensrow .thr { flex: 0 0 46px; text-align: right; font-size: 12px; color: var(--ink-3); }
-    .sensrow button { padding: 4px 11px; font-size: 12px; }
   `,
 })
 export class LivePage implements AfterViewInit, OnDestroy {
@@ -148,6 +209,20 @@ export class LivePage implements AfterViewInit, OnDestroy {
   protected readonly HYSTERESIS = HYSTERESIS
   @ViewChild('bars') barsRef!: ElementRef<HTMLCanvasElement>
   private raf = 0
+
+  readonly armed = computed(() => this.store.gestures().filter((g) => g.enabled).length)
+  readonly flash = signal(false)
+  private lastLogged = 0
+
+  constructor() {
+    effect(() => {
+      const top = this.matcher.triggerLog()[0]
+      if (!top || top.kind !== 'fire' || top.ts === this.lastLogged) return
+      this.lastLogged = top.ts
+      this.flash.set(true)
+      setTimeout(() => this.flash.set(false), 450)
+    })
+  }
 
   ngAfterViewInit(): void {
     const draw = () => {
@@ -206,7 +281,7 @@ export class LivePage implements AfterViewInit, OnDestroy {
 
   /** Barre à extrémité arrondie, ancrée à la ligne de base. */
   private bar(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number): void {
-    const r = Math.min(4, w / 2)
+    const r = Math.min(h / 2, w / 2)
     ctx.beginPath()
     ctx.moveTo(x, y)
     ctx.lineTo(x + w - r, y)
@@ -219,12 +294,13 @@ export class LivePage implements AfterViewInit, OnDestroy {
   }
 
   private drawBars(): void {
-    const canvas = this.barsRef.nativeElement
+    const canvas = this.barsRef?.nativeElement
+    if (!canvas) return
     const snaps = this.matcher.lastSnapshots
-    const ROW = 62
-    const BAR_H = 10
+    const ROW = 66
+    const BAR_H = 12
     const cssW = canvas.clientWidth || 480
-    const cssH = Math.max(1, snaps.length) * ROW + 12
+    const cssH = Math.max(1, snaps.length) * ROW + 10
     const dpr = window.devicePixelRatio || 1
     const pxW = Math.round(cssW * dpr)
     const pxH = Math.round(cssH * dpr)
@@ -242,7 +318,7 @@ export class LivePage implements AfterViewInit, OnDestroy {
     const ink = this.token('--ink')
     const ink2 = this.token('--ink-2')
     const ink3 = this.token('--ink-3')
-    const track = this.token('--ground')
+    const track = this.token('--void')
     const panel = this.token('--panel-2')
     const uiFont = '12.5px "Segoe UI Variable Display", "Segoe UI", system-ui'
     const dataFont = '12px "Cascadia Mono", ui-monospace, Consolas, monospace'
@@ -271,6 +347,7 @@ export class LivePage implements AfterViewInit, OnDestroy {
     snaps.forEach((s, i) => {
       const y = i * ROW + 8
       const color = this.stateColor(s.state)
+      const active = s.state === 'ACTIVE'
 
       // Le nom porte l'encre du texte, jamais la couleur de série : c'est le
       // voyant à gauche qui porte l'identité d'état, doublé du mot lui-même.
@@ -296,23 +373,34 @@ export class LivePage implements AfterViewInit, OnDestroy {
 
       const barY = y + 18
       ctx.fillStyle = track
-      ctx.fillRect(0, barY, cssW, BAR_H)
+      this.bar(ctx, 0, barY, cssW, BAR_H)
       if (s.dist !== null) {
-        ctx.fillStyle = color
-        this.bar(ctx, 0, barY, Math.max(2, Math.min(cssW, s.dist * SCALE)), BAR_H)
+        const w = Math.max(3, Math.min(cssW, s.dist * SCALE))
+        // Une gesture qui déclenche mérite d'être vue du coin de l'œil :
+        // c'est le seul moment où la toile s'autorise une lueur.
+        if (active) {
+          ctx.shadowColor = color
+          ctx.shadowBlur = 14
+        }
+        const grad = ctx.createLinearGradient(0, 0, w, 0)
+        grad.addColorStop(0, color + 'bb')
+        grad.addColorStop(1, color)
+        ctx.fillStyle = grad
+        this.bar(ctx, 0, barY, w, BAR_H)
+        ctx.shadowBlur = 0
       }
 
       // Repères récessifs : seuil (plein) et sortie d'hystérésis (pointillé)
       const tx = Math.min(cssW - 2, s.threshold * SCALE)
       ctx.fillStyle = ink2
-      ctx.fillRect(tx, barY - 3, 1.5, BAR_H + 6)
+      ctx.fillRect(tx, barY - 4, 1.5, BAR_H + 8)
       ctx.strokeStyle = ink3
       ctx.lineWidth = 1
       ctx.setLineDash([2, 3])
       ctx.beginPath()
       const hx = Math.min(cssW - 1, s.threshold * HYSTERESIS * SCALE)
-      ctx.moveTo(hx, barY - 3)
-      ctx.lineTo(hx, barY + BAR_H + 3)
+      ctx.moveTo(hx, barY - 4)
+      ctx.lineTo(hx, barY + BAR_H + 4)
       ctx.stroke()
       ctx.setLineDash([])
 
@@ -320,12 +408,12 @@ export class LivePage implements AfterViewInit, OnDestroy {
       // (le seuil porte sur la moyenne) mais c'est ce qui se lit le mieux :
       // « cette partie à elle seule dépasse le budget total ».
       let x = 0
-      const chipY = barY + BAR_H + 8
+      const chipY = barY + BAR_H + 9
       ctx.font = dataFont
       for (const b of s.blocks ?? []) {
         const label = this.blockLabel(b)
         const text = b.dist === null ? `${label} —` : `${label} ${b.dist.toFixed(2)}`
-        const w = ctx.measureText(text).width + 14
+        const w = ctx.measureText(text).width + 15
         if (x + w > cssW) break // jamais de débordement
         const over = b.dist !== null && b.dist > s.threshold
         const hue =
@@ -335,11 +423,11 @@ export class LivePage implements AfterViewInit, OnDestroy {
               ? this.token('--st-live')
               : this.token('--st-armed')
         ctx.fillStyle = panel
-        ctx.fillRect(x, chipY, w, 17)
+        this.bar(ctx, x, chipY, w, 18)
         ctx.fillStyle = hue
-        ctx.fillRect(x, chipY, 2, 17) // liseré : l'état se lit aussi à la forme
+        ctx.fillRect(x, chipY + 4, 2, 10) // liseré : l'état se lit aussi à la forme
         ctx.fillStyle = b.dist === null ? ink3 : ink2
-        ctx.fillText(text, x + 9, chipY + 12)
+        ctx.fillText(text, x + 10, chipY + 12.5)
         x += w + 5 // écart de surface entre pastilles
       }
     })

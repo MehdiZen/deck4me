@@ -1,12 +1,13 @@
+pub mod hotkeys;
 pub mod server;
 pub mod store;
 pub mod virtualcam;
 
 use base64::Engine;
 use serde_json::{json, Value};
-use server::{ServerState, Sound, TriggerEvent, WsMsg, DEFAULT_PORT};
+use server::{OverlayStats, ServerState, Sound, TriggerEvent, WsMsg, DEFAULT_PORT};
 use std::sync::Arc;
-use store::{AssetMeta, BindingRecord, GestureRecord, Store};
+use store::{AssetMeta, BindingRecord, GestureRecord, Profile, Settings, Store};
 use tauri::Manager;
 use virtualcam::{VcamDevice, VcamFormat, VcamStatus, VirtualCam};
 
@@ -48,16 +49,22 @@ fn build_trigger(app: &App, gesture_id: &str) -> Result<TriggerEvent, String> {
             let asset_url = store
                 .asset_url(&asset_id)
                 .ok_or("asset introuvable pour ce binding")?;
-            let sound = f(&b, "sound").and_then(|s| serde_json::from_value::<Sound>(s).ok());
+            // Le binding ne stocke qu'un identifiant d'asset : c'est ici, au
+            // moment du trigger, que l'URL jetonnée est fabriquée. Le jeton ne
+            // transite donc jamais par la base.
+            let sound = f(&b, "sound").and_then(|s| {
+                let id = s.get("assetId")?.as_str()?;
+                Some(Sound {
+                    url: store.asset_url(id)?,
+                    volume: s.get("volume").and_then(Value::as_f64).unwrap_or(0.8),
+                })
+            });
             Ok(TriggerEvent {
                 binding_id: b.id().unwrap_or("binding").to_string(),
                 asset_url,
-                anchor: f(&b, "anchor")
-                    .and_then(|v| v.as_str().map(String::from))
-                    .unwrap_or_else(|| "center".into()),
-                x: f(&b, "x").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                y: f(&b, "y").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                scale: f(&b, "scale").and_then(|v| v.as_f64()).unwrap_or(1.0),
+                x: f(&b, "x").and_then(|v| v.as_f64()).unwrap_or(50.0),
+                y: f(&b, "y").and_then(|v| v.as_f64()).unwrap_or(50.0),
+                size_pct: f(&b, "sizePct").and_then(|v| v.as_f64()).unwrap_or(25.0),
                 duration_ms: f(&b, "durationMs").and_then(|v| v.as_u64()).unwrap_or(3000),
                 enter: f(&b, "enter")
                     .and_then(|v| v.as_str().map(String::from))
@@ -68,6 +75,7 @@ fn build_trigger(app: &App, gesture_id: &str) -> Result<TriggerEvent, String> {
                 layer: f(&b, "layer").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
                 hold,
                 sound,
+                seq: None,
             })
         }
         None => {
@@ -78,16 +86,16 @@ fn build_trigger(app: &App, gesture_id: &str) -> Result<TriggerEvent, String> {
             Ok(TriggerEvent {
                 binding_id: format!("test:{gesture_id}"),
                 asset_url,
-                anchor: "center".into(),
-                x: 0.0,
-                y: 0.0,
-                scale: 1.0,
+                x: 50.0,
+                y: 50.0,
+                size_pct: 25.0,
                 duration_ms: 2500,
                 enter: "pop".into(),
                 exit: "fade".into(),
                 layer: 0,
                 hold,
                 sound: None,
+                seq: None,
             })
         }
     }
@@ -113,9 +121,11 @@ fn bootstrap(app: tauri::State<App>) -> Value {
         "bindings": db.bindings,
         "assets": db.assets,
         "defaultAssetId": db.default_asset_id,
+        "settings": db.settings,
         "overlayUrl": overlay_url_of(&app),
         "hasCalibration": app.state.store.read_calibration().is_some(),
         "port": app.port,
+        "version": env!("CARGO_PKG_VERSION"),
     })
 }
 
@@ -162,9 +172,10 @@ fn save_binding(app: tauri::State<App>, binding: Value) -> Result<(), String> {
         db.bindings.push(BindingRecord(binding));
     }
     store.save().map_err(|e| e.to_string())?;
-    // Handoff : reload quand un binding change → l'overlay repart propre
-    // et reçoit un preload frais à la reconnexion.
-    app.state.broadcast(&WsMsg::Reload);
+    // Un binding qui change vaut un nouveau préchargement (image ou son ajouté).
+    // Pas de reload : il couperait un meme en cours d'affichage à chaque
+    // mouvement de curseur dans l'éditeur.
+    app.state.broadcast(&app.state.preload_msg());
     Ok(())
 }
 
@@ -176,7 +187,9 @@ fn delete_binding(app: tauri::State<App>, id: String) -> Result<(), String> {
         db.bindings.retain(|b| b.id() != Some(id.as_str()));
     }
     store.save().map_err(|e| e.to_string())?;
-    app.state.broadcast(&WsMsg::Reload);
+    app.state.broadcast(&WsMsg::Clear {
+        binding_id: Some(id),
+    });
     Ok(())
 }
 
@@ -215,7 +228,7 @@ fn save_calibration(app: tauri::State<App>, calibration: Value) -> Result<(), St
 #[tauri::command]
 fn gesture_fired(app: tauri::State<App>, gesture_id: String) -> Result<(), String> {
     let trigger = build_trigger(&app, &gesture_id)?;
-    app.state.broadcast(&WsMsg::Trigger(trigger));
+    app.state.broadcast_trigger(trigger);
     Ok(())
 }
 
@@ -223,6 +236,49 @@ fn gesture_fired(app: tauri::State<App>, gesture_id: String) -> Result<(), Strin
 fn gesture_released(app: tauri::State<App>, gesture_id: String) {
     let binding_id = binding_id_for(&app, &gesture_id);
     app.state.broadcast(&WsMsg::Release { binding_id });
+}
+
+/// Aperçu depuis l'éditeur : le binding en cours d'édition n'est pas encore
+/// persisté, on diffuse donc l'événement tel quel.
+#[tauri::command]
+fn preview_binding(app: tauri::State<App>, binding: Value) -> Result<(), String> {
+    let store = &app.state.store;
+    let asset_id = binding
+        .get("assetId")
+        .and_then(Value::as_str)
+        .ok_or("aperçu sans assetId")?;
+    let asset_url = store.asset_url(asset_id).ok_or("asset introuvable")?;
+    let g = |k: &str| binding.get(k).cloned();
+    let sound = g("sound").and_then(|s| {
+        let id = s.get("assetId")?.as_str()?;
+        Some(Sound {
+            url: store.asset_url(id)?,
+            volume: s.get("volume").and_then(Value::as_f64).unwrap_or(0.8),
+        })
+    });
+    app.state.broadcast_trigger(TriggerEvent {
+        binding_id: binding
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("preview")
+            .to_string(),
+        asset_url,
+        x: g("x").and_then(|v| v.as_f64()).unwrap_or(50.0),
+        y: g("y").and_then(|v| v.as_f64()).unwrap_or(50.0),
+        size_pct: g("sizePct").and_then(|v| v.as_f64()).unwrap_or(25.0),
+        duration_ms: g("durationMs").and_then(|v| v.as_u64()).unwrap_or(2500),
+        enter: g("enter")
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_else(|| "pop".into()),
+        exit: g("exit")
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_else(|| "fade".into()),
+        layer: g("layer").and_then(|v| v.as_i64()).unwrap_or(0) as i32,
+        hold: false,
+        sound,
+        seq: None,
+    });
+    Ok(())
 }
 
 #[tauri::command]
@@ -233,6 +289,103 @@ fn panic_clear(app: tauri::State<App>) {
 #[tauri::command]
 fn overlay_url(app: tauri::State<App>) -> String {
     overlay_url_of(&app)
+}
+
+/// Métrologie du dernier kilomètre — alimente l'écran Debug (phase 5).
+#[tauri::command]
+fn overlay_stats(app: tauri::State<App>) -> OverlayStats {
+    app.state.overlay_stats()
+}
+
+// ---- Profils (phase 6) ----
+
+#[tauri::command]
+fn save_profile(app: tauri::State<App>, profile: Profile) -> Result<Vec<Profile>, String> {
+    let store = &app.state.store;
+    {
+        let mut db = store.db.lock().unwrap();
+        match db.profiles.iter_mut().find(|p| p.id == profile.id) {
+            Some(p) => p.name = profile.name,
+            None => db.profiles.push(Profile {
+                is_active: false, // l'activation est un geste explicite
+                ..profile
+            }),
+        }
+    }
+    store.save().map_err(|e| e.to_string())?;
+    Ok(app.state.store.db.lock().unwrap().profiles.clone())
+}
+
+/// Supprimer un profil emporte ses gestures et leurs bindings : garder des
+/// gestures orphelines qu'aucun écran n'affiche serait pire.
+#[tauri::command]
+fn delete_profile(app: tauri::State<App>, id: String) -> Result<Value, String> {
+    let store = &app.state.store;
+    {
+        let mut db = store.db.lock().unwrap();
+        if db.profiles.len() <= 1 {
+            return Err("il faut au moins un profil".into());
+        }
+        let doomed: Vec<String> = db
+            .gestures
+            .iter()
+            .filter(|g| g.profile_id() == Some(id.as_str()))
+            .filter_map(|g| g.id().map(String::from))
+            .collect();
+        db.gestures
+            .retain(|g| g.profile_id() != Some(id.as_str()));
+        db.bindings.retain(|b| {
+            b.gesture_id()
+                .map(|gid| !doomed.iter().any(|d| d == gid))
+                .unwrap_or(true)
+        });
+        let was_active = db
+            .profiles
+            .iter()
+            .any(|p| p.id == id && p.is_active);
+        db.profiles.retain(|p| p.id != id);
+        if was_active {
+            db.profiles[0].is_active = true;
+        }
+    }
+    store.save().map_err(|e| e.to_string())?;
+    app.state.broadcast(&WsMsg::Clear { binding_id: None });
+    let db = store.db.lock().unwrap();
+    Ok(json!({ "profiles": db.profiles, "gestures": db.gestures, "bindings": db.bindings }))
+}
+
+#[tauri::command]
+fn set_active_profile(app: tauri::State<App>, id: String) -> Result<Vec<Profile>, String> {
+    let store = &app.state.store;
+    {
+        let mut db = store.db.lock().unwrap();
+        if !db.profiles.iter().any(|p| p.id == id) {
+            return Err("profil inconnu".into());
+        }
+        for p in db.profiles.iter_mut() {
+            p.is_active = p.id == id;
+        }
+    }
+    store.save().map_err(|e| e.to_string())?;
+    // Changer de profil retire de l'écran les memes de l'ancien.
+    app.state.broadcast(&WsMsg::Clear { binding_id: None });
+    Ok(store.db.lock().unwrap().profiles.clone())
+}
+
+// ---- Réglages + raccourcis globaux (phase 6) ----
+
+#[tauri::command]
+fn save_settings(
+    app_handle: tauri::AppHandle,
+    app: tauri::State<App>,
+    settings: Settings,
+) -> Result<(), String> {
+    {
+        let mut db = app.state.store.db.lock().unwrap();
+        db.settings = settings;
+    }
+    app.state.store.save().map_err(|e| e.to_string())?;
+    hotkeys::apply(&app_handle)
 }
 
 // ---- Caméra virtuelle ----
@@ -291,8 +444,48 @@ async fn vcam_register(app: tauri::State<'_, App>, unregister: bool) -> Result<b
     .map_err(|e| e.to_string())?
 }
 
+// ---- Mise à jour (phase 6) ----
+
+/// Interroge le manifeste de mise à jour. Renvoie `null` si l'app est à jour ;
+/// une erreur si le canal n'est pas joignable — les deux cas sont montrés tels
+/// quels dans Réglages, sans jamais bloquer le démarrage.
+#[tauri::command]
+async fn check_update(app_handle: tauri::AppHandle) -> Result<Option<Value>, String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = app_handle.updater().map_err(|e| e.to_string())?;
+    match updater.check().await {
+        Ok(Some(u)) => Ok(Some(json!({
+            "version": u.version,
+            "currentVersion": u.current_version,
+            "notes": u.body,
+        }))),
+        Ok(None) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Télécharge et installe, puis relance. Rien n'est fait sans clic explicite :
+/// une mise à jour surprise pendant un live est un incident, pas un service.
+#[tauri::command]
+async fn install_update(app_handle: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+    let updater = app_handle.updater().map_err(|e| e.to_string())?;
+    let update = updater
+        .check()
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("aucune mise à jour disponible")?;
+    update
+        .download_and_install(|_, _| {}, || {})
+        .await
+        .map_err(|e| e.to_string())?;
+    app_handle.restart();
+}
+
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             let store = Arc::new(Store::open(dir)?);
@@ -322,6 +515,11 @@ pub fn run() {
                 port: DEFAULT_PORT,
                 vcam: Arc::new(VirtualCam::new(dll)),
             });
+            // Un raccourci déjà pris par un autre logiciel ne doit pas empêcher
+            // l'app de démarrer : l'échec est signalé, pas fatal.
+            if let Err(e) = hotkeys::apply(app.handle()) {
+                eprintln!("raccourcis globaux : {e}");
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -335,8 +533,16 @@ pub fn run() {
             save_calibration,
             gesture_fired,
             gesture_released,
+            preview_binding,
             panic_clear,
             overlay_url,
+            overlay_stats,
+            save_profile,
+            delete_profile,
+            set_active_profile,
+            save_settings,
+            check_update,
+            install_update,
             vcam_devices,
             vcam_formats,
             vcam_status,

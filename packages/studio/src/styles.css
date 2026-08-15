@@ -6,25 +6,33 @@
    toutes lettres, jamais de la couleur seule. */
 
 :root {
-  /* Neutres biaisés violet — choisis, pas hérités d'un gris standard */
-  --ground: #131218;
-  --panel: #1c1b24;
-  --panel-2: #23212d;
-  --line: #302e3c;
-  --line-soft: #26242f;
-  --ink: #eae7f2;
-  --ink-2: #a6a1b8;
-  --ink-3: #756f88;
+  /* Neutres biaisés violet — choisis, pas hérités d'un gris standard.
+     Trois fonds séparés par ~4 points de clarté : la profondeur se lit sans
+     qu'aucune bordure soit nécessaire. */
+  --void: #0a090e;
+  --ground: #0e0d13;
+  --panel: #17161f;
+  --panel-2: #1f1d29;
+  --panel-3: #292635;
+  --line: #2c2938;
+  --line-soft: #221f2c;
+  --ink: #f2effa;
+  --ink-2: #a9a3bd;
+  --ink-3: #736d88;
 
-  /* Accent : violet du streaming, dépensé avec parcimonie */
+  /* Accent : violet du streaming, dépensé avec parcimonie mais sans timidité */
   --accent: #8b5cf6;
   --accent-hi: #a78bfa;
-  --accent-ink: #17102a;
+  --accent-lo: #6d3fe0;
+  --accent-ink: #ffffff;
   --accent-wash: #8b5cf61f;
+  --accent-glow: #8b5cf666;
+  /* Second timbre, réservé aux mesures et à la métrologie */
+  --cyan: #38bdf8;
 
-  /* Voyants de régie (palette validée) */
+  /* Voyants de régie (palette validée pour la vision des couleurs) */
   --st-idle: #56536a;
-  --st-candidate: #c8820e;
+  --st-candidate: #d99012;
   --st-armed: #17a268;
   --st-cooldown: #3aa0c9;
   --st-live: #e03e4e;
@@ -32,10 +40,20 @@
   --font-ui: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
   --font-data: "Cascadia Mono", "Cascadia Code", ui-monospace, Consolas, monospace;
 
-  --r-control: 7px;
-  --r-panel: 12px;
+  --r-control: 8px;
+  --r-panel: 14px;
+  --r-big: 20px;
 
-  --shadow: 0 1px 2px #0006, 0 8px 24px #0003;
+  /* Une ombre portée seule fait « plat ». Le liseré clair en haut simule la
+     lumière rasante et donne le relief que le mode sombre perd. */
+  --edge: inset 0 1px 0 #ffffff0d;
+  --shadow: 0 1px 2px #00000059, 0 10px 30px -12px #00000099;
+  --shadow-lift: 0 2px 4px #00000066, 0 22px 48px -18px #000000b3;
+  --glow: 0 6px 22px -8px var(--accent-glow);
+
+  --rail: 216px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --spring: cubic-bezier(0.34, 1.4, 0.64, 1);
 }
 
 * { box-sizing: border-box; }
@@ -47,23 +65,47 @@ body {
   color: var(--ink);
   font: 400 14px/1.55 var(--font-ui);
   -webkit-font-smoothing: antialiased;
+  overflow: hidden; /* la mise en page gère son propre défilement */
+}
+
+/* Halo ambiant : deux sources lumineuses très diffuses, fixes derrière tout.
+   C'est ce qui empêche le fond sombre de ressembler à du carton noir. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(70ch 50ch at 12% -8%, #8b5cf620, transparent 70%),
+    radial-gradient(60ch 40ch at 96% 4%, #38bdf815, transparent 70%),
+    radial-gradient(80ch 60ch at 50% 120%, #6d3fe014, transparent 70%);
 }
 
 /* ---- Typographie ---- */
 
 h1 {
-  font-size: 21px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
-  margin: 0 0 16px;
+  font-size: 25px;
+  font-weight: 680;
+  letter-spacing: -0.022em;
+  margin: 0 0 18px;
   text-wrap: balance;
 }
 
 h2 {
   font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.005em;
+  font-weight: 620;
+  letter-spacing: -0.008em;
   margin: 0 0 10px;
+}
+
+h3 {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 0 0 12px;
 }
 
 p { margin: 0 0 12px; }
@@ -81,80 +123,191 @@ a { color: var(--accent-hi); text-underline-offset: 2px; }
 }
 
 /* Un paragraphe d'aide sous un titre : lisible, pas criard */
-p.lbl { letter-spacing: 0.02em; text-transform: none; font-size: 12.5px; }
+p.lbl { letter-spacing: 0.01em; text-transform: none; font-size: 12.5px; line-height: 1.6; }
 
 /* Tout ce qui est chiffré est un relevé d'instrument */
-.num, .readout {
+.num, .readout, .display {
   font-family: var(--font-data);
   font-variant-numeric: tabular-nums;
 }
 
-.readout {
-  font-size: 15px;
+.readout { font-size: 15px; font-weight: 600; letter-spacing: -0.02em; }
+
+/* Le grand chiffre d'un cadran : c'est lui qu'on lit à un mètre */
+.display {
+  font-size: 30px;
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
 }
 
 /* ---- Panneaux ---- */
 
 .card {
-  background: var(--panel);
+  position: relative;
+  background: linear-gradient(180deg, var(--panel), #15141c);
   border: 1px solid var(--line);
   border-radius: var(--r-panel);
   padding: 18px 20px;
+  box-shadow: var(--edge), var(--shadow);
+}
+
+/* Panneau qui réagit au survol — réservé aux cartes réellement cliquables */
+.card.interactive {
+  transition: transform 180ms var(--ease), border-color 180ms var(--ease),
+    box-shadow 180ms var(--ease);
+}
+.card.interactive:hover {
+  transform: translateY(-2px);
+  border-color: #3b3750;
+  box-shadow: var(--edge), var(--shadow-lift);
 }
 
 /* ---- Contrôles ---- */
 
 button {
-  font: 500 13px/1 var(--font-ui);
+  font: 550 13px/1 var(--font-ui);
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 7px;
-  padding: 8px 14px;
+  padding: 9px 15px;
   border-radius: var(--r-control);
   border: 1px solid var(--line);
   background: var(--panel-2);
   color: var(--ink);
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease;
+  box-shadow: var(--edge);
+  transition: background 140ms var(--ease), border-color 140ms var(--ease),
+    transform 90ms var(--ease), box-shadow 140ms var(--ease);
 }
 
-button:hover:not(:disabled) { background: #2b2936; border-color: #3d3a4c; }
-button:active:not(:disabled) { transform: translateY(0.5px); }
+button:hover:not(:disabled) { background: var(--panel-3); border-color: #423e56; }
+button:active:not(:disabled) { transform: translateY(1px) scale(0.99); }
 
 button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-  font-weight: 600;
+  background: linear-gradient(180deg, var(--accent-hi), var(--accent));
+  border-color: var(--accent-lo);
+  color: var(--accent-ink);
+  font-weight: 620;
+  box-shadow: var(--edge), var(--glow);
 }
-button.primary:hover:not(:disabled) { background: var(--accent-hi); border-color: var(--accent-hi); }
+button.primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #b79cfc, var(--accent-hi));
+  border-color: var(--accent);
+  box-shadow: var(--edge), 0 8px 28px -8px var(--accent-glow);
+}
 
-button.danger { color: #f2a5ad; border-color: #4a2028; background: #2a1119; }
-button.danger:hover:not(:disabled) { background: var(--st-live); border-color: var(--st-live); color: #fff; }
+button.danger { color: #f6b3ba; border-color: #4d2029; background: #2c1119; }
+button.danger:hover:not(:disabled) {
+  background: var(--st-live);
+  border-color: var(--st-live);
+  color: #fff;
+  box-shadow: var(--edge), 0 8px 26px -10px #e03e4e99;
+}
 
-button:disabled { opacity: 0.4; cursor: not-allowed; }
+button.ghost { background: none; border-color: transparent; box-shadow: none; color: var(--ink-2); }
+button.ghost:hover:not(:disabled) { background: var(--panel-2); color: var(--ink); }
 
-input, select {
-  font: 400 13px/1 var(--font-ui);
-  padding: 8px 11px;
+button.sm { padding: 5px 11px; font-size: 12px; }
+
+button:disabled { opacity: 0.38; cursor: not-allowed; }
+
+input, select, textarea {
+  font: 400 13px/1.2 var(--font-ui);
+  padding: 9px 12px;
   border-radius: var(--r-control);
   border: 1px solid var(--line);
-  background: var(--ground);
+  background: var(--void);
   color: var(--ink);
+  transition: border-color 140ms var(--ease), box-shadow 140ms var(--ease);
+}
+
+/* La flèche native d'un <select> est peinte par le système et jure avec le
+   reste : on la remplace par un chevron dessiné aux tokens. */
+select {
+  appearance: none;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' stroke='%23a9a3bd' stroke-width='1.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
 }
 
 input[type="number"] { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
-input:hover, select:hover { border-color: #3d3a4c; }
+input:hover, select:hover, textarea:hover { border-color: #423e56; }
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-wash);
+}
 
-input[type="range"] { accent-color: var(--accent); padding: 0; border: 0; background: none; }
+/* Curseur : la piste native est grise et rase. Reconstruite pour que la
+   partie parcourue se lise d'un coup d'œil. */
+input[type="range"] {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  height: 20px;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 99px;
+  background: linear-gradient(
+    90deg,
+    var(--accent) 0 var(--pct, 50%),
+    var(--panel-3) var(--pct, 50%) 100%
+  );
+}
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: #fff;
+  border: 1px solid #00000055;
+  box-shadow: 0 1px 4px #0009;
+  transition: transform 120ms var(--spring);
+}
+input[type="range"]:hover::-webkit-slider-thumb { transform: scale(1.15); }
+input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.25); }
+
 input[type="checkbox"] { accent-color: var(--accent); width: 17px; height: 17px; }
 
-:focus-visible {
-  outline: 2px solid var(--accent-hi);
-  outline-offset: 2px;
+/* Interrupteur : un état binaire mérite une forme, pas seulement une couleur */
+.switch { position: relative; display: inline-flex; flex: none; }
+.switch input {
+  appearance: none;
+  width: 40px;
+  height: 23px;
+  margin: 0;
+  padding: 0;
+  border-radius: 99px;
+  background: var(--panel-3);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  transition: background 180ms var(--ease), border-color 180ms var(--ease);
 }
+.switch input::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--ink-3);
+  transition: transform 200ms var(--spring), background 180ms var(--ease);
+}
+.switch input:checked {
+  background: linear-gradient(180deg, var(--accent-hi), var(--accent));
+  border-color: var(--accent-lo);
+}
+.switch input:checked::after { transform: translateX(17px); background: #fff; }
+
+:focus-visible { outline: 2px solid var(--accent-hi); outline-offset: 2px; }
 
 /* ---- Pastilles d'état ---- */
 
@@ -163,8 +316,8 @@ input[type="checkbox"] { accent-color: var(--accent); width: 17px; height: 17px;
   align-items: center;
   gap: 6px;
   font-size: 11.5px;
-  font-weight: 500;
-  padding: 3px 9px;
+  font-weight: 550;
+  padding: 4px 10px;
   border-radius: 999px;
   background: var(--panel-2);
   border: 1px solid var(--line);
@@ -172,9 +325,10 @@ input[type="checkbox"] { accent-color: var(--accent); width: 17px; height: 17px;
   white-space: nowrap;
 }
 
-.badge.ok { background: #17a2681f; border-color: #17a26859; color: #5fd6a3; }
-.badge.warn { background: #c8820e1f; border-color: #c8820e59; color: #e8b45c; }
-.badge.err { background: #e03e4e1f; border-color: #e03e4e59; color: #f0929c; }
+.badge.ok { background: #17a2681c; border-color: #17a26855; color: #63dda8; }
+.badge.warn { background: #d990121c; border-color: #d9901255; color: #efbe6a; }
+.badge.err { background: #e03e4e1c; border-color: #e03e4e55; color: #f5a0a9; }
+.badge.info { background: #38bdf81c; border-color: #38bdf855; color: #7dd3fc; }
 
 /* Voyant : l'état se lit à la forme autant qu'à la couleur */
 .led {
@@ -185,21 +339,52 @@ input[type="checkbox"] { accent-color: var(--accent); width: 17px; height: 17px;
   box-shadow: 0 0 0 3px #ffffff08;
   flex: none;
 }
-.led.on { background: var(--st-armed); box-shadow: 0 0 8px #17a26899; }
-.led.live { background: var(--st-live); box-shadow: 0 0 8px #e03e4e99; }
+.led.on { background: var(--st-armed); box-shadow: 0 0 9px #17a268aa; }
+.led.live { background: var(--st-live); box-shadow: 0 0 9px #e03e4eaa; animation: beat 1.6s infinite; }
+@keyframes beat {
+  0%, 100% { box-shadow: 0 0 9px #e03e4eaa; }
+  50% { box-shadow: 0 0 15px 2px #e03e4ecc; }
+}
 
 .mirror { transform: scaleX(-1); }
+
+/* ---- Trames utilitaires ---- */
+
+.spacer { flex: 1; }
+.row { display: flex; align-items: center; gap: 10px; }
+.sep { height: 1px; background: var(--line-soft); margin: 18px 0; }
+
+/* Damier de transparence : la seule façon honnête de montrer un PNG à fond
+   alpha. Sans lui, un fond blanc passe pour de la transparence. */
+.alpha-grid {
+  background-color: #16151c;
+  background-image:
+    linear-gradient(45deg, #22202b 25%, transparent 25%),
+    linear-gradient(-45deg, #22202b 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #22202b 75%),
+    linear-gradient(-45deg, transparent 75%, #22202b 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+/* Apparition d'une ligne de journal / d'une carte */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.rise { animation: rise 260ms var(--ease) both; }
 
 /* ---- Défilement discret ---- */
 
 ::-webkit-scrollbar { width: 11px; height: 11px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: #34313f;
+  background: #35313f;
   border-radius: 99px;
-  border: 3px solid var(--ground);
+  border: 3px solid transparent;
+  background-clip: content-box;
 }
-::-webkit-scrollbar-thumb:hover { background: #45414f; }
+::-webkit-scrollbar-thumb:hover { background: #4a4558; background-clip: content-box; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

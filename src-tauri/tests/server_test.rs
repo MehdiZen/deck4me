@@ -72,20 +72,7 @@ async fn ws_preload_then_trigger() {
     assert_eq!(v["type"], "preload");
     assert!(v["assets"].as_array().unwrap().len() >= 1);
 
-    state.broadcast(&WsMsg::Trigger(TriggerEvent {
-        binding_id: "b1".into(),
-        asset_url: "/assets/abc.png".into(),
-        anchor: "br".into(),
-        x: -2.0,
-        y: -4.0,
-        scale: 1.5,
-        duration_ms: 3000,
-        enter: "pop".into(),
-        exit: "shrink".into(),
-        layer: 2,
-        hold: false,
-        sound: None,
-    }));
+    state.broadcast(&WsMsg::Trigger(sample_trigger()));
     let second = read.next().await.unwrap().unwrap().into_text().unwrap();
     let v: serde_json::Value = serde_json::from_str(&second).unwrap();
     // contrat verrouillé : camelCase, tag "type" aplati
@@ -94,7 +81,66 @@ async fn ws_preload_then_trigger() {
     assert_eq!(v["assetUrl"], "/assets/abc.png");
     assert_eq!(v["durationMs"], 3000);
     assert_eq!(v["hold"], false);
+    assert_eq!(v["sizePct"], 30.0, "rendu v2 : largeur en % du cadre");
     assert!(v.get("sound").is_none(), "sound absent si None");
+    assert!(v.get("seq").is_none(), "pas de numéro sur un broadcast brut");
+}
+
+fn sample_trigger() -> TriggerEvent {
+    TriggerEvent {
+        binding_id: "b1".into(),
+        asset_url: "/assets/abc.png".into(),
+        x: 25.0,
+        y: 75.0,
+        size_pct: 30.0,
+        duration_ms: 3000,
+        enter: "pop".into(),
+        exit: "shrink".into(),
+        layer: 2,
+        hold: false,
+        sound: None,
+        seq: None,
+    }
+}
+
+/// Boucle de mesure de la phase 5 : le serveur numérote, l'overlay renvoie le
+/// numéro, le serveur en tire un aller-retour. Sans accusé, aucune statistique.
+#[tokio::test]
+async fn overlay_ack_feeds_latency_stats() {
+    use futures_util::SinkExt;
+    let (state, port, _dir) = boot().await;
+    let (ws, _) =
+        tokio_tungstenite::connect_async(format!("ws://127.0.0.1:{port}/events?t=tok-test"))
+            .await
+            .expect("connexion ws");
+    let (mut write, mut read) = ws.split();
+    let _preload = read.next().await.unwrap().unwrap();
+
+    assert_eq!(state.overlay_stats().samples, 0);
+    state.broadcast_trigger(sample_trigger());
+
+    let msg = read.next().await.unwrap().unwrap().into_text().unwrap();
+    let v: serde_json::Value = serde_json::from_str(&msg).unwrap();
+    let seq = v["seq"].as_u64().expect("le trigger diffusé porte un seq");
+
+    write
+        .send(tokio_tungstenite::tungstenite::Message::Text(
+            serde_json::json!({ "type": "ack", "seq": seq }).to_string().into(),
+        ))
+        .await
+        .unwrap();
+
+    // L'accusé remonte par la boucle serveur : on laisse un tour de boucle.
+    for _ in 0..50 {
+        if state.overlay_stats().samples > 0 {
+            break
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let stats = state.overlay_stats();
+    assert_eq!(stats.samples, 1, "un aller-retour mesuré");
+    assert!(stats.last_ms.unwrap() >= 0.0);
+    assert_eq!(stats.clients, 1, "une source de navigateur connectée");
 }
 
 #[tokio::test]

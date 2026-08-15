@@ -43,12 +43,19 @@ const SAMPLE_EVERY_MS = 250
     </div>
   `,
   styles: `
+    app-camera-view {
+      display: block; margin-top: 12px;
+      border-radius: var(--r-control); overflow: hidden;
+      border: 1px solid var(--line);
+    }
     .progress {
-      height: 8px; background: var(--ground); border-radius: 99px;
+      height: 9px; background: var(--void); border-radius: 99px;
       margin: 14px 0 10px; overflow: hidden; border: 1px solid var(--line-soft);
     }
     .progress > div {
-      height: 100%; background: var(--accent); border-radius: 99px;
+      height: 100%; border-radius: 99px;
+      background: linear-gradient(90deg, var(--accent-lo), var(--accent-hi));
+      box-shadow: 0 0 16px var(--accent-glow);
       transition: width .1s linear;
     }
   `,
