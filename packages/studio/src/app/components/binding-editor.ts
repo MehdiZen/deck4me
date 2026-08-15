@@ -9,15 +9,19 @@ import {
   inject,
   signal,
 } from '@angular/core'
-import { ENTER_FX, EXIT_FX, type EnterFx, type ExitFx } from '@meme4me/core'
+import { ENTER_FX, EXIT_FX } from '@meme4me/core'
 import { RangeFill } from '../range-fill'
 import {
   DEFAULT_RENDER,
   StoreService,
   isAudio,
+  isOpaque,
+  type AssetMeta,
   type StoredBinding,
   type StoredGesture,
 } from '../services/store.service'
+import { AssetPicker } from './asset-picker'
+import { Cutout } from './cutout'
 import { Icon } from './icon'
 
 /** Repères d'aimantation, en % du cadre : centre, tiers, et marge de sécurité
@@ -45,7 +49,7 @@ const FX_LABEL: Record<string, string> = {
  */
 @Component({
   selector: 'app-binding-editor',
-  imports: [Icon, RangeFill],
+  imports: [Icon, RangeFill, AssetPicker, Cutout],
   template: `
     <div class="bg" (click)="cancel.emit()"></div>
     <div class="panel card" role="dialog" aria-label="Réglage du rendu">
@@ -109,6 +113,35 @@ const FX_LABEL: Record<string, string> = {
 
         <!-- Réglages -->
         <div class="side">
+          <section>
+            <h3>Image</h3>
+            @if (currentAsset(); as a) {
+              <div class="assetrow">
+                <span class="fname" [title]="a.filename">{{ a.filename }}</span>
+                <span class="dim num">{{ a.width }}×{{ a.height }}</span>
+              </div>
+              @if (opaque()) {
+                <p class="badge warn block">
+                  Ce JPEG n'a pas de transparence : il arrivera dans OBS avec son
+                  fond. Détoure-le, ou assume le rectangle.
+                </p>
+              }
+              <div class="assetacts">
+                <button class="sm" (click)="cutoutOpen.set(true)">
+                  <app-icon name="target" [size]="14" /> Détourer le fond
+                </button>
+                <button class="ghost sm" (click)="swapping.set(!swapping())">
+                  {{ swapping() ? 'Annuler' : 'Changer' }}
+                </button>
+              </div>
+            }
+            @if (swapping() || !currentAsset()) {
+              <div class="swap">
+                <app-asset-picker label="Remplacer l'image" (picked)="swap($event)" />
+              </div>
+            }
+          </section>
+
           <section>
             <h3>Taille</h3>
             <div class="row">
@@ -249,6 +282,10 @@ const FX_LABEL: Record<string, string> = {
         </button>
       </footer>
     </div>
+
+    @if (cutoutOpen() && currentAsset(); as a) {
+      <app-cutout [asset]="a" (cancel)="cutoutOpen.set(false)" (done)="onCutout($event)" />
+    }
   `,
   styles: `
     :host { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; }
@@ -357,6 +394,17 @@ const FX_LABEL: Record<string, string> = {
       flex: 1; min-width: 0; font-size: 12px; color: var(--ink);
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
+    .assetrow {
+      display: flex; align-items: baseline; gap: 10px;
+      padding: 8px 10px; background: var(--void);
+      border: 1px solid var(--line-soft); border-radius: var(--r-control);
+    }
+    .dim { font-size: 11px; color: var(--ink-3); flex: none; }
+    .assetacts { display: flex; gap: 6px; margin-top: 8px; }
+    .assetacts button { flex: 1; }
+    .swap { margin-top: 10px; }
+    .block { display: block; white-space: normal; line-height: 1.5; padding: 9px 11px; margin-top: 8px; }
+
     .soundpick { display: flex; flex-direction: column; gap: 7px; }
     .file {
       display: flex; align-items: center; justify-content: center; gap: 7px;
@@ -391,6 +439,14 @@ export class BindingEditor {
    *  cliqué. Le plateau reste donc explorable sans conséquence. */
   readonly draft = signal<StoredBinding>({ ...DEFAULT_RENDER } as StoredBinding)
   readonly showGuides = signal(false)
+  readonly cutoutOpen = signal(false)
+  readonly swapping = signal(false)
+
+  readonly currentAsset = computed(() => this.store.asset(this.draft().assetId))
+  readonly opaque = computed(() => {
+    const a = this.currentAsset()
+    return !!a && isOpaque(a)
+  })
 
   /** dx/dy : écart constant entre le curseur et le centre du média, capturé au
    *  début du geste — sans lui le média sauterait sous le curseur au clic. */
@@ -405,12 +461,24 @@ export class BindingEditor {
   }
 
   mediaUrl(): string {
-    const a = this.store.asset(this.draft().assetId)
+    const a = this.currentAsset()
     return a ? this.store.assetUrl(a) : ''
   }
 
   isVideo(): boolean {
-    return this.store.asset(this.draft().assetId)?.ext === 'webm'
+    return this.currentAsset()?.ext === 'webm'
+  }
+
+  /** Changer d'image conserve le cadrage : c'est presque toujours le même
+   *  meme sous une autre forme (détouré, meilleure définition). */
+  swap(meta: AssetMeta): void {
+    this.patch({ assetId: meta.id })
+    this.swapping.set(false)
+  }
+
+  onCutout(meta: AssetMeta): void {
+    this.cutoutOpen.set(false)
+    this.swap(meta)
   }
 
   readonly soundAsset = computed(() => this.store.asset(this.draft().sound?.assetId))

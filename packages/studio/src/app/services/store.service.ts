@@ -30,6 +30,14 @@ export interface AssetMeta {
 
 export const isAudio = (a: AssetMeta): boolean => a.mime.startsWith('audio/')
 
+/** Sans canal alpha : le meme arrivera avec un fond dans OBS. On l'accepte —
+ *  beaucoup de memes marchent en rectangle assumé — mais on le dit. */
+export const isOpaque = (a: AssetMeta): boolean => a.mime === 'image/jpeg'
+
+/** Extensions proposées à l'import d'un visuel. Le format réel est décidé côté
+ *  Rust sur les octets ; cette liste ne fait que filtrer le sélecteur Windows. */
+export const IMAGE_ACCEPT = '.png,.gif,.webp,.avif,.jpg,.jpeg,.webm'
+
 export interface Profile {
   id: string
   name: string
@@ -260,6 +268,15 @@ export class StoreService {
       filename: file.name,
       dataBase64: btoa(bin),
     })
+    this.assets.update((all) => [...all.filter((a) => a.id !== meta.id), meta])
+    return meta
+  }
+
+  /** Import par URL. Le téléchargement se fait côté Rust : la webview se ferait
+   *  refuser la moitié des liens par CORS, et le Rust peut refuser les adresses
+   *  du réseau local — coller une URL ne doit pas faire sonder ton réseau. */
+  async importFromUrl(url: string): Promise<AssetMeta> {
+    const meta = await this.tauri.invoke<AssetMeta>('import_asset_from_url', { url })
     this.assets.update((all) => [...all.filter((a) => a.id !== meta.id), meta])
     return meta
   }

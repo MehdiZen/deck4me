@@ -30,9 +30,10 @@ Tests : `npm test` (core TS, vitest) · `cargo test` dans `src-tauri/` (serveur 
    (20 s, garde tes lunettes de stream).
 2. Copier l'**URL overlay** → OBS → Source Navigateur 1920×1080.
 3. Onglet **Gestures** → enregistrer une pose (3 prises de 2 s).
-4. Lier une image (png/gif/webp/webm) → l'**éditeur de rendu** s'ouvre : glisse le
-   meme dans le cadre 16:9, tire le coin pour la taille, choisis les effets et le son.
-   Sans image liée, le bouton **Tester** utilise une image de test intégrée.
+4. Lier une image — fichier, **adresse web collée**, ou reprise d'une image déjà
+   importée → l'**éditeur de rendu** s'ouvre : glisse le meme dans le cadre 16:9,
+   tire le coin pour la taille, choisis les effets et le son. Sans image liée, le
+   bouton **Tester** utilise une image de test intégrée.
 5. Onglet **Live** → barres de distance, états, log des triggers, bouton PANIC.
 6. Onglet **Debug** → chaîne de latence étage par étage et historique des distances
    quand une pose refuse de déclencher.
@@ -48,6 +49,49 @@ sont convertis une fois au chargement — `packages/core/src/render.ts`, couvert
 
 Aimantation au centre, aux tiers et aux marges de 5 % ; **Alt** enfoncé pour un
 placement libre.
+
+### Formats acceptés
+
+Images : **png, gif, webp, avif, jpg**. Vidéo : **webm** (alpha si le fichier a été
+encodé en VP9 avec canal alpha). Sons : **mp3, wav, ogg**.
+
+Le format est toujours décidé sur les **octets d'en-tête**, jamais sur l'extension :
+le nom vient de l'utilisateur, les octets viennent du fichier. Piège traité au
+passage : un JPEG commence par `0xFF`, comme une trame MPEG audio — c'est le
+second octet qui tranche, sans quoi toute image JPEG atterrirait dans la
+bibliothèque de sons.
+
+Le **JPEG n'a pas de canal alpha** : il arrive dans OBS avec son fond. Il est
+accepté quand même (beaucoup de memes fonctionnent en rectangle assumé) mais
+signalé dans l'éditeur, qui propose le détourage. Convertir un JPEG en PNG ne
+sert à rien : le PNG *peut* porter de la transparence, il n'en fabrique pas.
+
+Le mp4 et le mov sont refusés — pas de canal alpha exploitable par le navigateur
+d'OBS.
+
+### Détourage de fond
+
+Dans l'éditeur de rendu, **Détourer le fond** échantillonne la couleur des quatre
+coins et rend transparent tout pixel qui s'en approche, avec une bande de
+transition douce pour éviter les contours en escalier. Clic dans l'aperçu pour
+choisir une autre couleur de référence.
+
+Ses limites, affichées dans l'interface : un fond dégradé ou de la même couleur
+que le sujet ne peut pas être distingué, et un JPEG très compressé laisse un
+liseré autour des contours. Les formats animés (gif, webm) sont exclus — un canvas
+n'en voit que la première image, et détourer y remplacerait l'animation par un PNG
+fixe. L'original est toujours conservé : le détourage crée une nouvelle image.
+
+### Import par URL
+
+Coller l'adresse d'une image l'importe directement. Le téléchargement se fait
+côté Rust, pas dans la webview : la webview se ferait refuser la moitié des liens
+par CORS, et surtout coller une URL ne doit pas revenir à faire sonder son réseau
+local par l'app. D'où les garde-fous de `src-tauri/src/fetch.rs`, couverts par
+`tests/import_test.rs` : protocoles limités à http/https, refus des adresses
+privées et de bouclage (y compris déguisées en IPv6), refus des redirections et
+des URL à identifiants, plafond de 25 Mo appliqué à la lecture et pas seulement
+d'après l'en-tête déclaré.
 
 ### Son
 

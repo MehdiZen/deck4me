@@ -1,6 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core'
 import { RouterLink } from '@angular/router'
 import { type HoldMode } from '@meme4me/core'
+import { AssetPicker } from '../components/asset-picker'
 import { BindingEditor } from '../components/binding-editor'
 import { Icon } from '../components/icon'
 import { Wizard } from '../components/wizard'
@@ -8,6 +9,7 @@ import { MatcherService } from '../services/matcher.service'
 import {
   StoreService,
   effectiveThreshold,
+  type AssetMeta,
   type StoredBinding,
   type StoredGesture,
 } from '../services/store.service'
@@ -20,7 +22,7 @@ import {
  */
 @Component({
   selector: 'app-gestures-page',
-  imports: [Wizard, RouterLink, Icon, BindingEditor],
+  imports: [Wizard, RouterLink, Icon, BindingEditor, AssetPicker],
   template: `
     <div class="head">
       <div>
@@ -149,10 +151,9 @@ import {
 
           <!-- Import direct : ne s'affiche que si rien n'est encore lié -->
           @if (!asset(g)) {
-            <label class="drop">
-              Choisir une image
-              <input type="file" accept=".png,.gif,.webp,.webm" hidden (change)="upload(g, $event)" />
-            </label>
+            <div class="drop">
+              <app-asset-picker (picked)="attach(g, $event)" />
+            </div>
           }
         </article>
       }
@@ -251,14 +252,7 @@ import {
 
     .acts { display: flex; align-items: center; gap: 6px; padding: 11px 13px 13px; }
 
-    .drop {
-      display: block; margin: 0 13px 13px;
-      cursor: pointer; font-size: 12.5px; color: var(--ink-2);
-      border: 1px dashed var(--line); border-radius: var(--r-control);
-      padding: 9px 12px; text-align: center;
-      transition: border-color 160ms var(--ease), color 160ms var(--ease), background 160ms var(--ease);
-    }
-    .drop:hover { border-color: var(--accent); color: var(--ink); background: var(--accent-wash); }
+    .drop { margin: 0 13px 13px; }
   `,
 })
 export class GesturesPage {
@@ -313,12 +307,9 @@ export class GesturesPage {
     this.editing.set({ gesture: g, binding })
   }
 
-  async upload(g: StoredGesture, ev: Event): Promise<void> {
-    const file = (ev.target as HTMLInputElement).files?.[0]
-    if (!file) return
-    const meta = await this.store.uploadAsset(file)
+  /** Enchaîne sur le cadrage : c'est la question suivante dans tous les cas. */
+  async attach(g: StoredGesture, meta: AssetMeta): Promise<void> {
     const binding = await this.store.bindAsset(g.id, meta.id)
-    // Enchaîner sur le cadrage : c'est la question suivante dans tous les cas.
     this.editing.set({ gesture: g, binding })
   }
 

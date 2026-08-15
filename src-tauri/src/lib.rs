@@ -1,3 +1,4 @@
+pub mod fetch;
 pub mod hotkeys;
 pub mod server;
 pub mod store;
@@ -210,6 +211,46 @@ fn upload_asset(
     app.state.store.save().map_err(|e| e.to_string())?;
     app.state.broadcast(&app.state.preload_msg());
     Ok(meta)
+}
+
+/// Import depuis une URL. Le téléchargement est bloquant (réseau + disque) :
+/// il ne doit jamais s'exécuter sur le thread principal, sinon la fenêtre gèle
+/// le temps de la requête.
+#[tauri::command]
+async fn import_asset_from_url(
+    app: tauri::State<'_, App>,
+    url: String,
+) -> Result<AssetMeta, String> {
+    let state = app.state.clone();
+    let meta = tauri::async_runtime::spawn_blocking(move || {
+        let (bytes, filename) = fetch::download(&url)?;
+        let meta = state
+            .store
+            .write_asset(&filename, &bytes)
+            .map_err(|e| e.to_string())?;
+        state.store.save().map_err(|e| e.to_string())?;
+        Ok::<AssetMeta, String>(meta)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    app.state.broadcast(&app.state.preload_msg());
+    Ok(meta)
+}
+
+/// Renvoie les octets d'un asset en base64, pour que le Studio puisse le
+/// charger dans un canvas. Passer par l'URL du serveur local marcherait pour
+/// AFFICHER l'image, mais elle viendrait d'une autre origine que la webview :
+/// le canvas serait teinté et `getImageData` refuserait de rendre les pixels,
+/// ce qui interdit tout détourage.
+#[tauri::command]
+fn read_asset(app: tauri::State<App>, id: String) -> Result<String, String> {
+    let meta = app.state.store.asset_meta(&id).ok_or("asset introuvable")?;
+    let bytes = std::fs::read(app.state.store.asset_path(&id)).map_err(|e| e.to_string())?;
+    Ok(format!(
+        "data:{};base64,{}",
+        meta.mime,
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    ))
 }
 
 #[tauri::command]
@@ -529,6 +570,8 @@ pub fn run() {
             save_binding,
             delete_binding,
             upload_asset,
+            import_asset_from_url,
+            read_asset,
             get_calibration,
             save_calibration,
             gesture_fired,

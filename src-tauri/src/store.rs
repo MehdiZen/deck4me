@@ -147,9 +147,20 @@ pub fn sha1_hex(bytes: &[u8]) -> String {
 /// Le webm et l'ogg partagent des conteneurs proches de leurs cousins audio ;
 /// on tranche sur le conteneur, l'overlay route ensuite sur l'extension.
 pub fn sniff(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
+    // AVIF/HEIF : conteneur ISO-BMFF, la marque est à l'offset 8 et non à 0.
+    if bytes.len() >= 12 && &bytes[4..8] == b"ftyp" {
+        return match &bytes[8..12] {
+            b"avif" | b"avis" => Some(("image/avif", "avif")),
+            _ => None, // mp4/mov : pas de canal alpha exploitable, on refuse
+        }
+    }
     match bytes {
         [0x89, b'P', b'N', b'G', ..] => Some(("image/png", "png")),
         [b'G', b'I', b'F', b'8', ..] => Some(("image/gif", "gif")),
+        // JPEG : SOI + début du premier marqueur. Pas de transparence — accepté
+        // quand même, avec avertissement côté interface : beaucoup de memes
+        // fonctionnent très bien en rectangle assumé.
+        [0xff, 0xd8, 0xff, ..] => Some(("image/jpeg", "jpg")),
         [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'E', b'B', b'P', ..] => {
             Some(("image/webp", "webp"))
         }
@@ -159,7 +170,8 @@ pub fn sniff(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
         [0x1a, 0x45, 0xdf, 0xa3, ..] => Some(("video/webm", "webm")),
         [b'O', b'g', b'g', b'S', ..] => Some(("audio/ogg", "ogg")),
         [b'I', b'D', b'3', ..] => Some(("audio/mpeg", "mp3")),
-        // MP3 sans tag ID3 : trame MPEG audio (11 bits de synchro à 1)
+        // MP3 sans tag ID3 : trame MPEG audio (11 bits de synchro à 1).
+        // 0xFFD8 (JPEG) ne collisionne pas : 0xD8 & 0xE0 == 0xC0.
         [0xff, b, ..] if b & 0xe0 == 0xe0 => Some(("audio/mpeg", "mp3")),
         _ => None,
     }
@@ -169,6 +181,12 @@ pub fn sniff(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
 /// ne se mélangent jamais dans l'interface, d'où ce prédicat partagé.
 pub fn is_audio(mime: &str) -> bool {
     mime.starts_with("audio/")
+}
+
+/// Formats sans canal alpha : l'interface prévient que le meme aura un fond,
+/// et propose le détourage plutôt que de refuser le fichier.
+pub fn is_opaque(mime: &str) -> bool {
+    mime == "image/jpeg"
 }
 
 /// Identifiants utilisés avant le renommage en meme4me. Les données vivent
