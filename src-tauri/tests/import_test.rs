@@ -58,12 +58,14 @@ fn classe_les_familles() {
 
 use meme4me_lib::fetch::download;
 
-fn err(url: &str) -> String {
-    download(url).expect_err(&format!("{url} aurait dû être refusé"))
+async fn err(url: &str) -> String {
+    download(url)
+        .await
+        .expect_err(&format!("{url} aurait dû être refusé"))
 }
 
-#[test]
-fn refuse_les_adresses_du_reseau_local() {
+#[tokio::test]
+async fn refuse_les_adresses_du_reseau_local() {
     for url in [
         "http://127.0.0.1:47821/overlay",
         "http://localhost/image.png",
@@ -72,7 +74,7 @@ fn refuse_les_adresses_du_reseau_local() {
         "http://169.254.169.254/latest/meta-data",
         "http://[::1]/x.png",
     ] {
-        let e = err(url);
+        let e = err(url).await;
         assert!(
             e.contains("réseau local") || e.contains("introuvable"),
             "{url} refusé pour la mauvaise raison : {e}"
@@ -80,13 +82,13 @@ fn refuse_les_adresses_du_reseau_local() {
     }
 }
 
-#[test]
-fn refuse_les_protocoles_et_formes_douteuses() {
+#[tokio::test]
+async fn refuse_les_protocoles_et_formes_douteuses() {
     // file:// lirait le disque de l'utilisateur — rejeté au niveau du protocole
-    assert!(err("file:///C:/Windows/win.ini").contains("non supporté"));
-    assert!(err("ftp://exemple.fr/x.png").contains("non supporté"));
-    assert!(err("pas-une-url").contains("http"));
-    assert!(err("http:///x.png").contains("hôte"));
+    assert!(err("file:///C:/Windows/win.ini").await.contains("non supporté"));
+    assert!(err("ftp://exemple.fr/x.png").await.contains("non supporté"));
+    assert!(err("pas-une-url").await.contains("http"));
+    assert!(err("http:///x.png").await.contains("hôte"));
     // « user@hôte » sert surtout à faire passer un hôte pour un autre à l'œil
-    assert!(err("http://github.com@192.168.1.1/x.png").contains("identifiants"));
+    assert!(err("http://github.com@192.168.1.1/x.png").await.contains("identifiants"));
 }

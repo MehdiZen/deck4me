@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core'
+import { Component, OnDestroy, computed, inject, signal } from '@angular/core'
 import type { RawFrame } from '@meme4me/core'
 import { DetectionService } from '../services/detection.service'
 import { StoreService } from '../services/store.service'
@@ -60,7 +60,7 @@ const SAMPLE_EVERY_MS = 250
     }
   `,
 })
-export class Calibration {
+export class Calibration implements OnDestroy {
   protected store = inject(StoreService)
   private detection = inject(DetectionService)
 
@@ -68,6 +68,14 @@ export class Calibration {
   busy = signal(false)
   frames = signal<RawFrame[]>([])
   private startedAt = 0
+  /** Quitter l'écran pendant les 20 s laissait l'écouteur branché à vie, à
+   *  copier des frames pour un composant détruit. */
+  private unsub: (() => void) | null = null
+
+  ngOnDestroy(): void {
+    this.unsub?.()
+    this.unsub = null
+  }
   progress = computed(() => Math.min(100, (this.frames().length * SAMPLE_EVERY_MS * 100) / DURATION_MS))
 
   async start(): Promise<void> {
@@ -78,13 +86,15 @@ export class Calibration {
       this.running.set(true)
       this.startedAt = performance.now()
       let lastAt = 0
-      const unsub = this.detection.onFrame((raw, _viz, ts) => {
+      this.unsub?.()
+      this.unsub = this.detection.onFrame((raw, _viz, ts) => {
         if (raw.face && ts - lastAt >= SAMPLE_EVERY_MS) {
           lastAt = ts
           this.frames.update((f) => [...f, JSON.parse(JSON.stringify(raw)) as RawFrame])
         }
         if (ts - this.startedAt >= DURATION_MS) {
-          unsub()
+          this.unsub?.()
+          this.unsub = null
           void this.finish()
         }
       })

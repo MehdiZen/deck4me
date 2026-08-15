@@ -118,6 +118,9 @@ interface Bootstrap {
   hasCalibration: boolean
   port: number
   version: string
+  /** Panne du serveur local au démarrage — port occupé, seconde instance. */
+  serverError: string | null
+  logPath: string | null
 }
 
 @Injectable({ providedIn: 'root' })
@@ -133,6 +136,10 @@ export class StoreService {
   readonly overlayUrl = signal('')
   readonly port = signal(47821)
   readonly version = signal('')
+  /** Panne bloquante du serveur local : sans lui, l'overlay OBS ne reçoit
+   *  jamais rien, et sans message on chercherait du côté d'OBS. */
+  readonly serverError = signal<string | null>(null)
+  readonly logPath = signal<string | null>(null)
   readonly calibration = signal<Calibration | null>(null)
 
   readonly activeProfile = computed<Profile | null>(
@@ -200,6 +207,8 @@ export class StoreService {
       hasCalibration: false,
       port: 47821,
       version: '',
+      serverError: null,
+      logPath: null,
     })
     this.profiles.set(boot.profiles)
     this.allGestures.set(boot.gestures)
@@ -209,6 +218,8 @@ export class StoreService {
     this.overlayUrl.set(boot.overlayUrl)
     this.port.set(boot.port)
     this.version.set(boot.version)
+    this.serverError.set(boot.serverError ?? null)
+    this.logPath.set(boot.logPath ?? null)
     if (boot.hasCalibration) {
       const cal = await this.tauri.invoke<Calibration | null>('get_calibration', {}, null)
       this.calibration.set(cal)

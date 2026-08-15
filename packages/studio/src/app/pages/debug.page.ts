@@ -172,6 +172,11 @@ interface OverlayStats {
         <button (click)="copyReport()">
           <app-icon name="copy" [size]="15" /> {{ copied() ? 'Copié' : 'Copier le rapport' }}
         </button>
+        @if (store.logPath()) {
+          <button (click)="openLog()" [title]="store.logPath()!">
+            <app-icon name="download" [size]="15" /> Ouvrir le journal
+          </button>
+        }
         <span class="lbl note flat">
           Un bloc de texte à coller si tu demandes de l'aide : versions, cadence,
           latences, état des gestures. Aucune image, aucun jeton.
@@ -501,6 +506,12 @@ export class DebugPage implements AfterViewInit, OnDestroy {
       ctx.fillText(`seuil ${thr.toFixed(3)}`, cssW, top + h + 15)
       ctx.textAlign = 'left'
     })
+  }
+
+  /** Le journal vit dans les données d'application : personne ne l'y
+   *  trouverait à la main. */
+  async openLog(): Promise<void> {
+    await this.tauri.invoke('reveal_log', {}, null).catch(() => {})
   }
 
   async copyReport(): Promise<void> {

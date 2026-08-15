@@ -1,4 +1,13 @@
-import { Component, EventEmitter, Input, OnInit, Output, inject, signal } from '@angular/core'
+import {
+  Component,
+  EventEmitter,
+  Input,
+  OnDestroy,
+  OnInit,
+  Output,
+  inject,
+  signal,
+} from '@angular/core'
 import { FormsModule } from '@angular/forms'
 import {
   FEATURIZER_VERSION,
@@ -198,7 +207,7 @@ const SAMPLES_PER_TAKE = 8 // unique est artificiellement basse → seuil irréa
     .keep app-icon { color: var(--st-armed); margin-top: 1px; }
   `,
 })
-export class Wizard implements OnInit {
+export class Wizard implements OnInit, OnDestroy {
   /** Gesture dont on refait la pose. Null = création.
    *  Tout ce qui n'est pas la pose elle-même est conservé : identité, meme lié,
    *  cadrage, son, sensibilité. Sans ça, corriger une pose qui déclenche mal
@@ -228,6 +237,17 @@ export class Wizard implements OnInit {
 
   private takes: RawFrame[][] = []
   private keptRaw: RawFrame[] = []
+  /** Désabonnement de la prise en cours. Fermer le wizard pendant une capture
+   *  laissait l'écouteur branché à vie : il continuait à copier des frames
+   *  30 fois par seconde, pour un composant qui n'existe plus. */
+  private unsub: (() => void) | null = null
+  private countdownTimer = 0
+
+  ngOnDestroy(): void {
+    this.unsub?.()
+    this.unsub = null
+    clearInterval(this.countdownTimer)
+  }
 
   ngOnInit(): void {
     const g = this.replacing
@@ -256,10 +276,11 @@ export class Wizard implements OnInit {
   beginTake(): void {
     this.step.set('countdown')
     this.countdown.set(3)
-    const iv = setInterval(() => {
+    clearInterval(this.countdownTimer)
+    this.countdownTimer = window.setInterval(() => {
       this.countdown.update((c) => c - 1)
       if (this.countdown() <= 0) {
-        clearInterval(iv)
+        clearInterval(this.countdownTimer)
         this.capture()
       }
     }, 1000)
@@ -273,7 +294,8 @@ export class Wizard implements OnInit {
     const DURATION = 2000
     let lastSampleAt = 0
 
-    const unsub = this.detection.onFrame((raw, _viz, ts) => {
+    this.unsub?.()
+    this.unsub = this.detection.onFrame((raw, _viz, ts) => {
       const elapsed = ts - started
       this.captureProgress.set(Math.min(100, (elapsed / DURATION) * 100))
       const usable =
@@ -288,7 +310,8 @@ export class Wizard implements OnInit {
         frames.push(JSON.parse(JSON.stringify(raw)) as RawFrame)
       }
       if (elapsed >= DURATION) {
-        unsub()
+        this.unsub?.()
+        this.unsub = null
         this.endTake(frames)
       }
     })

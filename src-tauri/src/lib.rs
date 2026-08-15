@@ -1,3 +1,4 @@
+pub mod diag;
 pub mod fetch;
 pub mod hotkeys;
 pub mod server;
@@ -7,7 +8,7 @@ pub mod virtualcam;
 use base64::Engine;
 use serde_json::{json, Value};
 use server::{OverlayStats, ServerState, Sound, TriggerEvent, WsMsg, DEFAULT_PORT};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use store::{AssetMeta, BindingRecord, GestureRecord, Profile, Settings, Store};
 use tauri::Manager;
 use virtualcam::{VcamDevice, VcamFormat, VcamStatus, VirtualCam};
@@ -16,6 +17,10 @@ pub struct App {
     pub state: ServerState,
     pub port: u16,
     pub vcam: Arc<VirtualCam>,
+    /// Panne du serveur local au démarrage. Sans ce champ, un port 47821 déjà
+    /// occupé laissait l'application se lancer parfaitement silencieuse : rien
+    /// n'arrivait jamais dans OBS et on cherchait du côté d'OBS.
+    pub server_error: Arc<Mutex<Option<String>>>,
 }
 
 fn overlay_url_of(app: &App) -> String {
@@ -127,7 +132,22 @@ fn bootstrap(app: tauri::State<App>) -> Value {
         "hasCalibration": app.state.store.read_calibration().is_some(),
         "port": app.port,
         "version": env!("CARGO_PKG_VERSION"),
+        "serverError": *app.server_error.lock().unwrap(),
+        "logPath": diag::path(),
     })
+}
+
+/// Ouvre le journal dans l'explorateur — le chemin est dans les données
+/// d'application, personne ne le trouverait à la main.
+#[tauri::command]
+fn reveal_log() -> Result<(), String> {
+    let path = diag::path().ok_or("journal indisponible")?;
+    let mut cmd = std::process::Command::new("explorer");
+    cmd.arg("/select,").arg(&path);
+    // explorer.exe renvoie un code non nul même quand il a fait le travail :
+    // on ne teste donc pas le statut, seulement le lancement.
+    cmd.spawn().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -221,19 +241,17 @@ async fn import_asset_from_url(
     app: tauri::State<'_, App>,
     url: String,
 ) -> Result<AssetMeta, String> {
-    let state = app.state.clone();
-    let meta = tauri::async_runtime::spawn_blocking(move || {
-        let (bytes, filename) = fetch::download(&url)?;
-        let meta = state
-            .store
-            .write_asset(&filename, &bytes)
-            .map_err(|e| e.to_string())?;
-        state.store.save().map_err(|e| e.to_string())?;
-        Ok::<AssetMeta, String>(meta)
-    })
-    .await
-    .map_err(|e| e.to_string())??;
+    let (bytes, filename) = fetch::download(&url).await.inspect_err(|e| {
+        diag::log("import-url", &format!("{url} → {e}"));
+    })?;
+    let meta = app
+        .state
+        .store
+        .write_asset(&filename, &bytes)
+        .map_err(|e| e.to_string())?;
+    app.state.store.save().map_err(|e| e.to_string())?;
     app.state.broadcast(&app.state.preload_msg());
+    diag::log("import-url", &format!("{} ({} o) ← {url}", meta.filename, meta.size_bytes));
     Ok(meta)
 }
 
@@ -529,13 +547,23 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&dir)?;
+            diag::init(&dir);
             let store = Arc::new(Store::open(dir)?);
             let token = store.load_or_create_token()?;
             let state = ServerState::new(store, token);
+            let server_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
             let s2 = state.clone();
+            let err_slot = server_error.clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = server::start(s2, DEFAULT_PORT).await {
-                    eprintln!("serveur local KO ({e}) — port {DEFAULT_PORT} occupé ?");
+                    let msg = format!(
+                        "Le serveur local n'a pas pu démarrer sur le port {DEFAULT_PORT} ({e}). \
+                         Un autre logiciel l'occupe, ou une deuxième instance de meme4me tourne \
+                         déjà. Tant que ce n'est pas réglé, l'overlay OBS ne recevra rien."
+                    );
+                    diag::log("serveur", &msg);
+                    *err_slot.lock().unwrap() = Some(msg);
                 }
             });
             // softcam.dll : ressource du bundle en prod, vendor/ en dev
@@ -555,11 +583,12 @@ pub fn run() {
                 state,
                 port: DEFAULT_PORT,
                 vcam: Arc::new(VirtualCam::new(dll)),
+                server_error,
             });
             // Un raccourci déjà pris par un autre logiciel ne doit pas empêcher
             // l'app de démarrer : l'échec est signalé, pas fatal.
             if let Err(e) = hotkeys::apply(app.handle()) {
-                eprintln!("raccourcis globaux : {e}");
+                diag::log("raccourcis", &e);
             }
             Ok(())
         })
@@ -580,6 +609,7 @@ pub fn run() {
             panic_clear,
             overlay_url,
             overlay_stats,
+            reveal_log,
             save_profile,
             delete_profile,
             set_active_profile,

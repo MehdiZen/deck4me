@@ -6,6 +6,7 @@ import { DetectionService } from './services/detection.service'
 import { MatcherService } from './services/matcher.service'
 import { StoreService } from './services/store.service'
 import { UpdateService } from './services/update.service'
+import { VcamService } from './services/vcam.service'
 
 /**
  * Coque de l'application : rail à gauche, écran à droite.
@@ -72,6 +73,17 @@ import { UpdateService } from './services/update.service'
       </aside>
 
       <main>
+        <!-- Panne bloquante : sans serveur local, rien n'arrive jamais dans
+             OBS. Ça se dit en haut de chaque écran, pas dans un journal. -->
+        @if (store.serverError(); as err) {
+          <div class="fatal rise">
+            <app-icon name="power" [size]="18" />
+            <div>
+              <b>Le serveur local n'a pas démarré.</b>
+              <p>{{ err }}</p>
+            </div>
+          </div>
+        }
         <router-outlet />
       </main>
     </div>
@@ -165,6 +177,18 @@ import { UpdateService } from './services/update.service'
     .cut { margin: 0; font-size: 11.5px; color: var(--st-live); text-align: center; }
 
     main { flex: 1; min-width: 0; overflow-y: auto; padding: 26px 30px 40px; }
+
+    .fatal {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 14px 17px; margin-bottom: 20px;
+      border-radius: var(--r-panel); font-size: 13px; line-height: 1.55;
+      background: #e03e4e16; border: 1px solid #e03e4e66;
+      box-shadow: var(--edge);
+      color: #f3b6bc;
+    }
+    .fatal app-icon { color: var(--st-live); margin-top: 1px; }
+    .fatal b { display: block; font-weight: 620; color: var(--ink); margin-bottom: 3px; }
+    .fatal p { margin: 0; }
   `,
 })
 export class App {
@@ -172,6 +196,7 @@ export class App {
   protected matcher = inject(MatcherService)
   protected store = inject(StoreService)
   private updates = inject(UpdateService)
+  private vcam = inject(VcamService)
 
   constructor() {
     // Tout ce qui suit attend que les réglages soient lus : ce sont eux qui
@@ -192,6 +217,10 @@ export class App {
   private async onSettingsReady(): Promise<void> {
     const s = this.store.settings()
     this.detection.adoptSavedCamera(s.detectionCamera)
+    // La caméra virtuelle d'abord : elle prend la webcam physique et la
+    // détection bascule ensuite sur « meme4me Camera ». Dans l'autre ordre, la
+    // webcam serait déjà prise et la caméra virtuelle échouerait.
+    await this.vcam.autoStartIfWanted()
     if (s.detectionAutoStart && !this.detection.running()) {
       // Un échec ici (webcam débranchée, prise par un autre logiciel) ne doit
       // pas empêcher l'application de s'ouvrir : le statut le dira.

@@ -14,6 +14,10 @@ export interface VizFrame {
 
 export type FrameListener = (raw: RawFrame, viz: VizFrame, ts: number) => void
 
+/** Au-delà, on cesse d'espérer et on le dit : marteler l'ouverture d'une
+ *  webcam définitivement partie ne fait que brûler du CPU pendant un live. */
+const MAX_RETRIES = 5
+
 /**
  * Caméra + MediaPipe. La boucle tourne HORS de la change detection Angular :
  * les listeners (matcher, wizard, canvas live) sont appelés à ~30 Hz en direct,
@@ -58,6 +62,8 @@ export class DetectionService {
   private stopped = true
   private frameCount = 0
   private lastFpsAt = 0
+  private retries = 0
+  private retryTimer = 0
 
   onFrame(fn: FrameListener): () => void {
     this.listeners.add(fn)
@@ -105,6 +111,7 @@ export class DetectionService {
 
   async start(): Promise<void> {
     if (this.running()) return
+    clearTimeout(this.retryTimer)
     this.status.set('chargement des modèles…')
     try {
       if (!this.face || !this.hand) {
@@ -158,11 +165,43 @@ export class DetectionService {
 
   stop(): void {
     this.stopped = true
+    clearTimeout(this.retryTimer)
+    this.retries = 0
     this.stream?.getTracks().forEach((t) => t.stop())
     this.stream = null
     this.video = null
+    this.fps.set(0)
     this.running.set(false)
     this.status.set('caméra arrêtée')
+  }
+
+  /**
+   * La caméra a disparu en cours de route. On réessaie, en espaçant : une
+   * webcam reprise par Streamlabs peut se libérer quelques secondes plus tard,
+   * mais marteler l'ouverture toutes les 200 ms ne fait que consommer du CPU
+   * pendant que l'utilisateur stream.
+   */
+  private onCameraLost(): void {
+    this.stopped = true
+    this.stream = null
+    this.video = null
+    this.fps.set(0)
+    this.running.set(false)
+    this.retries++
+    if (this.retries > MAX_RETRIES) {
+      this.status.set(
+        'caméra perdue — débranchée, ou prise par un autre logiciel. Relance la détection quand elle est libre.',
+      )
+      return
+    }
+    const delay = Math.min(8000, 1000 * 2 ** (this.retries - 1))
+    this.status.set(`caméra perdue — nouvelle tentative dans ${Math.round(delay / 1000)} s…`)
+    clearTimeout(this.retryTimer)
+    this.retryTimer = window.setTimeout(() => {
+      void this.start()
+        .then(() => this.retries = 0)
+        .catch(() => this.onCameraLost())
+    }, delay)
   }
 
   private loop(): void {
@@ -173,6 +212,16 @@ export class DetectionService {
     const tick = () => {
       if (this.stopped || !this.video) return
       const ts = performance.now()
+
+      // Perte de caméra : débranchée, ou reprise par un autre logiciel.
+      // `requestVideoFrameCallback` cesse simplement d'être appelé — la boucle
+      // se figeait donc en silence, en laissant « détection en cours » et la
+      // dernière cadence affichées. On surveille l'état de la piste, seul
+      // signal fiable, et on tente de reprendre.
+      if (this.stream?.getVideoTracks()[0]?.readyState === 'ended') {
+        this.onCameraLost()
+        return
+      }
 
       // Réduction de la source à ~640 px de côté long, en CONSERVANT le
       // rapport d'image : les landmarks restent normalisés sur le même cadre

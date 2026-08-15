@@ -7,7 +7,7 @@
 //! `http://localhost:47821/` deviendraient des requêtes que l'app émet pour le
 //! compte de qui a fourni le lien.
 
-use std::net::{IpAddr, ToSocketAddrs};
+use std::net::IpAddr;
 use std::time::Duration;
 
 /// Au-delà, ce n'est plus un meme. Le plafond est appliqué pendant la lecture,
@@ -41,9 +41,9 @@ fn is_private(ip: &IpAddr) -> bool {
 /// Vérifie que l'hôte ne résout vers aucune adresse du réseau local.
 /// On refuse dès qu'UNE des adresses est privée : un nom qui répond à la fois
 /// en public et en local n'est pas un nom de confiance.
-fn host_is_public(host: &str, port: u16) -> Result<(), String> {
-    let addrs = (host, port)
-        .to_socket_addrs()
+async fn host_is_public(host: &str, port: u16) -> Result<(), String> {
+    let addrs = tokio::net::lookup_host((host, port))
+        .await
         .map_err(|e| format!("nom d'hôte introuvable : {e}"))?;
     let mut any = false;
     for a in addrs {
@@ -116,11 +116,17 @@ mod url_lite {
 /// Télécharge et renvoie les octets bruts. Le contenu n'est PAS interprété ici :
 /// c'est `store::sniff` qui décide de ce que c'est, sur les octets et jamais sur
 /// ce que le serveur prétend dans son Content-Type.
-pub fn download(raw_url: &str) -> Result<(Vec<u8>, String), String> {
+///
+/// Asynchrone à dessein : `reqwest::blocking` construit son propre runtime, et
+/// l'appeler depuis un thread déjà rattaché à celui de Tauri peut paniquer
+/// (« cannot start a runtime from within a runtime »). En release le profil
+/// compile en `panic = "abort"` : ce panic-là ne remonterait pas en erreur, il
+/// tuerait l'application entière. Le client asynchrone supprime la question.
+pub async fn download(raw_url: &str) -> Result<(Vec<u8>, String), String> {
     let parsed = url_lite::parse(raw_url)?;
-    host_is_public(&parsed.host, parsed.port)?;
+    host_is_public(&parsed.host, parsed.port).await?;
 
-    let client = reqwest::blocking::Client::builder()
+    let client = reqwest::Client::builder()
         .timeout(TIMEOUT)
         // Une redirection peut ramener vers le réseau local après le contrôle :
         // on les refuse plutôt que de revalider à chaque saut.
@@ -129,9 +135,10 @@ pub fn download(raw_url: &str) -> Result<(Vec<u8>, String), String> {
         .build()
         .map_err(|e| e.to_string())?;
 
-    let resp = client
+    let mut resp = client
         .get(raw_url.trim())
         .send()
+        .await
         .map_err(|e| format!("téléchargement impossible : {e}"))?;
 
     if resp.status().is_redirection() {
@@ -151,13 +158,18 @@ pub fn download(raw_url: &str) -> Result<(Vec<u8>, String), String> {
         }
     }
 
-    use std::io::Read;
-    let mut buf = Vec::new();
-    resp.take((MAX_BYTES + 1) as u64)
-        .read_to_end(&mut buf)
-        .map_err(|e| format!("lecture interrompue : {e}"))?;
-    if buf.len() > MAX_BYTES {
-        return Err("fichier trop lourd (maximum 25 Mo)".into())
+    // Lecture par morceaux avec plafond appliqué au fil de l'eau : un serveur
+    // peut annoncer 2 Ko et en envoyer deux gigaoctets.
+    let mut buf: Vec<u8> = Vec::new();
+    while let Some(chunk) = resp
+        .chunk()
+        .await
+        .map_err(|e| format!("lecture interrompue : {e}"))?
+    {
+        if buf.len() + chunk.len() > MAX_BYTES {
+            return Err("fichier trop lourd (maximum 25 Mo)".into())
+        }
+        buf.extend_from_slice(&chunk);
     }
     if buf.is_empty() {
         return Err("le serveur a renvoyé un fichier vide".into())
