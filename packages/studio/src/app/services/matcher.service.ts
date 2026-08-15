@@ -4,7 +4,7 @@ import {
   featurizeRaw,
   type GestureSnapshot,
   type RawFrame,
-} from '@facememe/core'
+} from '@meme4me/core'
 import { DetectionService } from './detection.service'
 import { StoreService } from './store.service'
 import { TauriService } from './tauri.service'

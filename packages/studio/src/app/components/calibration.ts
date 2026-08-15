@@ -1,5 +1,5 @@
 import { Component, computed, inject, signal } from '@angular/core'
-import type { RawFrame } from '@facememe/core'
+import type { RawFrame } from '@meme4me/core'
 import { DetectionService } from '../services/detection.service'
 import { StoreService } from '../services/store.service'
 import { CameraView } from './camera-view'

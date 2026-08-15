@@ -9,7 +9,7 @@ import { StoreService } from './services/store.service'
   imports: [RouterOutlet, RouterLink, RouterLinkActive],
   template: `
     <header>
-      <span class="logo">facememe</span>
+      <span class="logo">meme4me</span>
       <nav>
         <a routerLink="/gestures" routerLinkActive="on">Gestures</a>
         <a routerLink="/live" routerLinkActive="on">Live</a>

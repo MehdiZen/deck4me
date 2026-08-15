@@ -15,7 +15,7 @@
     "target": "ES2022",
     "module": "preserve",
     "paths": {
-      "@facememe/core": ["../core/src/index.ts"]
+      "@meme4me/core": ["../core/src/index.ts"]
     }
   },
   "angularCompilerOptions": {

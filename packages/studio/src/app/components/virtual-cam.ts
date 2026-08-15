@@ -29,8 +29,8 @@ const EMPTY: VcamStatus = {
 }
 
 /**
- * Carte « Caméra virtuelle ». facememe ouvre la webcam physique et republie
- * « facememe Camera » : Streamlabs et la détection se partagent enfin la même
+ * Carte « Caméra virtuelle ». meme4me ouvre la webcam physique et republie
+ * « meme4me Camera » : Streamlabs et la détection se partagent enfin la même
  * source, sans conflit DirectShow exclusif.
  */
 @Component({
@@ -39,8 +39,8 @@ const EMPTY: VcamStatus = {
     <div class="card">
       <h2>Caméra virtuelle — pour Streamlabs</h2>
       <p class="lbl">
-        Streamlabs prend la webcam en accès exclusif. Ici, facememe l'ouvre seul et
-        republie le flux sous le nom « facememe Camera » : dans Streamlabs, choisis
+        Streamlabs prend la webcam en accès exclusif. Ici, meme4me l'ouvre seul et
+        republie le flux sous le nom « meme4me Camera » : dans Streamlabs, choisis
         cette caméra au lieu de ta webcam.
       </p>
 
@@ -48,17 +48,21 @@ const EMPTY: VcamStatus = {
         <p class="badge err" style="display:block">{{ status().error }}</p>
       }
 
-      <!-- 1. installation du filtre (UAC) -->
+      <!-- Le filtre est normalement posé par l'installeur ; ce bouton n'est
+           qu'un secours (build de dev, ou installation qui a échoué). -->
       <p>
         <span class="badge" [class.ok]="status().registered" [class.warn]="!status().registered">
-          {{ status().registered ? 'filtre installé' : 'filtre non installé' }}
+          {{ status().registered ? 'prêt' : 'pilote non installé' }}
         </span>
         @if (!status().registered) {
           <button class="primary" [disabled]="busy()" (click)="register(false)">
-            Installer (demande admin)
+            Installer le pilote (admin)
           </button>
+          <span class="lbl">
+            Normalement posé à l'installation de meme4me — ce bouton est un secours.
+          </span>
         } @else {
-          <button [disabled]="busy()" (click)="register(true)">Désinstaller</button>
+          <button [disabled]="busy()" (click)="register(true)">Retirer le pilote</button>
         }
       </p>
 
@@ -101,8 +105,8 @@ const EMPTY: VcamStatus = {
           </span>
         </p>
         <p class="lbl">
-          Dans Streamlabs : source « Périphérique de capture vidéo » → facememe Camera.
-          Laisse facememe ouvert pendant le stream.
+          Dans Streamlabs : source « Périphérique de capture vidéo » → meme4me Camera.
+          Laisse meme4me ouvert pendant le stream.
         </p>
       }
     </div>
@@ -118,7 +122,9 @@ export class VirtualCamCard implements OnDestroy {
   private poll = 0
 
   constructor() {
-    void this.readStatus()
+    // Énumération au chargement, sinon la liste reste vide jusqu'à ce que
+    // l'utilisateur clique « Actualiser » sans savoir qu'il doit le faire.
+    void this.refresh()
     // Le statut bouge sans nous (Streamlabs se connecte, caméra perdue).
     // Sondage léger : simple lecture mémoire + registre côté Rust, aucun
     // processus lancé — sinon des fenêtres de console clignotent sans fin.

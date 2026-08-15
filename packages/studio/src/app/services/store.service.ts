@@ -12,7 +12,7 @@ import {
   type HoldMode,
   type RawFrame,
   type RenderParams,
-} from '@facememe/core'
+} from '@meme4me/core'
 import { TauriService } from './tauri.service'
 
 export interface AssetMeta {

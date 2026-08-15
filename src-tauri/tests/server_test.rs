@@ -1,7 +1,7 @@
 //! Tests d'intégration du serveur local — sans webview, tokio pur.
 
-use facememe_lib::server::{self, ServerState, TriggerEvent, WsMsg};
-use facememe_lib::store::Store;
+use meme4me_lib::server::{self, ServerState, TriggerEvent, WsMsg};
+use meme4me_lib::store::Store;
 use futures_util::StreamExt;
 use std::sync::Arc;
 

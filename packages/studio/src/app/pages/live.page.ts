@@ -6,7 +6,7 @@ import {
   ViewChild,
   inject,
 } from '@angular/core'
-import { HYSTERESIS, type BlockDiag } from '@facememe/core'
+import { HYSTERESIS, type BlockDiag } from '@meme4me/core'
 import { CameraView } from '../components/camera-view'
 import { DetectionService } from '../services/detection.service'
 import { MatcherService } from '../services/matcher.service'

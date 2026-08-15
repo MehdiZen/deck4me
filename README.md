@@ -1,4 +1,4 @@
-# facememe — Gesture Overlay pour stream
+# meme4me — Gesture Overlay pour stream
 
 App desktop (Tauri v2) : webcam → détection de poses visage/mains (MediaPipe) →
 déclenchement de memes sur un overlay OBS via serveur local axum (port 47821).
@@ -39,23 +39,23 @@ Tests : `npm test` (core TS, vitest) · `cargo test` dans `src-tauri/` (serveur 
 Streamlabs capture la webcam en DirectShow **exclusif** : deux applications ne
 peuvent pas l'ouvrir en même temps (test E de la phase 0, confirmé).
 
-**Solution intégrée — la caméra virtuelle facememe.** facememe devient le seul
+**Solution intégrée — la caméra virtuelle meme4me.** meme4me devient le seul
 process qui ouvre la webcam physique, et republie le flux sous le nom
-« facememe Camera » :
+« meme4me Camera » :
 
 ```
-webcam physique → facememe (détection) → « facememe Camera » → Streamlabs
+webcam physique → meme4me (détection) → « meme4me Camera » → Streamlabs
 ```
 
 Dans **Réglages → Caméra virtuelle** :
 1. « Installer » (demande une élévation admin, une seule fois — enregistre le
    filtre DirectShow via `regsvr32`).
 2. Choisir la webcam physique, « Démarrer ».
-3. Dans Streamlabs : source « Périphérique de capture vidéo » → **facememe Camera**.
-4. Dans Réglages → Caméra (détection), choisir **facememe Camera** également.
+3. Dans Streamlabs : source « Périphérique de capture vidéo » → **meme4me Camera**.
+4. Dans Réglages → Caméra (détection), choisir **meme4me Camera** également.
 
 Le voyant « Streamlabs connecté » confirme qu'une application consomme le flux.
-Laisser facememe ouvert pendant le stream.
+Laisser meme4me ouvert pendant le stream.
 
 Implémentation : `src-tauri/src/virtualcam.rs` — capture Media Foundation
 (nokhwa) côté Rust, republication via le filtre DirectShow

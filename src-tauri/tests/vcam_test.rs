@@ -3,7 +3,7 @@
 //! d'appel, taille de buffer) : un mauvais prototype corrompt la mémoire au
 //! lieu d'échouer proprement.
 
-use facememe_lib::virtualcam::{VirtualCam, FILTER_CLSID};
+use meme4me_lib::virtualcam::{VirtualCam, FILTER_CLSID};
 use std::ffi::c_void;
 use std::path::PathBuf;
 
@@ -61,8 +61,8 @@ fn clsid_matches_the_vendored_filter() {
     );
     // et le filtre doit bien s'annoncer sous notre nom
     assert!(
-        src.contains(r#"L"facememe Camera""#),
-        "le FriendlyName du filtre doit être « facememe Camera »"
+        src.contains(r#"L"meme4me Camera""#),
+        "le FriendlyName du filtre doit être « meme4me Camera »"
     );
 }
 
@@ -71,7 +71,7 @@ fn device_enumeration_excludes_our_own_virtual_camera() {
     // Se recapturer soi-même créerait une boucle infinie.
     let devices = VirtualCam::devices();
     assert!(
-        devices.iter().all(|d| !d.name.contains("facememe")),
-        "la caméra virtuelle facememe ne doit jamais être proposée comme source"
+        devices.iter().all(|d| !d.name.contains("meme4me")),
+        "la caméra virtuelle meme4me ne doit jamais être proposée comme source"
     );
 }

@@ -835,30 +835,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "facememe"
-version = "0.1.0"
-dependencies = [
- "axum",
- "base64 0.22.1",
- "futures-util",
- "hex",
- "imagesize",
- "libloading 0.8.9",
- "nokhwa",
- "rand 0.8.7",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha1",
- "tauri",
- "tauri-build",
- "tempfile",
- "tokio",
- "tokio-tungstenite 0.24.0",
- "winreg 0.52.0",
-]
-
-[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1949,6 +1925,30 @@ name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
+
+[[package]]
+name = "meme4me"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "futures-util",
+ "hex",
+ "imagesize",
+ "libloading 0.8.9",
+ "nokhwa",
+ "rand 0.8.7",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha1",
+ "tauri",
+ "tauri-build",
+ "tempfile",
+ "tokio",
+ "tokio-tungstenite 0.24.0",
+ "winreg 0.52.0",
+]
 
 [[package]]
 name = "memoffset"

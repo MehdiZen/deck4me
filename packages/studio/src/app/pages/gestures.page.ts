@@ -1,6 +1,6 @@
 import { Component, inject, signal } from '@angular/core'
 import { RouterLink } from '@angular/router'
-import { type HoldMode } from '@facememe/core'
+import { type HoldMode } from '@meme4me/core'
 import { MatcherService } from '../services/matcher.service'
 import { StoreService, effectiveThreshold, type StoredGesture } from '../services/store.service'
 import { Wizard } from '../components/wizard'

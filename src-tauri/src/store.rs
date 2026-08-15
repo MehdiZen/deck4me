@@ -123,8 +123,49 @@ pub fn sniff(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
     }
 }
 
+/// Identifiants utilisés avant le renommage en meme4me. Les données vivent
+/// dans un dossier nommé d'après l'identifiant de l'app : sans reprise, un
+/// renommage ferait « disparaître » gestures et calibration.
+const LEGACY_APP_IDS: &[&str] = &["dev.facememe.app"];
+
+fn copy_dir_all(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(to)?;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let dst = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_dir_all(&entry.path(), &dst)?;
+        } else if !dst.exists() {
+            fs::copy(entry.path(), dst)?;
+        }
+    }
+    Ok(())
+}
+
+/// Reprend les données d'une installation précédente si le nouveau dossier
+/// est vierge. Copie (pas déplacement) : en cas de retour arrière, l'ancienne
+/// version retrouve ses données intactes.
+fn adopt_legacy_data(dir: &Path) -> std::io::Result<()> {
+    if dir.join("db.json").exists() {
+        return Ok(());
+    }
+    let Some(parent) = dir.parent() else {
+        return Ok(());
+    };
+    for id in LEGACY_APP_IDS {
+        let old = parent.join(id);
+        if old.join("db.json").exists() {
+            copy_dir_all(&old, dir)?;
+            break;
+        }
+    }
+    Ok(())
+}
+
 impl Store {
     pub fn open(dir: PathBuf) -> std::io::Result<Store> {
+        fs::create_dir_all(&dir)?;
+        adopt_legacy_data(&dir)?;
         fs::create_dir_all(dir.join("assets"))?;
         let db_path = dir.join("db.json");
         let mut db: Db = match fs::read(&db_path) {
@@ -148,7 +189,7 @@ impl Store {
             return Ok(());
         }
         drop(db);
-        let meta = self.write_asset("test-facememe.png", TEST_MEME)?;
+        let meta = self.write_asset("test-meme4me.png", TEST_MEME)?;
         let mut db = self.db.lock().unwrap();
         db.default_asset_id = Some(meta.id.clone());
         Ok(())

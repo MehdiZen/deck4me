@@ -34,7 +34,7 @@ import { StoreService } from '../services/store.service'
           détection si elle tourne. {{ detection.status() }}
         </p>
         <p class="lbl">
-          Si la caméra virtuelle ci-dessous tourne, sélectionne « facememe Camera »
+          Si la caméra virtuelle ci-dessous tourne, sélectionne « meme4me Camera »
           ici aussi : la webcam physique n'est alors ouverte qu'une seule fois.
         </p>
       </div>

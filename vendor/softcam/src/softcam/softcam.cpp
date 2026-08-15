@@ -16,7 +16,7 @@ namespace {
 
 // Setup data
 
-const wchar_t FILTER_NAME[] = L"facememe Camera";
+const wchar_t FILTER_NAME[] = L"meme4me Camera";
 const GUID &FILTER_CLASSID = CLSID_DShowSoftcam;
 
 const AMOVIESETUP_MEDIATYPE s_pin_types[] =
