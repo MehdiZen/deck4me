@@ -73,31 +73,45 @@ describe('FACE_KEYS', () => {
       'mouthClose',
       'mouthShrugLower', // recouvre mouthPucker
       'mouthShrugUpper',
-      'mouthLowerDownLeft', // inséparable de jawOpen en pratique
-      'mouthLowerDownRight',
-      'noseSneerLeft', // doublon de mouthUpperUp, nez sous la monture
+      'noseSneerLeft', // mesurées à 0,000 dans les deux états
       'noseSneerRight',
+      // `mouthLowerDown*` figurait ici, écartée au motif qu'elle serait
+      // « inséparable de jawOpen ». La mesure dit le contraire : 0,60 / 0,40
+      // en grimace quand jawOpen ne montait qu'à 0,11 sur la même frame. Elle
+      // est retenue depuis la v6.
     ]
     for (const k of rejected) expect(FACE_KEYS, k).not.toContain(k)
   })
 
   /**
-   * Retirées en v5 après régression constatée en usage réel. Une seule clé qui
-   * oscille de 0,9 au repos ajoute √(0,81/n) ≈ 0,16 à TOUTES les distances,
-   * soit près du triple du plancher de seuil : elle enfle la dispersion
-   * intra-classe (donc les seuils, donc les faux positifs) et le bruit au
-   * runtime (donc les poses qui ne matchent plus). Ne pas réintroduire sans
-   * avoir mesuré leur stabilité au repos dans l'écran Debug.
+   * Clés écartées sur MESURE (écran Debug, amplitude au repos puis en grimace).
+   * Une clé qui ne bouge dans aucun des deux états n'apporte rien et dilue le
+   * signal des autres, la distance étant une RMS divisée par le nombre de
+   * dimensions. Ne pas réintroduire sans un relevé qui les contredise.
    */
-  it('exclut les clés qui ont déréglé la v4', () => {
+  it('exclut les clés mesurées mortes ou négligeables', () => {
+    const dead = {
+      tongueOut: "MediaPipe ne la produit pas du tout — 51 blendshapes + _neutral",
+      jawForward: '0,003 au maximum en pleine grimace',
+      cheekSquintLeft: '0,000 au repos comme en grimace',
+      cheekSquintRight: '0,000 au repos comme en grimace',
+      noseSneerLeft: '0,000 dans les deux états',
+      noseSneerRight: '0,000 dans les deux états',
+      mouthDimpleLeft: '0,03 au maximum',
+      mouthDimpleRight: '0,03 au maximum',
+    }
+    for (const [k, why] of Object.entries(dead)) expect(FACE_KEYS, why).not.toContain(k)
+  })
+
+  /** Retenues sur mesure : réponse franche entre repos et expression. */
+  it('retient les clés mesurées utiles', () => {
     for (const k of [
-      'tongueOut',
-      'cheekSquintLeft',
-      'cheekSquintRight',
-      'mouthDimpleLeft',
-      'mouthDimpleRight',
+      'mouthUpperUpLeft', // 0,000 → 0,39
+      'mouthUpperUpRight', // 0,000 → 0,37
+      'mouthLowerDownLeft', // 0,000 → 0,40
+      'mouthLowerDownRight', // 0,000 → 0,60, la plus forte après le sourire
     ]) {
-      expect(FACE_KEYS, k).not.toContain(k)
+      expect(FACE_KEYS, k).toContain(k)
     }
   })
 })

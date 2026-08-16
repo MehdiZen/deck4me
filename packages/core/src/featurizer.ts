@@ -11,23 +11,25 @@ import type {
 // v2 : ajout du bloc handPos (position du poignet relative au visage).
 // v3 : POS_SCALE abaissé — en v2 la position écrasait la forme, un petit
 //      décalage de main suffisait à empêcher le match.
-// v4 : 8 blendshapes de plus. RÉGRESSION — voir v5.
-// v5 : retrait de tongueOut, cheekSquint* et mouthDimple*, les trois que la v4
-//      ajoutait « sous réserve de vérification ». La réserve était fondée.
+// v4 : 8 blendshapes ajoutés sur intuition. Régression signalée en usage.
+// v5 : retrait de 5 d'entre eux, sur une hypothèse qui s'est révélée FAUSSE
+//      (voir `tongueOut` plus bas). Correction bâtie sur un mauvais diagnostic.
+// v6 : premier jeu établi sur MESURE. L'écran Debug (« Stabilité des
+//      blendshapes ») donne l'amplitude de chacune des 52 sur 2 s ; au repos
+//      elle mesure le bruit, pendant l'expression elle mesure le signal. Deux
+//      relevés suffisent à décider, là où trois versions d'intuition avaient
+//      échoué.
 //
-//      Le calcul qui aurait dû être fait avant : la distance est une RMS sur n
-//      dimensions, donc UNE seule clé qui oscille de 0,9 pendant qu'on ne bouge
-//      pas ajoute √(0,81/31) ≈ 0,16 à toutes les distances — presque le triple
-//      du plancher de seuil (0,06). Une dimension instable sur trente et une
-//      suffit donc à dérégler l'application entière :
-//        · le seuil auto vaut max(dispersion intra × 1,3, plancher) → il enfle,
-//          et les poses difficiles se mettent à partir toutes seules ;
-//        · la distance au runtime enfle aussi → les poses qui utilisaient la
-//          clé instable ne matchent plus du tout ;
-//        · l'échelle du graphe Live étant adaptative, la ligne de seuil se met
-//          à bouger à l'écran alors que sa valeur ne change pas.
-//      Les trois symptômes n'en font qu'un.
-export const FEATURIZER_VERSION = 5
+//      Le critère est le RAPPORT signal/bruit, jamais le bruit seul :
+//      `mouthPucker` gigote de 0,10 au repos mais parcourt 0,65 entre repos et
+//      grimace — elle reste largement gagnante. À l'inverse `jawForward` ne
+//      bouge pas du tout : ne pas bouger n'est pas une qualité, c'est de la
+//      dilution, puisque la distance est une RMS divisée par le nombre de
+//      dimensions.
+//
+//      Ce jeu vaut pour CE visage, avec CES lunettes, sous CET éclairage. Voir
+//      la piste « pondération par utilisateur » dans HANDOFF.md.
+export const FEATURIZER_VERSION = 6
 
 /**
  * Sous-ensemble des blendshapes ARKit (52 exposés par MediaPipe).
@@ -83,26 +85,33 @@ export const FACE_KEYS = [
   'mouthLeft',
   'mouthRight',
 
-  // --- v4, conservées en v5 ---
-  /** Mâchoire avancée. Complète la famille (Open/Left/Right déjà là) pour une
-   *  seule dimension, sans recouvrir aucune autre. */
-  'jawForward',
-  /** Lèvre supérieure retroussée : le dégoût. Franchement distinct du sourire
-   *  comme de la moue. */
+  // --- v6 : retenues sur mesure, pas sur intuition ---
+  /** Lèvre supérieure retroussée. Mesurée : 0,000 au repos → 0,39 / 0,37 en
+   *  grimace. Signal franc, aucun bruit au repos. */
   'mouthUpperUpLeft',
   'mouthUpperUpRight',
+  /** Lèvre inférieure tirée vers le bas. Mesurée : 0,000 au repos → 0,60 / 0,40
+   *  en grimace, alors que `jawOpen` ne montait qu'à 0,11 sur la même frame —
+   *  les deux ne sont donc PAS le même signal, contrairement à ce que je
+   *  supposais en les écartant. La plus forte réponse de tout le jeu après le
+   *  sourire. */
+  'mouthLowerDownLeft',
+  'mouthLowerDownRight',
 
-  // --- Retirées en v5, ne pas réintroduire sans mesure ---
-  // 'tongueOut'       — oscille sans qu'on bouge : le modèle MediaPipe la
-  //                     prédit mal. C'est elle qui a déréglé la v4.
-  // 'cheekSquint*'    — la zone est sous la monture des lunettes.
-  // 'mouthDimple*'    — dépend de la morphologie ; sans fossettes, du bruit.
-  //
-  // L'écran Debug affiche l'instabilité de chaque blendshape au repos
-  // (« Stabilité des blendshapes »). C'est la mesure à faire AVANT d'ajouter
-  // quoi que ce soit ici : une clé dont l'amplitude au repos dépasse ~0,05
-  // coûte plus qu'elle ne rapporte, quelle que soit l'expression qu'elle
-  // prétend capter.
+  // --- Écartées, chacune sur une mesure ---
+  // 'tongueOut'    — N'EXISTE PAS. MediaPipe sort `_neutral` + 51 blendshapes,
+  //                  soit les 52 d'ARKit MOINS celle-ci. Tirer la langue n'est
+  //                  pas détectable avec ce modèle, point.
+  // 'jawForward'   — 0,003 au maximum en pleine grimace. Morte : de la dilution
+  //                  pure. Ajoutée en v4 sur intuition, retirée en v6 sur mesure.
+  // 'cheekSquint*' — 0,000 au repos ET en grimace. Morte.
+  // 'noseSneer*'   — 0,000 dans les deux états. Morte.
+  // 'mouthDimple*' — 0,03 au maximum. Négligeable.
+  // 'mouthStretch*', 'mouthPress*', 'mouthRoll*', 'mouthClose',
+  // 'mouthShrug*'  — mesurées sous 0,09, sans commune mesure avec les retenues.
+  // 'eyeLook*'     — LE bruit du jeu : 0,55 d'amplitude en grimace, 0,16 au
+  //                  repos. De loin les plus instables des 52. Exclusion
+  //                  d'origine confirmée par la mesure.
 ] as const
 
 /** Nombre de clés v1. Une baseline écrite avant v4 a exactement cette taille ;
