@@ -35,6 +35,19 @@ if (!existsSync(keyFile)) {
   process.exit(1)
 }
 
+// L'app en cours d'exécution tient son propre .exe et softcam.dll : cargo
+// échoue alors sur « Accès refusé. (os error 5) », un message qui ne dit pas
+// quoi fermer. On préfère le dire nous-mêmes, et ne PAS tuer le processus : il
+// peut être en train de servir une session OBS.
+if (process.platform === 'win32') {
+  const t = spawnSync('tasklist', ['/fi', 'imagename eq meme4me.exe'], { encoding: 'utf8' })
+  if (t.stdout?.includes('meme4me.exe')) {
+    console.error('meme4me.exe tourne : il verrouille son propre binaire.')
+    console.error('Fermer l’app, puis relancer le build.')
+    process.exit(1)
+  }
+}
+
 const env = {
   ...process.env,
   TAURI_SIGNING_PRIVATE_KEY: readFileSync(keyFile, 'utf8').trim(),
