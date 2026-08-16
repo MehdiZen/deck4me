@@ -8,7 +8,7 @@ import {
   inject,
   signal,
 } from '@angular/core'
-import { FEATURIZER_VERSION, HYSTERESIS } from '@meme4me/core'
+import { FACE_KEYS, FEATURIZER_VERSION, HYSTERESIS } from '@meme4me/core'
 import { Icon } from '../components/icon'
 import { DetectionService } from '../services/detection.service'
 import { HISTORY_HZ, HISTORY_LEN, MatcherService } from '../services/matcher.service'
@@ -158,6 +158,65 @@ interface OverlayStats {
       </div>
     </div>
 
+    <!-- Stabilité des blendshapes -->
+    <div class="card">
+      <div class="cardhead">
+        <h2>Stabilité des blendshapes</h2>
+        <span class="lbl legend">amplitude sur ~2 s · reste immobile</span>
+        <span class="spacer"></span>
+        <button class="ghost sm" (click)="resetShapes()">Remettre à zéro</button>
+      </div>
+      <p class="lbl note">
+        La distance est une moyenne quadratique sur toutes les dimensions : une
+        seule clé qui oscille alors que tu ne bouges pas pollue <b>toutes</b> les
+        comparaisons, y compris celles des gestures qui ne s'en servent pas. Une
+        amplitude au repos au-dessus de <span class="num">{{ UNSTABLE }}</span>
+        coûte plus qu'elle ne rapporte. Mesure ici avant d'ajouter une clé au
+        featurizer — c'est l'absence de cette mesure qui a déréglé la v4.
+      </p>
+      @if (!shapes().length) {
+        <p class="empty">Démarre la caméra et reste immobile deux secondes.</p>
+      } @else {
+        @if (noisyUsed().length; as n) {
+          <p class="badge warn block">
+            {{ n }} clé(s) retenue(s) dépassent le seuil d'instabilité : elles
+            gonflent les seuils auto et provoquent des déclenchements parasites.
+          </p>
+        }
+        <div class="scroller">
+          <table>
+            <thead>
+              <tr>
+                <th>Blendshape</th>
+                <th></th>
+                <th class="r">Valeur</th>
+                <th class="r">Amplitude</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (s of shapes(); track s.name) {
+                <tr [class.dim]="!s.used">
+                  <td class="nm">{{ s.name }}</td>
+                  <td>
+                    @if (s.used) {
+                      <span class="badge ok">utilisée</span>
+                    }
+                    @if (s.span > UNSTABLE) {
+                      <span class="badge warn">instable</span>
+                    }
+                  </td>
+                  <td class="r num">{{ s.cur.toFixed(3) }}</td>
+                  <td class="r num" [style.color]="s.span > UNSTABLE ? 'var(--st-live)' : ''">
+                    {{ s.span.toFixed(3) }}
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </div>
+
     <!-- Environnement -->
     <div class="card">
       <div class="cardhead">
@@ -228,6 +287,8 @@ interface OverlayStats {
        interne, avec l'en-tête collé : sinon on scrolle la page entière et on
        perd de vue le nom des colonnes au moment où on en a besoin. */
     .scroller { max-height: 52vh; overflow-y: auto; }
+    tr.dim { opacity: 0.5; }
+    .block { display: block; white-space: normal; line-height: 1.5; padding: 9px 12px; margin: 0 0 10px; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     thead th {
       position: sticky; top: 0; z-index: 1;
@@ -276,6 +337,53 @@ export class DebugPage implements AfterViewInit, OnDestroy {
 
   private raf = 0
   private poll = 0
+
+  // ---- Stabilité des blendshapes ----
+  //
+  // L'instrument qui manquait, et dont l'absence a coûté la v4 : on y avait
+  // ajouté des clés en pariant sur leur fiabilité. Une seule clé qui oscille au
+  // repos suffit à dérégler l'application entière, parce que la distance est une
+  // RMS sur toutes les dimensions — le bruit d'une seule contamine chaque
+  // comparaison, y compris celles des gestures qui ne s'en servent pas.
+  //
+  // Ce qu'on veut voir n'est PAS la valeur courante mais l'AMPLITUDE au repos :
+  // reste immobile, regarde ce qui bouge quand même.
+
+  /** ~2 s à 30 Hz. Assez long pour attraper une oscillation lente. */
+  private static readonly WIN = 60
+  /** Au-delà, la clé coûte plus de bruit qu'elle n'apporte de signal. */
+  protected readonly UNSTABLE = 0.05
+  private ring = new Map<string, number[]>()
+  private unsubFrames: (() => void) | null = null
+  protected readonly retenues = new Set<string>(FACE_KEYS)
+
+  /** Toutes les clés vues, triées par amplitude décroissante. */
+  readonly shapes = computed(() => {
+    this.tick()
+    const out: { name: string; cur: number; span: number; used: boolean }[] = []
+    for (const [name, buf] of this.ring) {
+      if (!buf.length) continue
+      let min = Infinity
+      let max = -Infinity
+      for (const v of buf) {
+        if (v < min) min = v
+        if (v > max) max = v
+      }
+      out.push({
+        name,
+        cur: buf[buf.length - 1]!,
+        span: max - min,
+        used: this.retenues.has(name),
+      })
+    }
+    return out.sort((a, b) => b.span - a.span)
+  })
+
+  /** Clés retenues dont l'amplitude au repos dépasse le seuil : ce sont
+   *  celles qui dérèglent activement les seuils. */
+  readonly noisyUsed = computed(() =>
+    this.shapes().filter((s) => s.used && s.span > this.UNSTABLE),
+  )
 
   readonly stages = computed(() => {
     const d = this.detection
@@ -391,11 +499,33 @@ export class DebugPage implements AfterViewInit, OnDestroy {
       void this.readOverlay()
     }, 250)
     void this.readOverlay()
+
+    // Collecte hors change detection : la boucle tourne à 30 Hz, un signal par
+    // frame ferait tourner Angular autant de fois pour rien.
+    this.unsubFrames = this.detection.onFrame((raw) => {
+      if (!raw.face) return
+      for (const c of raw.face) {
+        let buf = this.ring.get(c.categoryName)
+        if (!buf) {
+          buf = []
+          this.ring.set(c.categoryName, buf)
+        }
+        buf.push(c.score)
+        if (buf.length > DebugPage.WIN) buf.shift()
+      }
+    })
   }
 
   ngOnDestroy(): void {
     cancelAnimationFrame(this.raf)
     clearInterval(this.poll)
+    // Sans ça, l'écouteur survit à l'écran et continue de copier 52 valeurs
+    // trente fois par seconde pour un composant détruit.
+    this.unsubFrames?.()
+  }
+
+  resetShapes(): void {
+    this.ring.clear()
   }
 
   private async readOverlay(): Promise<void> {

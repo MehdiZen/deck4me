@@ -11,11 +11,23 @@ import type {
 // v2 : ajout du bloc handPos (position du poignet relative au visage).
 // v3 : POS_SCALE abaissé — en v2 la position écrasait la forme, un petit
 //      décalage de main suffisait à empêcher le match.
-// v4 : 8 blendshapes de plus (langue, dégoût, mâchoire avancée, vrai sourire,
-//      asymétrie). Le visage tenait sur 23 dimensions, contre 42 pour une
-//      seule main : c'était le bloc le plus sollicité et le plus pauvre.
-// Les raws v1 sans faceAnchor restent featurisables : bloc position absent.
-export const FEATURIZER_VERSION = 4
+// v4 : 8 blendshapes de plus. RÉGRESSION — voir v5.
+// v5 : retrait de tongueOut, cheekSquint* et mouthDimple*, les trois que la v4
+//      ajoutait « sous réserve de vérification ». La réserve était fondée.
+//
+//      Le calcul qui aurait dû être fait avant : la distance est une RMS sur n
+//      dimensions, donc UNE seule clé qui oscille de 0,9 pendant qu'on ne bouge
+//      pas ajoute √(0,81/31) ≈ 0,16 à toutes les distances — presque le triple
+//      du plancher de seuil (0,06). Une dimension instable sur trente et une
+//      suffit donc à dérégler l'application entière :
+//        · le seuil auto vaut max(dispersion intra × 1,3, plancher) → il enfle,
+//          et les poses difficiles se mettent à partir toutes seules ;
+//        · la distance au runtime enfle aussi → les poses qui utilisaient la
+//          clé instable ne matchent plus du tout ;
+//        · l'échelle du graphe Live étant adaptative, la ligne de seuil se met
+//          à bouger à l'écran alors que sa valeur ne change pas.
+//      Les trois symptômes n'en font qu'un.
+export const FEATURIZER_VERSION = 5
 
 /**
  * Sous-ensemble des blendshapes ARKit (52 exposés par MediaPipe).
@@ -71,11 +83,7 @@ export const FACE_KEYS = [
   'mouthLeft',
   'mouthRight',
 
-  // --- v4 ---
-  /** Tirer la langue. Aucune autre clé ne la couvre, impossible par accident.
-   *  Réserve connue : c'est le blendshape le plus faible du modèle MediaPipe,
-   *  souvent bloqué près de 0. À vérifier avant de bâtir une pose dessus. */
-  'tongueOut',
+  // --- v4, conservées en v5 ---
   /** Mâchoire avancée. Complète la famille (Open/Left/Right déjà là) pour une
    *  seule dimension, sans recouvrir aucune autre. */
   'jawForward',
@@ -83,14 +91,18 @@ export const FACE_KEYS = [
    *  comme de la moue. */
   'mouthUpperUpLeft',
   'mouthUpperUpRight',
-  /** Plissement des joues — le marqueur de Duchenne, qui sépare un vrai
-   *  sourire d'un sourire poli. Axe réellement indépendant de mouthSmile. */
-  'cheekSquintLeft',
-  'cheekSquintRight',
-  /** Rictus en coin. Seul axe franchement ASYMÉTRIQUE du jeu : toutes les
-   *  autres clés sont des paires employées symétriquement. */
-  'mouthDimpleLeft',
-  'mouthDimpleRight',
+
+  // --- Retirées en v5, ne pas réintroduire sans mesure ---
+  // 'tongueOut'       — oscille sans qu'on bouge : le modèle MediaPipe la
+  //                     prédit mal. C'est elle qui a déréglé la v4.
+  // 'cheekSquint*'    — la zone est sous la monture des lunettes.
+  // 'mouthDimple*'    — dépend de la morphologie ; sans fossettes, du bruit.
+  //
+  // L'écran Debug affiche l'instabilité de chaque blendshape au repos
+  // (« Stabilité des blendshapes »). C'est la mesure à faire AVANT d'ajouter
+  // quoi que ce soit ici : une clé dont l'amplitude au repos dépasse ~0,05
+  // coûte plus qu'elle ne rapporte, quelle que soit l'expression qu'elle
+  // prétend capter.
 ] as const
 
 /** Nombre de clés v1. Une baseline écrite avant v4 a exactement cette taille ;

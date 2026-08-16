@@ -334,7 +334,7 @@ Points d'archi verrouillés (handoff + review 2026-08-15) :
   calibration → changement de version ou de baseline = re-featurisation silencieuse au boot.
   « À réenregistrer » n'est que le fallback sans données brutes.
 - Baseline neutre par utilisateur (biais morphologique + lunettes), soustraite partout.
-  Subset visage de **31 blendshapes sur 52** (v4). Le critère n'est pas « cette expression
+  Subset visage de **26 blendshapes sur 52** (v5). Le critère n'est pas « cette expression
   est utile » mais « ce blendshape bouge-t-il de façon fiable ET indépendante » : la
   distance est une RMS normalisée par le nombre de dimensions, donc une clé morte dilue
   le signal des autres, et une clé qui bouge au hasard — ou pendant qu'on parle — ajoute
@@ -346,6 +346,15 @@ Points d'archi verrouillés (handoff + review 2026-08-15) :
   **Les clés v1 restent en tête, dans l'ordre** — une baseline enregistrée est un tableau
   indexé par position ; insérer au milieu soustrairait le biais de la mauvaise expression,
   sans erreur ni message. Verrouillé par `packages/core/test/facekeys.test.ts`.
+- **Une seule clé instable dérègle toute l'application.** La v4 avait ajouté `tongueOut`,
+  `cheekSquint*` et `mouthDimple*` « sous réserve de vérification » ; la réserve était
+  fondée et la v5 les retire. Le calcul qu'il fallait faire avant : une clé qui oscille de
+  0,9 au repos ajoute `√(0,81/n)` ≈ 0,16 à **toutes** les distances, presque le triple du
+  plancher de seuil (0,06). Elle enfle la dispersion intra-classe — donc le seuil auto,
+  donc les faux positifs — *et* le bruit au runtime — donc les poses qui ne matchent plus.
+  L'échelle du graphe Live étant adaptative, la ligne de seuil se met en prime à bouger
+  alors que sa valeur est constante. **Mesurer dans « Stabilité des blendshapes »
+  (écran Debug) avant d'ajouter une clé** : amplitude au repos > 0,05 = à écarter.
 - Un bump de `FEATURIZER_VERSION` **recalcule les seuils**, pas seulement les samples :
   ajouter des dimensions rétrécit toutes les distances, un seuil hérité deviendrait
   mécaniquement plus permissif. Le multiplicateur `sensitivity` réglé à la main est

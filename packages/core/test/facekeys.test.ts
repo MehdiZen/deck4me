@@ -60,8 +60,8 @@ describe('FACE_KEYS', () => {
     expect(FACE_KEYS.filter((k) => k.startsWith('eyeLook'))).toEqual([])
   })
 
-  /** Les clés écartées à la v4, avec la raison. Le test empêche qu'on les
-   *  réintroduise par inadvertance en recopiant la liste ARKit complète. */
+  /** Les clés écartées, avec la raison. Le test empêche qu'on les réintroduise
+   *  par inadvertance en recopiant la liste ARKit complète. */
   it('exclut les clés jugées bruitées ou redondantes', () => {
     const rejected = [
       'mouthStretchLeft', // part sur chaque « i », « è », « ê »
@@ -79,6 +79,26 @@ describe('FACE_KEYS', () => {
       'noseSneerRight',
     ]
     for (const k of rejected) expect(FACE_KEYS, k).not.toContain(k)
+  })
+
+  /**
+   * Retirées en v5 après régression constatée en usage réel. Une seule clé qui
+   * oscille de 0,9 au repos ajoute √(0,81/n) ≈ 0,16 à TOUTES les distances,
+   * soit près du triple du plancher de seuil : elle enfle la dispersion
+   * intra-classe (donc les seuils, donc les faux positifs) et le bruit au
+   * runtime (donc les poses qui ne matchent plus). Ne pas réintroduire sans
+   * avoir mesuré leur stabilité au repos dans l'écran Debug.
+   */
+  it('exclut les clés qui ont déréglé la v4', () => {
+    for (const k of [
+      'tongueOut',
+      'cheekSquintLeft',
+      'cheekSquintRight',
+      'mouthDimpleLeft',
+      'mouthDimpleRight',
+    ]) {
+      expect(FACE_KEYS, k).not.toContain(k)
+    }
   })
 })
 
