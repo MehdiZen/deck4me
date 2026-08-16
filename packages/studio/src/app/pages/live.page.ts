@@ -96,7 +96,7 @@ import { StoreService, effectiveThreshold, type StoredGesture } from '../service
           <div class="cardhead">
             <h2>Distances</h2>
             <span class="lbl legend">
-              trait plein = seuil · pointillé = relâche (×{{ HYSTERESIS }})
+              gradué par seuil · trait plein = seuil · pointillé = relâche (×{{ HYSTERESIS }})
             </span>
           </div>
           <canvas #bars></canvas>
@@ -459,13 +459,20 @@ export class LivePage implements AfterViewInit, OnDestroy {
       return
     }
 
-    // Échelle adaptative : seuils et distances tiennent toujours dans le cadre.
-    let maxVal = 0.25
-    for (const s of snaps) {
-      maxVal = Math.max(maxVal, s.threshold * HYSTERESIS * 1.15)
-      if (s.dist !== null) maxVal = Math.max(maxVal, s.dist * 1.05)
-    }
-    const SCALE = cssW / maxVal
+    // Chaque ligne est graduée en MULTIPLES DE SON PROPRE SEUIL, pas en
+    // distance absolue. Le trait de seuil tombe donc toujours au même x, sur
+    // toutes les lignes : il forme une colonne fixe, et la seule question qui
+    // compte — « ma barre a-t-elle passé le trait ? » — se lit d'un coup d'œil.
+    //
+    // L'échelle commune adaptative d'avant recalculait le facteur à partir de
+    // la plus grande distance affichée : dès qu'une pose s'éloignait, TOUS les
+    // traits de seuil glissaient à l'écran alors qu'aucune valeur n'avait
+    // changé. Une référence qui bouge n'est pas une référence.
+    //
+    // Ce qu'on perd : comparer deux distances absolues entre lignes. Ça n'avait
+    // aucun sens, chaque gesture ayant son propre seuil.
+    const T_X = cssW * 0.42 // ratio 1.0 — le seuil
+    const MAX_RATIO = cssW / T_X
 
     snaps.forEach((s, i) => {
       const y = i * ROW + 8
@@ -498,7 +505,8 @@ export class LivePage implements AfterViewInit, OnDestroy {
       ctx.fillStyle = track
       this.bar(ctx, 0, barY, cssW, BAR_H)
       if (s.dist !== null) {
-        const w = Math.max(3, Math.min(cssW, s.dist * SCALE))
+        const ratio = Math.min(MAX_RATIO, s.dist / (s.threshold || 1))
+        const w = Math.max(3, ratio * T_X)
         // Une gesture qui déclenche mérite d'être vue du coin de l'œil :
         // c'est le seul moment où la toile s'autorise une lueur.
         if (active) {
@@ -513,15 +521,15 @@ export class LivePage implements AfterViewInit, OnDestroy {
         ctx.shadowBlur = 0
       }
 
-      // Repères récessifs : seuil (plein) et sortie d'hystérésis (pointillé)
-      const tx = Math.min(cssW - 2, s.threshold * SCALE)
+      // Repères FIXES : seuil (plein) et sortie d'hystérésis (pointillé).
+      // Leur position ne dépend plus d'aucune valeur mesurée.
       ctx.fillStyle = ink2
-      ctx.fillRect(tx, barY - 4, 1.5, BAR_H + 8)
+      ctx.fillRect(T_X, barY - 4, 1.5, BAR_H + 8)
       ctx.strokeStyle = ink3
       ctx.lineWidth = 1
       ctx.setLineDash([2, 3])
       ctx.beginPath()
-      const hx = Math.min(cssW - 1, s.threshold * HYSTERESIS * SCALE)
+      const hx = Math.min(cssW - 1, T_X * HYSTERESIS)
       ctx.moveTo(hx, barY - 4)
       ctx.lineTo(hx, barY + BAR_H + 4)
       ctx.stroke()
