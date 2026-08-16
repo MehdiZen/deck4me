@@ -7,9 +7,24 @@ import {
   computed,
   effect,
   inject,
+  signal,
 } from '@angular/core'
 import { FaceLandmarker } from '@mediapipe/tasks-vision'
 import { DetectionService, type VizFrame } from '../services/detection.service'
+import { Icon } from './icon'
+
+/**
+ * Masquer la vidéo est un réglage de confort qui vaut pour TOUTES les vues
+ * caméra à la fois — Live, assistant, calibration. Un signal de module plutôt
+ * qu'un état par instance : sinon on le couperait sur Live et il reviendrait
+ * en pleine figure à l'ouverture de l'assistant.
+ *
+ * Le stockage local suffit : perdre ce choix ne coûte qu'un clic, et le faire
+ * transiter par la base ajouterait une migration pour une préférence
+ * d'affichage.
+ */
+const HIDE_KEY = 'meme4me.hideVideo'
+const hideVideo = signal(localStorage.getItem(HIDE_KEY) === '1')
 
 /** Squelette MediaPipe : paume puis les cinq doigts. Relier les points fait
  *  la différence entre « un nuage » et « une main » à l'œil nu. */
@@ -47,13 +62,24 @@ const FACE_MESH: [number, number][] = FaceLandmarker.FACE_LANDMARKS_TESSELATION.
  */
 @Component({
   selector: 'app-camera-view',
+  imports: [Icon],
   template: `
     <!-- Le cadre épouse le rapport d'image de la source (4:3, 16:9…) : sinon
          la vidéo est étirée et les landmarks tombent à côté. -->
-    <div class="wrap" [style.aspect-ratio]="aspect()">
+    <div class="wrap" [class.bare]="hidden()" [style.aspect-ratio]="aspect()">
       <video #video class="mirror" muted playsinline></video>
       <canvas #canvas class="mirror" width="640" height="480"></canvas>
-      @if (!detection.running()) {
+      @if (detection.running()) {
+        <button
+          type="button"
+          class="toggle"
+          (click)="toggleVideo()"
+          [title]="hidden() ? 'Afficher la caméra' : 'Masquer la caméra, garder le maillage'"
+          [attr.aria-pressed]="hidden()"
+        >
+          <app-icon [name]="hidden() ? 'eye-off' : 'eye'" />
+        </button>
+      } @else {
         <div class="off">{{ detection.status() }}</div>
       }
     </div>
@@ -66,12 +92,30 @@ const FACE_MESH: [number, number][] = FaceLandmarker.FACE_LANDMARKS_TESSELATION.
       overflow: hidden;
     }
     video, canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-    video { object-fit: cover; }
+    video { object-fit: cover; transition: opacity .18s ease; }
     /* Vignettage discret : recentre le regard sur le visage sans rien masquer */
     .wrap::after {
       content: ''; position: absolute; inset: 0; pointer-events: none;
       box-shadow: inset 0 0 90px 12px #00000066;
     }
+    /* Caméra masquée : la vidéo s'efface, le maillage reste. Opacité et non
+       display:none — le <video> doit continuer à jouer, c'est LUI que
+       MediaPipe échantillonne. Le couper arrêterait la détection. */
+    .bare video { opacity: 0; }
+    .bare::after { box-shadow: none; }
+
+    .toggle {
+      position: absolute; top: 8px; right: 8px;
+      display: grid; place-items: center;
+      width: 30px; height: 30px; padding: 0;
+      border: 1px solid #ffffff1f; border-radius: 8px;
+      background: #0b0f14a8; color: var(--ink-2);
+      cursor: pointer; opacity: 0; transition: opacity .15s ease, color .15s ease;
+    }
+    /* Discret tant qu'on ne le cherche pas, mais toujours visible quand la
+       caméra est masquée : sinon plus rien à l'écran ne dit comment revenir. */
+    .wrap:hover .toggle, .toggle:focus-visible, .bare .toggle { opacity: 1; }
+    .toggle:hover { color: var(--ink-1); }
     .off {
       position: absolute; inset: 0; display: grid; place-items: center;
       color: var(--ink-3); font-size: 13px; padding: 20px; text-align: center;
@@ -80,6 +124,14 @@ const FACE_MESH: [number, number][] = FaceLandmarker.FACE_LANDMARKS_TESSELATION.
 })
 export class CameraView implements AfterViewInit, OnDestroy {
   protected detection = inject(DetectionService)
+
+  protected hidden = hideVideo.asReadonly()
+
+  protected toggleVideo(): void {
+    const next = !hideVideo()
+    hideVideo.set(next)
+    localStorage.setItem(HIDE_KEY, next ? '1' : '0')
+  }
 
   /** Rapport d'image de la source, 4/3 tant qu'elle n'a pas démarré. */
   protected aspect = computed(() => {
@@ -134,9 +186,11 @@ export class CameraView implements AfterViewInit, OnDestroy {
     // bouche, c'est la main qu'on veut lire par-dessus, pas le filet.
     if (viz.faceLandmarks) {
       // Opacité relevée depuis que le filet est seul : à 12 % il ne servait que
-      // de fond aux contours, il doit maintenant se tenir tout seul.
-      ctx.strokeStyle = '#5eead440'
-      ctx.lineWidth = 0.6
+      // de fond aux contours, il doit maintenant se tenir tout seul. Sur fond
+      // noir il n'a plus le visage pour l'appuyer, d'où le second palier — un
+      // filet à 25 % sur du vide est illisible.
+      ctx.strokeStyle = this.hidden() ? '#5eead4b0' : '#5eead440'
+      ctx.lineWidth = this.hidden() ? 0.75 : 0.6
       this.bones(ctx, viz.faceLandmarks, FACE_MESH)
     }
     viz.handLandmarks.forEach((lm, h) => {
