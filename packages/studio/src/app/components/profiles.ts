@@ -1,4 +1,5 @@
 import { Component, inject, signal } from '@angular/core'
+import { ConfirmService } from '../services/confirm.service'
 import { StoreService } from '../services/store.service'
 import { Icon } from './icon'
 
@@ -98,6 +99,7 @@ import { Icon } from './icon'
 })
 export class Profiles {
   protected store = inject(StoreService)
+  private confirm = inject(ConfirmService)
   readonly draft = signal('')
   readonly renaming = signal('')
 
@@ -123,9 +125,11 @@ export class Profiles {
   /** Supprimer un profil emporte ses gestures : la confirmation dit combien. */
   async remove(id: string, name: string): Promise<void> {
     const n = this.count(id)
-    const warn = n
-      ? `Supprimer « ${name} » et ses ${n} gesture(s) ? Les enregistrements seront perdus.`
-      : `Supprimer « ${name} » ?`
-    if (confirm(warn)) await this.store.deleteProfile(id)
+    const ok = await this.confirm.ask({
+      title: `Supprimer « ${name} » ?`,
+      body: n ? `Ses ${n} gesture(s) partent avec lui : les enregistrements seront perdus.` : undefined,
+      danger: true,
+    })
+    if (ok) await this.store.deleteProfile(id)
   }
 }

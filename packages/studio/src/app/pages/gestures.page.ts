@@ -5,6 +5,7 @@ import { AssetPicker } from '../components/asset-picker'
 import { BindingEditor } from '../components/binding-editor'
 import { Icon } from '../components/icon'
 import { Wizard, type WizardMode } from '../components/wizard'
+import { ConfirmService } from '../services/confirm.service'
 import { MatcherService } from '../services/matcher.service'
 import {
   StoreService,
@@ -549,6 +550,7 @@ import {
 export class GesturesPage {
   protected store = inject(StoreService)
   protected matcher = inject(MatcherService)
+  private confirm = inject(ConfirmService)
   wizardOpen = signal(false)
   /** Gesture dont on refait la pose ; null = création. */
   rerecording = signal<StoredGesture | null>(null)
@@ -704,6 +706,11 @@ export class GesturesPage {
   }
 
   async remove(g: StoredGesture): Promise<void> {
-    if (confirm(`Supprimer « ${g.name} » ?`)) await this.store.deleteGesture(g.id)
+    const ok = await this.confirm.ask({
+      title: `Supprimer « ${g.name} » ?`,
+      body: "L'enregistrement de la pose est perdu. Le meme et le son importés, eux, restent dans la bibliothèque.",
+      danger: true,
+    })
+    if (ok) await this.store.deleteGesture(g.id)
   }
 }

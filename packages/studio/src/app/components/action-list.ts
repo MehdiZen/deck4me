@@ -11,6 +11,7 @@ import {
   type ActionDef,
   type ActionKind,
 } from '@deck4me/core'
+import { ConfirmService } from '../services/confirm.service'
 import { StoreService } from '../services/store.service'
 import { Icon } from './icon'
 
@@ -452,6 +453,7 @@ export class ActionList {
   }
 
   protected store = inject(StoreService)
+  private confirm = inject(ConfirmService)
   protected readonly KINDS = ACTION_KINDS
   protected readonly LABELS = ACTION_LABELS
   protected readonly HINTS = ACTION_HINTS
@@ -566,7 +568,8 @@ export class ActionList {
   }
 
   async remove(a: ActionDef): Promise<void> {
-    if (!confirm(`Supprimer l'action « ${describeAction(a)} » ?`)) return
+    if (!(await this.confirm.ask({ title: `Supprimer l'action « ${describeAction(a)} » ?`, danger: true })))
+      return
     await this.store.deleteAction(a.id)
     if (this.opened() === a.id) this.opened.set(null)
   }

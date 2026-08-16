@@ -19,6 +19,7 @@ import { BindingEditor } from '../components/binding-editor'
 import { Icon } from '../components/icon'
 import { Wizard } from '../components/wizard'
 import { RangeFill } from '../range-fill'
+import { ConfirmService } from '../services/confirm.service'
 import { MatcherService } from '../services/matcher.service'
 import {
   StoreService,
@@ -145,10 +146,6 @@ import {
             <app-icon name="close" [size]="14" />
           </button>
         }
-        <span class="spacer"></span>
-        <button class="ghost sm" (click)="toggleAll()">
-          {{ allOpen() ? 'Tout replier' : 'Tout déplier' }}
-        </button>
       </div>
     }
 
@@ -156,9 +153,15 @@ import {
       <p class="lbl none">Aucune macro ne correspond à « {{ q() }} ».</p>
     }
 
-    <div class="list">
+    <!-- Grille de cartes, et le détail dans une modale.
+         La liste dépliable faisait cohabiter deux choses qui ne se lisent pas
+         de la même façon : parcourir ses macros, et en régler une. Déplier
+         poussait tout le reste vers le bas, si bien qu'on perdait sa place à
+         chaque ouverture. Une carte répond à « laquelle ? », la modale à
+         « comment ? », et rien ne bouge derrière. -->
+    <div class="grid">
       @for (m of visible(); track m.id) {
-        <article class="card mac" [class.off]="!m.enabled" [class.folded]="!isOpen(m.id)">
+        <article class="card mac" [class.off]="!m.enabled">
           <div class="top">
             <label class="switch">
               <input
@@ -168,163 +171,184 @@ import {
                 [attr.aria-label]="'Activer ' + m.name"
               />
             </label>
-            @if (isOpen(m.id)) {
-              <input
-                class="nm"
-                [value]="m.name"
-                (change)="rename(m, $any($event.target).value)"
-                [attr.aria-label]="'Nom de ' + m.name"
-              />
-            } @else {
-              <!-- Replié, le nom est un bouton : cliquer sur la ligne déplie,
-                   ce qui est le geste attendu. Un champ de saisie y volerait le
-                   clic pour une édition que personne ne demandait. -->
-              <button class="nmbtn" (click)="toggleOpen(m.id)">{{ m.name }}</button>
-              <span class="sum">
-                @for (s of m.steps; track $index) {
-                  @if (!$first) {
-                    <span class="arrow" aria-hidden="true">›</span>
-                  }
-                  <span class="chip" [class.lit]="(progressOf(m.id) ?? 0) > $index">
-                    {{ shortName(s) }}
-                  </span>
-                }
+            <button class="nmbtn" (click)="openId.set(m.id)">{{ m.name }}</button>
+            <span class="spacer"></span>
+            @if (progressOf(m.id); as p) {
+              <span class="badge ok"><i class="led on"></i>{{ p }}/{{ m.steps.length }}</span>
+            }
+          </div>
+
+          <!-- L'enchaînement EST l'identité de la macro : c'est lui qu'on
+               cherche des yeux, avant le nom. Il occupe donc le corps de la
+               carte, et sert aussi de zone de clic. -->
+          <button class="sum" (click)="openId.set(m.id)" [attr.aria-label]="'Ouvrir ' + m.name">
+            @for (s of m.steps; track $index) {
+              @if (!$first) {
+                <span class="arrow" aria-hidden="true">›</span>
+              }
+              <span class="chip" [class.lit]="(progressOf(m.id) ?? 0) > $index">
+                {{ shortName(s) }}
               </span>
             }
+          </button>
+
+          <div class="foot">
+            @if (asset(m.id)) {
+              <span class="badge" title="Cette macro affiche un meme">
+                <app-icon name="image" [size]="12" /> meme
+              </span>
+            }
+            @if (store.actionsOf(m.id).length; as n) {
+              <span class="badge" [title]="actionSummary(m.id)">
+                <app-icon name="terminal" [size]="12" /> {{ n }}
+              </span>
+            }
+            @if (warning(m)) {
+              <span class="badge warn" [title]="warning(m) ?? ''">!</span>
+            }
             <span class="spacer"></span>
-            @if (!isOpen(m.id)) {
-              <!-- Ce que la macro fait, en deux pastilles : c'est l'information
-                   qu'on cherche en parcourant la liste. -->
-              @if (asset(m.id)) {
-                <span class="badge" title="Cette macro affiche un meme">
-                  <app-icon name="image" [size]="12" /> meme
-                </span>
-              }
-              @if (store.actionsOf(m.id).length; as n) {
-                <span class="badge" [title]="actionSummary(m.id)">
-                  <app-icon name="terminal" [size]="12" /> {{ n }}
-                </span>
-              }
-              @if (warning(m)) {
-                <span class="badge warn" [title]="warning(m) ?? ''">!</span>
-              }
-            }
-            @if (progressOf(m.id); as p) {
-              <span class="badge ok"><i class="led on"></i>{{ p }}/{{ m.steps.length }} en cours</span>
-            }
             <button
-              class="sm"
+              class="ghost sm"
               (click)="matcher.testTrigger(m.id)"
               title="Joue la macro entière : meme et actions"
             >
-              <app-icon name="zap" [size]="14" /> Tester
+              <app-icon name="zap" [size]="15" />
             </button>
-            <button
-              class="ghost sm"
-              (click)="toggleOpen(m.id)"
-              [attr.aria-expanded]="isOpen(m.id)"
-              [attr.aria-label]="(isOpen(m.id) ? 'Replier ' : 'Déplier ') + m.name"
-            >
-              <app-icon [name]="isOpen(m.id) ? 'up' : 'down'" [size]="15" />
+            <button class="ghost sm" (click)="openId.set(m.id)" [attr.aria-label]="'Régler ' + m.name">
+              <app-icon name="sliders" [size]="15" />
             </button>
             <button class="ghost sm" (click)="remove(m)" [attr.aria-label]="'Supprimer ' + m.name">
               <app-icon name="trash" [size]="15" />
             </button>
           </div>
-
-          @if (isOpen(m.id)) {
-          <!-- Enchaînement -->
-          <div class="chain">
-            @for (step of m.steps; track $index) {
-              <div class="step" [class.lit]="(progressOf(m.id) ?? 0) > $index">
-                <span class="ord num">{{ $index + 1 }}</span>
-                <select
-                  [value]="step"
-                  (change)="setStep(m, $index, $any($event.target).value)"
-                  [attr.aria-label]="'Pose ' + ($index + 1)"
-                >
-                  <!-- Les maillons d'abord : c'est ce qu'on cherche ici neuf
-                       fois sur dix. Une pose à meme reste choisissable, mais
-                       elle affichera son meme au passage de l'enchaînement. -->
-                  @if (store.linkGestures().length) {
-                    <optgroup label="Maillons">
-                      @for (g of store.linkGestures(); track g.id) {
-                        <option [value]="g.id" [selected]="g.id === step">{{ g.name }}</option>
-                      }
-                    </optgroup>
-                  }
-                  @if (store.memeGestures().length) {
-                    <optgroup label="Poses à meme">
-                      @for (g of store.memeGestures(); track g.id) {
-                        <option [value]="g.id" [selected]="g.id === step">{{ g.name }}</option>
-                      }
-                    </optgroup>
-                  }
-                  <!-- Enregistrer une pose SANS quitter la macro : c'est ce qui
-                       permet de la construire en plusieurs fois. -->
-                  <option [value]="RECORD">＋ Enregistrer une nouvelle pose…</option>
-                </select>
-                @if (m.steps.length > MIN) {
-                  <button class="ghost sm" (click)="removeStep(m, $index)" aria-label="Retirer ce maillon">
-                    <app-icon name="close" [size]="13" />
-                  </button>
-                }
-              </div>
-              @if (!$last) {
-                <span class="arrow" aria-hidden="true">›</span>
-              }
-            }
-            @if (m.steps.length < MAX) {
-              <button class="sm addstep" (click)="addStep(m)" title="Enregistrer une pose de plus">
-                <app-icon name="plus" [size]="13" /> Maillon
-              </button>
-            }
-          </div>
-
-          <div class="opts">
-            <div class="win">
-              <span class="lbl">Délai max entre deux poses</span>
-              <div class="row">
-                <input
-                  type="range"
-                  min="500"
-                  max="4000"
-                  step="100"
-                  [value]="m.windowMs"
-                  (input)="setWindow(m, +$any($event.target).value)"
-                  [attr.aria-label]="'Fenêtre de ' + m.name"
-                />
-                <span class="pct num">{{ (m.windowMs / 1000).toFixed(1) }}s</span>
-              </div>
-            </div>
-
-            <div class="bind">
-              @if (asset(m.id); as a) {
-                <div class="thumbrow">
-                  <img [src]="store.assetUrl(a)" alt="" class="thumb alpha-grid" />
-                  <span class="fname">{{ a.filename }}</span>
-                  <button class="sm" (click)="edit(m)">
-                    <app-icon name="sliders" [size]="14" /> Régler
-                  </button>
-                  <button class="ghost sm" (click)="detach(m)" aria-label="Retirer le meme">
-                    <app-icon name="close" [size]="14" />
-                  </button>
-                </div>
-              } @else {
-                <app-asset-picker label="Meme (facultatif)" (picked)="attach(m, $event)" />
-              }
-            </div>
-          </div>
-
-          <app-action-list [ownerId]="m.id" />
-
-          @if (warning(m); as w) {
-            <p class="badge warn block">{{ w }}</p>
-          }
-          }
         </article>
       }
     </div>
+
+    <!-- Fermeture au fond ET à Échap : une modale dont on ne sait pas sortir
+         est pire que le panneau qu'elle remplace. -->
+    @if (openMacro(); as m) {
+      <div
+        class="modal-bg"
+        (click)="onBackdrop($event)"
+        (window:keydown.escape)="openId.set(null)"
+      >
+        <div class="card modal" role="dialog" aria-modal="true" [attr.aria-label]="m.name">
+          <div class="mhead">
+            <label class="switch">
+              <input
+                type="checkbox"
+                [checked]="m.enabled"
+                (change)="toggle(m, $event)"
+                [attr.aria-label]="'Activer ' + m.name"
+              />
+            </label>
+            <input
+              class="nm"
+              [value]="m.name"
+              (change)="rename(m, $any($event.target).value)"
+              [attr.aria-label]="'Nom de ' + m.name"
+            />
+            <span class="spacer"></span>
+            <button class="sm" (click)="matcher.testTrigger(m.id)" title="Joue la macro entière">
+              <app-icon name="zap" [size]="14" /> Tester
+            </button>
+            <button class="ghost sm" (click)="openId.set(null)" aria-label="Fermer">
+              <app-icon name="close" [size]="16" />
+            </button>
+          </div>
+
+        <!-- Enchaînement -->
+        <div class="chain">
+          @for (step of m.steps; track $index) {
+            <div class="step" [class.lit]="(progressOf(m.id) ?? 0) > $index">
+              <span class="ord num">{{ $index + 1 }}</span>
+              <select
+                [value]="step"
+                (change)="setStep(m, $index, $any($event.target).value)"
+                [attr.aria-label]="'Pose ' + ($index + 1)"
+              >
+                <!-- Les maillons d'abord : c'est ce qu'on cherche ici neuf
+                     fois sur dix. Une pose à meme reste choisissable, mais
+                     elle affichera son meme au passage de l'enchaînement. -->
+                @if (store.linkGestures().length) {
+                  <optgroup label="Maillons">
+                    @for (g of store.linkGestures(); track g.id) {
+                      <option [value]="g.id" [selected]="g.id === step">{{ g.name }}</option>
+                    }
+                  </optgroup>
+                }
+                @if (store.memeGestures().length) {
+                  <optgroup label="Poses à meme">
+                    @for (g of store.memeGestures(); track g.id) {
+                      <option [value]="g.id" [selected]="g.id === step">{{ g.name }}</option>
+                    }
+                  </optgroup>
+                }
+                <!-- Enregistrer une pose SANS quitter la macro : c'est ce qui
+                     permet de la construire en plusieurs fois. -->
+                <option [value]="RECORD">＋ Enregistrer une nouvelle pose…</option>
+              </select>
+              @if (m.steps.length > MIN) {
+                <button class="ghost sm" (click)="removeStep(m, $index)" aria-label="Retirer ce maillon">
+                  <app-icon name="close" [size]="13" />
+                </button>
+              }
+            </div>
+            @if (!$last) {
+              <span class="arrow" aria-hidden="true">›</span>
+            }
+          }
+          @if (m.steps.length < MAX) {
+            <button class="sm addstep" (click)="addStep(m)" title="Enregistrer une pose de plus">
+              <app-icon name="plus" [size]="13" /> Maillon
+            </button>
+          }
+        </div>
+
+        <div class="opts">
+          <div class="win">
+            <span class="lbl">Délai max entre deux poses</span>
+            <div class="row">
+              <input
+                type="range"
+                min="500"
+                max="4000"
+                step="100"
+                [value]="m.windowMs"
+                (input)="setWindow(m, +$any($event.target).value)"
+                [attr.aria-label]="'Fenêtre de ' + m.name"
+              />
+              <span class="pct num">{{ (m.windowMs / 1000).toFixed(1) }}s</span>
+            </div>
+          </div>
+
+          <div class="bind">
+            @if (asset(m.id); as a) {
+              <div class="thumbrow">
+                <img [src]="store.assetUrl(a)" alt="" class="thumb alpha-grid" />
+                <span class="fname">{{ a.filename }}</span>
+                <button class="sm" (click)="edit(m)">
+                  <app-icon name="sliders" [size]="14" /> Régler
+                </button>
+                <button class="ghost sm" (click)="detach(m)" aria-label="Retirer le meme">
+                  <app-icon name="close" [size]="14" />
+                </button>
+              </div>
+            } @else {
+              <app-asset-picker label="Meme (facultatif)" (picked)="attach(m, $event)" />
+            }
+          </div>
+        </div>
+
+        <app-action-list [ownerId]="m.id" />
+
+        @if (warning(m); as w) {
+          <p class="badge warn block">{{ w }}</p>
+        }
+        </div>
+      </div>
+    }
 
     @if (store.macros().length) {
       <div class="card tip">
@@ -411,17 +435,17 @@ import {
     }
     .none { margin: 0 0 14px; text-transform: none; letter-spacing: 0; }
 
-    .list { display: flex; flex-direction: column; gap: 14px; }
-    .mac { padding: 15px 17px; }
+    /* Grille libre : la largeur de carte est fixée par le contenu qu'elle doit
+       tenir — un enchaînement de quatre pastilles —, pas par un nombre de
+       colonnes décidé à l'avance. */
+    .grid {
+      display: grid; gap: 14px;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    }
+    .mac { padding: 14px 16px; display: flex; flex-direction: column; gap: 11px; }
     .mac.off { opacity: 0.55; }
-    /* Repliée, la carte tient sur une ligne : c'est l'état par défaut, donc
-       celui qui doit être le plus compact. La liste redevient parcourable. */
-    .mac.folded { padding: 9px 12px 9px 15px; }
-    .list { gap: 14px; }
-    .mac.folded + .mac.folded { margin-top: -8px; }
 
-    .top { display: flex; align-items: center; gap: 11px; margin-bottom: 14px; }
-    .mac.folded .top { margin-bottom: 0; }
+    .top { display: flex; align-items: center; gap: 11px; }
 
     .nmbtn {
       flex: none; max-width: 220px;
@@ -431,8 +455,15 @@ import {
     }
     .nmbtn:hover { color: var(--accent-hi); }
 
-    /* Résumé de l'enchaînement en vue repliée. */
-    .sum { display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; }
+    /* Le corps de la carte : l'enchaînement, et la zone de clic principale.
+       Un bouton, pour que le clavier y arrive comme la souris. */
+    .sum {
+      display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
+      width: 100%; min-height: 46px; padding: 8px 10px;
+      background: var(--void); border: 1px solid var(--line);
+      border-radius: var(--r-control); cursor: pointer; text-align: left;
+    }
+    .sum:hover { border-color: var(--accent-dim, var(--line)); background: var(--panel-2); }
     .sum .chip {
       padding: 3px 8px; border-radius: 6px; flex: none;
       background: var(--panel-3); color: var(--ink-2);
@@ -441,6 +472,27 @@ import {
     }
     .sum .chip.lit { background: #17a26822; color: var(--st-armed); }
     .sum .arrow { font-size: 14px; }
+
+    .foot { display: flex; align-items: center; gap: 6px; }
+
+    /* La modale reprend la largeur du wizard : deux boîtes de dialogue de
+       tailles différentes dans la même app, ça se remarque. */
+    .modal-bg {
+      position: fixed; inset: 0; z-index: 50;
+      background: #07060acc; backdrop-filter: blur(5px);
+      display: grid; place-items: center; padding: 24px;
+      animation: fade 160ms ease-out;
+    }
+    @keyframes fade { from { opacity: 0 } }
+    .modal {
+      width: 680px; max-width: 100%; max-height: 88vh; overflow-y: auto;
+      padding: 16px 18px 18px;
+      border-radius: var(--r-big);
+      box-shadow: var(--edge), 0 40px 90px -20px #000d;
+      animation: pop 220ms var(--spring) both;
+    }
+    @keyframes pop { from { opacity: 0; transform: translateY(10px) scale(.985) } }
+    .mhead { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; }
     .nm {
       font-weight: 600; font-size: 14.5px; letter-spacing: -0.01em;
       background: none; border-color: transparent; padding: 5px 8px; max-width: 280px;
@@ -503,6 +555,7 @@ import {
 export class MacrosPage implements OnDestroy {
   protected store = inject(StoreService)
   protected matcher = inject(MatcherService)
+  private confirm = inject(ConfirmService)
   protected readonly MIN = MACRO_MIN_STEPS
   protected readonly MAX = MACRO_MAX_STEPS
 
@@ -517,7 +570,10 @@ export class MacrosPage implements OnDestroy {
    * L'état n'est pas persisté : il est juste de la session en cours, et une
    * macro qu'on vient de créer s'ouvre d'elle-même.
    */
-  private opened = signal(new Set<string>())
+  /** La macro ouverte dans la modale. Un seul id : on ne règle qu'une macro à
+   *  la fois, là où l'ancien dépliage en autorisait douze simultanément. */
+  readonly openId = signal<string | null>(null)
+  readonly openMacro = computed(() => this.store.macros().find((m) => m.id === this.openId()) ?? null)
   /** Filtre libre — nom, poses ou actions. */
   q = signal('')
 
@@ -525,11 +581,6 @@ export class MacrosPage implements OnDestroy {
     const needle = this.q().trim().toLowerCase()
     if (!needle) return this.store.macros()
     return this.store.macros().filter((m) => this.haystack(m).includes(needle))
-  })
-
-  readonly allOpen = computed(() => {
-    const list = this.visible()
-    return list.length > 0 && list.every((m) => this.opened().has(m.id))
   })
 
   /** Nom, noms des poses, étiquettes des actions : on se souvient plus souvent
@@ -543,26 +594,20 @@ export class MacrosPage implements OnDestroy {
     return `${m.name} ${steps} ${actions}`.toLowerCase()
   }
 
-  isOpen(id: string): boolean {
-    return this.opened().has(id)
-  }
 
-  toggleOpen(id: string): void {
-    this.opened.update((s) => {
-      const next = new Set(s)
-      if (!next.delete(id)) next.add(id)
-      return next
-    })
-  }
 
+  /** Ouvre la modale. Une macro qu'on vient de créer s'ouvre : on la crée pour
+   *  la régler, pas pour la regarder dans une grille. */
   private open(id: string): void {
-    this.opened.update((s) => new Set(s).add(id))
+    this.openId.set(id)
   }
 
-  toggleAll(): void {
-    const close = this.allOpen()
-    this.opened.set(close ? new Set() : new Set(this.visible().map((m) => m.id)))
+  /** Le fond ferme, l'intérieur non — sans ce test, un clic dans la modale
+   *  remonterait jusqu'au fond et la refermerait. */
+  onBackdrop(ev: MouseEvent): void {
+    if (ev.target === ev.currentTarget) this.openId.set(null)
   }
+
 
   /** Nom de la pose d'un maillon, ou un repère lisible si elle a disparu. */
   shortName(gestureId: string): string {
@@ -788,6 +833,16 @@ export class MacrosPage implements OnDestroy {
   }
 
   async remove(m: MacroDef): Promise<void> {
-    if (confirm(`Supprimer la macro « ${m.name} » ?`)) await this.store.deleteMacro(m.id)
+    const n = this.store.actionsOf(m.id).length
+    const ok = await this.confirm.ask({
+      title: `Supprimer la macro « ${m.name} » ?`,
+      // Les poses survivent — c'est LA question qu'on se pose avant de
+      // supprimer une macro, autant y répondre sans qu'on la pose.
+      body: n
+        ? `Ses ${n} action(s) partent avec elle. Les poses de l'enchaînement restent dans Gestures.`
+        : "Les poses de l'enchaînement restent dans Gestures.",
+      danger: true,
+    })
+    if (ok) await this.store.deleteMacro(m.id)
   }
 }

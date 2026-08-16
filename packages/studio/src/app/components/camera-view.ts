@@ -77,7 +77,8 @@ const FACE_MESH: [number, number][] = FaceLandmarker.FACE_LANDMARKS_TESSELATION.
           [title]="hidden() ? 'Afficher la caméra' : 'Masquer la caméra, garder le maillage'"
           [attr.aria-pressed]="hidden()"
         >
-          <app-icon [name]="hidden() ? 'eye-off' : 'eye'" />
+          <app-icon [name]="hidden() ? 'eye-off' : 'eye'" [size]="15" />
+          {{ hidden() ? 'Caméra masquée' : 'Masquer la caméra' }}
         </button>
       } @else {
         <div class="off">{{ detection.status() }}</div>
@@ -104,18 +105,26 @@ const FACE_MESH: [number, number][] = FaceLandmarker.FACE_LANDMARKS_TESSELATION.
     .bare video { opacity: 0; }
     .bare::after { box-shadow: none; }
 
+    /* Toujours visible, et libellé.
+       Il n'apparaissait qu'au survol : une commande qu'on ne voit pas est une
+       commande qui n'existe pas, et celle-ci est une des rares choses que ce
+       logiciel fait et que les autres ne font pas. Elle se montre donc, avec
+       son mot — une icône seule n'annonce pas ce qu'elle va faire. */
     .toggle {
-      position: absolute; top: 8px; right: 8px;
-      display: grid; place-items: center;
-      width: 30px; height: 30px; padding: 0;
-      border: 1px solid #ffffff1f; border-radius: 8px;
-      background: #0b0f14a8; color: var(--ink-2);
-      cursor: pointer; opacity: 0; transition: opacity .15s ease, color .15s ease;
+      position: absolute; top: 9px; right: 9px;
+      display: flex; align-items: center; gap: 6px;
+      height: 30px; padding: 0 10px;
+      border: 1px solid #ffffff2e; border-radius: 8px;
+      background: #0b0f14d9; color: var(--ink-1);
+      font-size: 11.5px; font-weight: 560; letter-spacing: 0.01em;
+      cursor: pointer;
+      box-shadow: 0 2px 10px #0006;
+      transition: background .15s ease, border-color .15s ease;
     }
-    /* Discret tant qu'on ne le cherche pas, mais toujours visible quand la
-       caméra est masquée : sinon plus rien à l'écran ne dit comment revenir. */
-    .wrap:hover .toggle, .toggle:focus-visible, .bare .toggle { opacity: 1; }
-    .toggle:hover { color: var(--ink-1); }
+    .toggle:hover { background: #131a22ee; border-color: #ffffff4d; }
+    /* Caméra masquée : l'état actif se voit, sinon on ne sait plus si le noir
+       vient d'un réglage ou d'une panne. */
+    .bare .toggle { background: #5eead41f; border-color: #5eead466; color: #5eead4; }
     .off {
       position: absolute; inset: 0; display: grid; place-items: center;
       color: var(--ink-3); font-size: 13px; padding: 20px; text-align: center;

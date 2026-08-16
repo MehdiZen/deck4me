@@ -1,6 +1,7 @@
 import { Component, effect, inject } from '@angular/core'
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router'
 import { listen } from '@tauri-apps/api/event'
+import { Confirm } from './components/confirm'
 import { Icon } from './components/icon'
 import { DetectionService } from './services/detection.service'
 import { MatcherService } from './services/matcher.service'
@@ -18,7 +19,7 @@ import { VcamService } from './services/vcam.service'
  */
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, Icon],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, Icon, Confirm],
   template: `
     <div class="shell">
       <aside class="rail">
@@ -92,6 +93,11 @@ import { VcamService } from './services/vcam.service'
         <router-outlet />
       </main>
     </div>
+
+    <!-- Montée une seule fois pour toute l'app : une boîte de confirmation
+         par écran, c'est quatre fois le même code et quatre occasions de
+         diverger. -->
+    <app-confirm />
   `,
   styles: `
     .shell { display: flex; height: 100vh; overflow: hidden; }
