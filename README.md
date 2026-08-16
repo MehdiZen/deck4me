@@ -137,13 +137,42 @@ volontaires d'affilée sont hors d'atteinte d'une gesticulation ordinaire — c'
 donc là que doivent aller les actions qu'on ne confierait jamais à une pose
 seule.
 
-Les poses d'un enchaînement déclenchent aussi leur propre meme au passage. Pour
-l'éviter, marquer la pose **« maillon seulement »** sur sa carte : elle reste
-reconnue et continue d'alimenter les macros, sans rien afficher toute seule.
-
 La fenêtre se mesure **entre deux maillons consécutifs**, pas depuis le début :
 un enchaînement de trois poses n'est pas plus dur à réussir qu'un de deux.
 Implémentation dans `packages/core/src/sequence.ts`, 14 tests.
+
+#### Enregistrer les poses de l'enchaînement
+
+Une macro n'est pas obligée de recycler des poses qui ont déjà un meme. Deux
+chemins depuis l'écran Macros :
+
+- **Enregistrer un enchaînement** — le chemin normal. Le wizard fait faire les
+  2 à 4 poses **à la suite dans une seule session** (3 prises chacune), puis crée
+  les gestures *et* la macro qui les relie. Rien n'est écrit avant la fin :
+  abandonner au maillon 2 ne laisse ni demi-macro ni gesture orpheline.
+- **Depuis mes poses** — compose l'enchaînement à partir de gestures existantes.
+
+Un maillon peut aussi s'ajouter **plus tard**, un à la fois : le bouton
+« + Maillon » et l'option « ＋ Enregistrer une nouvelle pose… » de chaque liste
+déroulante ouvrent le wizard et glissent la pose obtenue à la bonne place.
+
+Les poses ainsi créées naissent **« maillon seulement »** : elles alimentent
+l'enchaînement sans afficher de meme. Trois conséquences voulues :
+
+- le mode « tant que tenue » disparaît — un maillon se lit sur un déclenchement,
+  pas sur une durée ;
+- l'avertissement « ressemble à ta tête en parlant » devient une information et
+  non un reproche : un faux positif sur un maillon isolé ne déclenche rien, il
+  faut la pose suivante dans la foulée ;
+- **mais chaque maillon compte toujours dans le budget de collisions.** C'est la
+  contrepartie honnête : l'argument « les macros lèvent le plafond » ne vaut que
+  pour les enchaînements composés de poses réutilisées. Des poses dédiées coûtent
+  exactement ce qu'elles coûteraient ailleurs. Elles ont en échange le droit
+  d'être moins appuyées.
+
+La détection de collision compare le maillon en cours **aux maillons déjà pris
+dans la même session**, qui ne sont pas encore en base — sans quoi deux poses
+indistinguables du même enchaînement passeraient sans un mot.
 
 ### Actions — faire faire des choses à la machine
 

@@ -16,6 +16,7 @@ import { ActionList } from '../components/action-list'
 import { AssetPicker } from '../components/asset-picker'
 import { BindingEditor } from '../components/binding-editor'
 import { Icon } from '../components/icon'
+import { Wizard } from '../components/wizard'
 import { RangeFill } from '../range-fill'
 import { MatcherService } from '../services/matcher.service'
 import {
@@ -36,7 +37,7 @@ import {
  */
 @Component({
   selector: 'app-macros-page',
-  imports: [Icon, RangeFill, AssetPicker, BindingEditor, RouterLink, ActionList],
+  imports: [Icon, RangeFill, AssetPicker, BindingEditor, RouterLink, ActionList, Wizard],
   template: `
     <div class="head">
       <div>
@@ -47,24 +48,36 @@ import {
         </p>
       </div>
       <span class="spacer"></span>
-      <button class="primary" [disabled]="store.gestures().length < 2" (click)="create()">
-        <app-icon name="plus" [size]="16" /> Nouvelle macro
+      @if (store.gestures().length >= 2) {
+        <button [disabled]="!store.calibration()" (click)="create()">
+          <app-icon name="layers" [size]="16" /> Depuis mes poses
+        </button>
+      }
+      <button class="primary" [disabled]="!store.calibration()" (click)="record()">
+        <app-icon name="hand" [size]="16" /> Enregistrer un enchaînement
       </button>
     </div>
 
-    @if (store.gestures().length < 2) {
+    @if (!store.calibration()) {
       <div class="card empty">
-        <span class="bigmark"><app-icon name="zap" [size]="30" /></span>
-        <b>Il faut au moins deux gestures.</b>
+        <span class="bigmark"><app-icon name="target" [size]="30" /></span>
+        <b>Il faut d'abord se calibrer.</b>
         <p class="lbl">
-          Une macro enchaîne des poses existantes.
-          <a routerLink="/gestures">Enregistres-en deux</a>, puis reviens ici.
+          Le seuil d'une pose se mesure par rapport à ton visage au repos.
+          <a routerLink="/live">Fais la calibration</a>, puis reviens.
         </p>
       </div>
     } @else if (!store.macros().length) {
       <div class="card empty">
         <span class="bigmark"><app-icon name="zap" [size]="30" /></span>
         <b>Aucune macro pour l'instant.</b>
+        <p class="lbl">
+          <b>Enregistrer un enchaînement</b> te fait faire les poses à la suite,
+          en une seule session — c'est le chemin normal. Elles n'auront pas de
+          meme à elles : elles ne servent qu'à déclencher la macro.
+          <b>Depuis mes poses</b> réutilise au contraire des gestures qui
+          existent déjà.
+        </p>
         <p class="lbl">
           Enchaîne deux poses très différentes — un poing puis trois doigts, par
           exemple. Deux gestes volontaires d'affilée, c'est hors d'atteinte d'une
@@ -123,6 +136,9 @@ import {
                   @for (g of store.gestures(); track g.id) {
                     <option [value]="g.id">{{ g.name }}</option>
                   }
+                  <!-- Enregistrer une pose SANS quitter la macro : c'est ce qui
+                       permet de la construire en plusieurs fois. -->
+                  <option [value]="RECORD">＋ Enregistrer une nouvelle pose…</option>
                 </select>
                 @if (m.steps.length > MIN) {
                   <button class="ghost sm" (click)="removeStep(m, $index)" aria-label="Retirer ce maillon">
@@ -135,7 +151,7 @@ import {
               }
             }
             @if (m.steps.length < MAX) {
-              <button class="sm addstep" (click)="addStep(m)">
+              <button class="sm addstep" (click)="addStep(m)" title="Enregistrer une pose de plus">
                 <app-icon name="plus" [size]="13" /> Maillon
               </button>
             }
@@ -189,12 +205,20 @@ import {
       <div class="card tip">
         <app-icon name="target" [size]="18" />
         <div>
-          <b>Les poses d'un enchaînement déclenchent aussi leur propre meme.</b>
+          <b>Une pose enregistrée ici ne coûte pas la même chose qu'une gesture.</b>
           <p class="lbl">
-            Si tu ne veux pas voir le meme du premier maillon apparaître au
-            passage, marque cette pose <b>« maillon seulement »</b> sur sa carte
-            dans <a routerLink="/gestures">Gestures</a>. Elle restera reconnue et
-            continuera d'alimenter les macros, sans rien afficher seule.
+            Les poses créées par « Enregistrer un enchaînement » sont marquées
+            <b>« maillon seulement »</b> : elles n'affichent rien toutes seules,
+            donc un faux positif ne fait rien tant que la pose suivante n'arrive
+            pas derrière. Tu peux les faire moins appuyées qu'une pose à meme.
+          </p>
+          <p class="lbl">
+            En revanche elles comptent toujours dans le budget de collisions :
+            chaque nouvelle pose resserre le seuil de ses voisines. Si tu réutilises
+            au contraire une pose qui a déjà un meme, pense à la marquer
+            « maillon seulement » sur sa carte dans
+            <a routerLink="/gestures">Gestures</a>, sinon son meme apparaîtra au
+            passage.
           </p>
         </div>
       </div>
@@ -206,6 +230,15 @@ import {
         [binding]="e.binding"
         (cancel)="editing.set(null)"
         (saved)="editing.set(null)"
+      />
+    }
+
+    @if (recording(); as r) {
+      <app-wizard
+        [mode]="r.kind"
+        (cancel)="recording.set(null)"
+        (savedChain)="onChainRecorded($event)"
+        (saved)="onLinkRecorded($event)"
       />
     }
   `,
@@ -294,7 +327,14 @@ export class MacrosPage implements OnDestroy {
   protected readonly MIN = MACRO_MIN_STEPS
   protected readonly MAX = MACRO_MAX_STEPS
 
+  protected readonly RECORD = '__record'
+
   editing = signal<{ gesture: StoredGesture; binding: StoredBinding } | null>(null)
+  /** Enregistrement en cours : soit tout un enchaînement, soit un seul maillon
+   *  destiné à une place précise dans une macro existante. */
+  recording = signal<
+    { kind: 'chain' } | { kind: 'link'; macroId: string; index: number } | null
+  >(null)
   /** Rafraîchi à 10 Hz : le retour visuel doit suivre la main, pas la seconde. */
   private tick = signal(0)
   private timer = window.setInterval(() => this.tick.update((t) => t + 1), 100)
@@ -338,6 +378,7 @@ export class MacrosPage implements OnDestroy {
     return null
   }
 
+  /** Chemin « depuis mes poses » : réutilise des gestures qui existent déjà. */
   async create(): Promise<void> {
     const gs = this.store.gestures()
     await this.store.saveMacro({
@@ -348,6 +389,44 @@ export class MacrosPage implements OnDestroy {
       steps: [gs[0]!.id, gs[1]!.id],
       windowMs: MACRO_DEFAULT_WINDOW_MS,
     })
+  }
+
+  /** Chemin normal : on enregistre les poses de l'enchaînement à la suite. */
+  record(): void {
+    this.recording.set({ kind: 'chain' })
+  }
+
+  /** Le wizard a rendu ses poses, dans l'ordre — il ne reste qu'à les relier.
+   *  Le nom de la macro est celui donné au wizard, porté par les maillons. */
+  async onChainRecorded(ids: string[]): Promise<void> {
+    this.recording.set(null)
+    if (ids.length < MACRO_MIN_STEPS) return
+    const first = this.store.allGestures().find((g) => g.id === ids[0])
+    // Les maillons s'appellent « <nom> ① » : on retire le chiffre cerclé pour
+    // retrouver le nom que l'utilisateur a réellement tapé.
+    const name = (first?.name ?? 'Enchaînement').replace(/\s*[①②③④]\s*$/, '')
+    await this.store.saveMacro({
+      id: crypto.randomUUID(),
+      profileId: this.store.activeProfile()?.id ?? 'default',
+      name,
+      enabled: true,
+      steps: ids,
+      windowMs: MACRO_DEFAULT_WINDOW_MS,
+    })
+  }
+
+  /** Un maillon enregistré seul vient prendre sa place dans la macro visée.
+   *  C'est ce qui permet de construire un enchaînement en plusieurs fois. */
+  async onLinkRecorded(gestureId: string): Promise<void> {
+    const r = this.recording()
+    this.recording.set(null)
+    if (!r || r.kind !== 'link') return
+    const m = this.store.macros().find((x) => x.id === r.macroId)
+    if (!m) return
+    const steps = [...m.steps]
+    if (r.index >= steps.length) steps.push(gestureId)
+    else steps[r.index] = gestureId
+    await this.store.saveMacro({ ...m, steps })
   }
 
   private async patch(m: MacroDef, p: Partial<MacroDef>): Promise<void> {
@@ -364,15 +443,20 @@ export class MacrosPage implements OnDestroy {
   }
 
   setStep(m: MacroDef, i: number, gestureId: string): void {
+    if (gestureId === this.RECORD) {
+      this.recording.set({ kind: 'link', macroId: m.id, index: i })
+      return
+    }
     const steps = [...m.steps]
     steps[i] = gestureId
     void this.patch(m, { steps })
   }
 
+  /** Ajouter un maillon = enregistrer une pose de plus. Recycler une gesture
+   *  déjà utilisée serait le mauvais défaut : elle déclencherait aussi son
+   *  propre meme, et deux maillons identiques d'affilée sont irréalisables. */
   addStep(m: MacroDef): void {
-    const gs = this.store.gestures()
-    const next = gs.find((g) => g.id !== m.steps[m.steps.length - 1]) ?? gs[0]!
-    void this.patch(m, { steps: [...m.steps, next.id] })
+    this.recording.set({ kind: 'link', macroId: m.id, index: m.steps.length })
   }
 
   removeStep(m: MacroDef, i: number): void {

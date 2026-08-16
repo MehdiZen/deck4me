@@ -11,10 +11,13 @@ import {
 import { FormsModule } from '@angular/forms'
 import {
   FEATURIZER_VERSION,
+  MACRO_MAX_STEPS,
+  MACRO_MIN_STEPS,
   blocksToJson,
   computeThreshold,
   featurizeRaw,
   filterOutlierIndices,
+  type FeatureBlocks,
   type GestureSource,
   type HoldMode,
   type RawFrame,
@@ -27,8 +30,43 @@ import { Icon } from './icon'
 
 type Step = 'config' | 'countdown' | 'capture' | 'between' | 'result'
 
+/**
+ * `gesture` — une pose ordinaire, qui affichera un meme.
+ * `link`    — une pose destinée à un enchaînement existant : pas de mode
+ *             « tenue » (un maillon se lit sur un déclenchement, pas sur une
+ *             durée) et le faux positif ne l'inquiète pas.
+ * `chain`   — plusieurs poses à la suite, plus la macro qui les relie.
+ */
+export type WizardMode = 'gesture' | 'link' | 'chain'
+
 const TAKES = 3 // 3 prises séparées : la variance intra-classe d'une prise
 const SAMPLES_PER_TAKE = 8 // unique est artificiellement basse → seuil irréaliste
+
+/** Chiffres cerclés pour nommer les maillons — lisibles d'un coup d'œil dans la
+ *  liste des gestures, où ils voisinent avec des noms libres. */
+const CIRCLED = ['①', '②', '③', '④']
+
+/** Identifiant provisoire d'un maillon pas encore écrit sur le disque. Il ne
+ *  sort jamais du wizard : il ne sert qu'à nommer une collision détectée entre
+ *  deux poses de la même session. */
+const DRAFT_PREFIX = 'draft:'
+
+/**
+ * Maillon enregistré mais pas encore écrit sur le disque.
+ *
+ * Rien n'est persisté avant la fin de l'enchaînement : abandonner au maillon 2
+ * ne doit pas laisser derrière une demi-macro et une gesture orpheline que
+ * personne n'ira nettoyer.
+ */
+interface LinkDraft {
+  name: string
+  source: GestureSource
+  keptRaw: RawFrame[]
+  /** Featurisés — servent à détecter une collision avec les maillons SUIVANTS,
+   *  qui ne sont pas encore dans le store. */
+  kept: FeatureBlocks[]
+  threshold: number
+}
 
 /** Wizard d'enregistrement. Le seuil est auto — le réglage manuel viendra en
  *  mode avancé, jamais en premier. */
@@ -40,7 +78,7 @@ const SAMPLES_PER_TAKE = 8 // unique est artificiellement basse → seuil irréa
       <div class="modal card">
         @switch (step()) {
           @case ('config') {
-            <h2>{{ replacing ? 'Réenregistrer la pose' : 'Nouvelle gesture' }}</h2>
+            <h2>{{ configTitle() }}</h2>
             @if (replacing) {
               <p class="keep">
                 <app-icon name="check" [size]="15" />
@@ -51,9 +89,27 @@ const SAMPLES_PER_TAKE = 8 // unique est artificiellement basse → seuil irréa
               </p>
             }
             <p>
-              <label class="lbl">Nom</label><br />
-              <input [(ngModel)]="name" placeholder="ex. Sourire forcé" style="width:100%" />
+              <label class="lbl">{{ isChain ? "Nom de l'enchaînement" : 'Nom' }}</label><br />
+              <input
+                [(ngModel)]="name"
+                [placeholder]="isChain ? 'ex. Changer de scène' : 'ex. Sourire forcé'"
+                style="width:100%"
+              />
             </p>
+
+            @if (isChain) {
+              <p>
+                <label class="lbl">Nombre de poses à enchaîner</label><br />
+                <span class="linkpick">
+                  @for (n of LINK_CHOICES; track n) {
+                    <button class="kbtn" [class.on]="links() === n" (click)="links.set(n)">
+                      {{ n }} poses
+                    </button>
+                  }
+                </span>
+              </p>
+            }
+
             <p>
               <label class="lbl">Source</label><br />
               <select [(ngModel)]="source">
@@ -61,11 +117,30 @@ const SAMPLES_PER_TAKE = 8 // unique est artificiellement basse → seuil irréa
                 <option value="hand">Main(s)</option>
                 <option value="both">Visage + main(s)</option>
               </select>
-              <select [(ngModel)]="holdMode" style="margin-left:8px">
-                <option value="fixed_duration">Durée fixe</option>
-                <option value="while_held">Tant que tenue</option>
-              </select>
+              <!-- Un maillon n'a pas de mode « tenue » : un enchaînement se lit
+                   sur des déclenchements, pas sur une durée. -->
+              @if (!isLink) {
+                <select [(ngModel)]="holdMode" style="margin-left:8px">
+                  <option value="fixed_duration">Durée fixe</option>
+                  <option value="while_held">Tant que tenue</option>
+                </select>
+              }
             </p>
+
+            @if (isChain) {
+              <p class="keep">
+                <app-icon name="check" [size]="15" />
+                <span>
+                  Les {{ links() }} poses seront enregistrées <b>à la suite</b>, 3 prises
+                  chacune, puis marquées <b>« maillon seulement »</b> — elles
+                  déclenchent l'enchaînement sans rien afficher toutes seules.
+                  Elles s'appelleront « {{ chainName() }} {{ CIRCLED[0] }} »,
+                  « {{ chainName() }} {{ CIRCLED[1] }} »… et restent renommables
+                  ensuite dans Gestures.
+                </span>
+              </p>
+            }
+
             <p class="lbl">
               3 prises de 2 s. Entre chaque prise, relâche la pose puis reprends-la :
               c'est ce qui rend le seuil réaliste. Pose volontaire, exagérée, lisible caméra.
@@ -73,17 +148,17 @@ const SAMPLES_PER_TAKE = 8 // unique est artificiellement basse → seuil irréa
             <p style="display:flex; gap:8px; justify-content:flex-end">
               <button (click)="cancel.emit()">Annuler</button>
               <button class="primary" [disabled]="!name.trim() || starting()" (click)="start()">
-                {{ starting() ? 'Caméra…' : 'Démarrer la prise 1/3' }}
+                {{ starting() ? 'Caméra…' : startLabel() }}
               </button>
             </p>
           }
           @case ('countdown') {
-            <h2>Prise {{ take() + 1 }}/3 — prends la pose</h2>
+            <h2>{{ linkPrefix() }}Prise {{ take() + 1 }}/3 — prends la pose</h2>
             <app-camera-view />
             <div class="count">{{ countdown() }}</div>
           }
           @case ('capture') {
-            <h2>Prise {{ take() + 1 }}/3 — TIENS la pose</h2>
+            <h2>{{ linkPrefix() }}Prise {{ take() + 1 }}/3 — TIENS la pose</h2>
             <app-camera-view />
             <div class="progress"><div [style.width.%]="captureProgress()"></div></div>
             @if (missing()) {
@@ -91,7 +166,7 @@ const SAMPLES_PER_TAKE = 8 // unique est artificiellement basse → seuil irréa
             }
           }
           @case ('between') {
-            <h2>Prise {{ take() }}/3 capturée</h2>
+            <h2>{{ linkPrefix() }}Prise {{ take() }}/3 capturée</h2>
             <app-camera-view />
             <p>Relâche complètement la pose, bouge un peu, puis reprends-la.</p>
             <p style="text-align:right">
@@ -99,7 +174,14 @@ const SAMPLES_PER_TAKE = 8 // unique est artificiellement basse → seuil irréa
             </p>
           }
           @case ('result') {
-            <h2>Analyse</h2>
+            <h2>{{ isChain ? linkPrefix() + 'analyse' : 'Analyse' }}</h2>
+            @if (isChain && drafts().length) {
+              <ol class="recap">
+                @for (d of drafts(); track $index) {
+                  <li><app-icon name="check" [size]="13" /> {{ d.name }}</li>
+                }
+              </ol>
+            }
             @if (verdict(); as v) {
               <ul>
                 <li>Samples retenus : {{ keptCount() }} / {{ TAKES * SAMPLES_PER_TAKE }}</li>
@@ -120,10 +202,22 @@ const SAMPLES_PER_TAKE = 8 // unique est artificiellement basse → seuil irréa
                   </p>
                 }
                 @case ('false_positive_risk') {
-                  <p class="badge warn verdict">
-                    Cette pose ressemble à ta tête en parlant normalement : risque de
-                    déclenchement involontaire en live. Exagère-la davantage, ou assume.
-                  </p>
+                  @if (isLink) {
+                    <!-- Un faux positif sur un maillon isolé ne déclenche rien :
+                         il faut la pose SUIVANTE dans la foulée. L'avertissement
+                         qui fait sens pour une gesture seule serait ici un
+                         mensonge par excès de prudence. -->
+                    <p class="badge ok verdict">
+                      Cette pose ressemble à ta tête en parlant normalement — sans
+                      importance dans un enchaînement : rien ne part tant que la
+                      pose suivante n'arrive pas derrière.
+                    </p>
+                  } @else {
+                    <p class="badge warn verdict">
+                      Cette pose ressemble à ta tête en parlant normalement : risque de
+                      déclenchement involontaire en live. Exagère-la davantage, ou assume.
+                    </p>
+                  }
                 }
                 @case ('ok') {
                   <p class="badge ok verdict">Pose propre, seuil fiable.</p>
@@ -134,9 +228,15 @@ const SAMPLES_PER_TAKE = 8 // unique est artificiellement basse → seuil irréa
               <button (click)="retry()">Refaire les prises</button>
               <button (click)="cancel.emit()">Abandonner</button>
               @if (verdict()?.verdict !== 'collision') {
-                <button class="primary" (click)="save()">
-                  {{ replacing ? 'Remplacer la pose' : 'Enregistrer' }}
-                </button>
+                @if (isChain && !lastLink()) {
+                  <button class="primary" (click)="nextLink()">
+                    Maillon {{ link() + 2 }}/{{ links() }} ›
+                  </button>
+                } @else {
+                  <button class="primary" (click)="save()">
+                    {{ saveLabel() }}
+                  </button>
+                }
               }
             </p>
           }
@@ -205,6 +305,23 @@ const SAMPLES_PER_TAKE = 8 // unique est artificiellement basse → seuil irréa
       border-radius: var(--r-control);
     }
     .keep app-icon { color: var(--st-armed); margin-top: 1px; }
+
+    .linkpick { display: inline-flex; gap: 6px; margin-top: 4px; }
+    .kbtn {
+      padding: 6px 13px; border-radius: 7px;
+      font-size: 12.5px; font-weight: 520;
+      background: var(--panel-3); border: 1px solid transparent; color: var(--ink-2);
+    }
+    .kbtn.on { background: var(--accent-wash); border-color: #8b5cf655; color: var(--ink); }
+
+    /* Récapitulatif des maillons déjà pris : sans lui, on perd le fil au
+       troisième et on ne sait plus ce qu'on est en train de construire. */
+    .recap { margin: 0 0 12px; padding: 0; list-style: none; }
+    .recap li {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 0; border-bottom: 0; font-size: 12.5px; color: var(--ink-2);
+    }
+    .recap app-icon { color: var(--st-armed); }
   `,
 })
 export class Wizard implements OnInit, OnDestroy {
@@ -213,11 +330,31 @@ export class Wizard implements OnInit, OnDestroy {
    *  cadrage, son, sensibilité. Sans ça, corriger une pose qui déclenche mal
    *  obligeait à supprimer puis tout refaire, y compris relier l'image. */
   @Input() replacing: StoredGesture | null = null
+  /**
+   * Mode enchaînement : enregistre plusieurs poses À LA SUITE dans une seule
+   * session, et renvoie leurs identifiants.
+   *
+   * Sans lui, monter une macro imposait d'aller créer chaque pose dans Gestures
+   * puis de revenir les choisir dans des listes déroulantes — trois écrans pour
+   * une idée qui en tient dans un seul geste. Les poses ainsi créées sont
+   * marquées « maillon seulement » : elles servent l'enchaînement, pas un meme.
+   */
+  @Input() mode: WizardMode = 'gesture'
   @Output() cancel = new EventEmitter<void>()
-  @Output() saved = new EventEmitter<void>()
+  /** Identifiant de la gesture écrite — l'appelant en a besoin pour la relier
+   *  (deviner « la dernière du tableau » marcherait aujourd'hui et casserait
+   *  le jour où l'ordre de stockage change). */
+  @Output() saved = new EventEmitter<string>()
+  /** Identifiants des gestures créées, dans l'ordre de l'enchaînement. */
+  @Output() savedChain = new EventEmitter<string[]>()
 
   protected readonly TAKES = TAKES
   protected readonly SAMPLES_PER_TAKE = SAMPLES_PER_TAKE
+  protected readonly CIRCLED = CIRCLED
+  protected readonly LINK_CHOICES = Array.from(
+    { length: MACRO_MAX_STEPS - MACRO_MIN_STEPS + 1 },
+    (_, i) => MACRO_MIN_STEPS + i,
+  )
 
   private detection = inject(DetectionService)
   private store = inject(StoreService)
@@ -225,6 +362,12 @@ export class Wizard implements OnInit, OnDestroy {
   name = ''
   source: GestureSource = 'face'
   holdMode: HoldMode = 'fixed_duration'
+
+  /** Nombre de maillons voulus (mode enchaînement). */
+  links = signal(MACRO_MIN_STEPS)
+  /** Maillon en cours, 0-indexé. */
+  link = signal(0)
+  drafts = signal<LinkDraft[]>([])
 
   step = signal<Step>('config')
   take = signal(0)
@@ -237,6 +380,9 @@ export class Wizard implements OnInit, OnDestroy {
 
   private takes: RawFrame[][] = []
   private keptRaw: RawFrame[] = []
+  /** Version featurisée des mêmes samples — gardée pour comparer le maillon
+   *  suivant à celui-ci, qui n'est pas encore en base. */
+  private keptBlocks: FeatureBlocks[] = []
   /** Désabonnement de la prise en cours. Fermer le wizard pendant une capture
    *  laissait l'écouteur branché à vie : il continuait à copier des frames
    *  30 fois par seconde, pour un composant qui n'existe plus. */
@@ -257,20 +403,97 @@ export class Wizard implements OnInit, OnDestroy {
     this.holdMode = g.holdMode
   }
 
+  /** Résout aussi les maillons de la session en cours, qui n'ont pas encore
+   *  d'identifiant en base — sinon une collision entre deux poses du MÊME
+   *  enchaînement s'afficherait sous forme d'identifiant technique. */
   nameOf(id: string): string {
+    const draft = id.startsWith(DRAFT_PREFIX)
+      ? this.drafts()[+id.slice(DRAFT_PREFIX.length)]
+      : null
+    if (draft) return draft.name
     return this.store.gestures().find((g) => g.id === id)?.name ?? id
+  }
+
+  // ---- Libellés ----
+
+  /** Enchaînement complet : plusieurs poses ET la macro qui les relie. */
+  get isChain(): boolean {
+    return this.mode === 'chain'
+  }
+
+  /** Pose destinée à un enchaînement — seule ou en série, même traitement. */
+  get isLink(): boolean {
+    return this.mode !== 'gesture'
+  }
+
+  chainName(): string {
+    return this.name.trim() || 'Enchaînement'
+  }
+
+  private linkName(i: number): string {
+    return `${this.chainName()} ${CIRCLED[i] ?? i + 1}`
+  }
+
+  configTitle(): string {
+    if (this.isChain) return 'Enregistrer un enchaînement'
+    if (this.isLink) return 'Nouvelle pose de maillon'
+    return this.replacing ? 'Réenregistrer la pose' : 'Nouvelle gesture'
+  }
+
+  /** « Maillon 2/3 — » devant chaque titre de prise, pour ne jamais se demander
+   *  quelle pose on est en train de faire. */
+  linkPrefix(): string {
+    return this.isChain ? `Maillon ${this.link() + 1}/${this.links()} — ` : ''
+  }
+
+  startLabel(): string {
+    return this.isChain ? `Enregistrer la pose 1/${this.links()}` : 'Démarrer la prise 1/3'
+  }
+
+  lastLink(): boolean {
+    return this.link() >= this.links() - 1
+  }
+
+  saveLabel(): string {
+    if (this.isChain) return "Créer l'enchaînement"
+    if (this.isLink) return 'Ajouter ce maillon'
+    return this.replacing ? 'Remplacer la pose' : 'Enregistrer'
   }
 
   async start(): Promise<void> {
     this.starting.set(true)
     try {
       await this.detection.start()
+      this.drafts.set([])
+      this.link.set(0)
       this.takes = []
       this.take.set(0)
       this.beginTake()
     } finally {
       this.starting.set(false)
     }
+  }
+
+  /** Fige le maillon courant et enchaîne sur le suivant, sans repasser par la
+   *  configuration : c'est tout l'intérêt d'enregistrer « d'affilée ». */
+  nextLink(): void {
+    const v = this.verdict()
+    if (!v) return
+    this.drafts.update((d) => [
+      ...d,
+      {
+        name: this.linkName(d.length),
+        source: this.source,
+        keptRaw: this.keptRaw,
+        kept: this.keptBlocks,
+        threshold: v.threshold,
+      },
+    ])
+    this.link.update((i) => i + 1)
+    this.takes = []
+    this.take.set(0)
+    this.verdict.set(null)
+    this.beginTake()
   }
 
   beginTake(): void {
@@ -334,6 +557,7 @@ export class Wizard implements OnInit, OnDestroy {
     const keptIdx = filterOutlierIndices(featurized, this.source, 8)
     const kept = keptIdx.map((i) => featurized[i]!)
     this.keptRaw = keptIdx.map((i) => allRaw[i]!)
+    this.keptBlocks = kept
     this.keptCount.set(kept.length)
 
     // La gesture qu'on réenregistre est exclue de la comparaison : sinon elle
@@ -343,11 +567,18 @@ export class Wizard implements OnInit, OnDestroy {
       .runtimeGestures()
       .filter((g) => g.id !== this.replacing?.id)
       .map((g) => ({ gestureId: g.id, samples: g.samples, source: g.source }))
+    // Les maillons déjà pris dans cette session comptent aussi : deux poses
+    // indistinguables au sein du MÊME enchaînement le rendraient inexécutable,
+    // et rien en base ne les aurait signalées puisqu'elles n'y sont pas encore.
+    for (const [i, d] of this.drafts().entries()) {
+      others.push({ gestureId: `${DRAFT_PREFIX}${i}`, samples: d.kept, source: d.source })
+    }
     const v = computeThreshold(kept, this.source, others, this.store.negatives())
     this.verdict.set(v)
     this.step.set('result')
   }
 
+  /** Ne refait QUE le maillon courant : les précédents restent acquis. */
   retry(): void {
     this.takes = []
     this.take.set(0)
@@ -357,6 +588,7 @@ export class Wizard implements OnInit, OnDestroy {
   async save(): Promise<void> {
     const v = this.verdict()
     if (!v || v.verdict === 'collision') return
+    if (this.isChain) return this.saveChain(v.threshold)
     const baseline = this.store.baseline()
     const old = this.replacing
     const gesture: StoredGesture = {
@@ -380,10 +612,63 @@ export class Wizard implements OnInit, OnDestroy {
       sensitivity: old?.sensitivity ?? 1,
       framesToTrigger: old?.framesToTrigger ?? 5,
       cooldownMs: old?.cooldownMs ?? 1500,
-      holdMode: this.holdMode,
+      holdMode: this.isLink ? 'fixed_duration' : this.holdMode,
       featurizerVersion: FEATURIZER_VERSION,
+      // Une pose enregistrée POUR un enchaînement ne doit rien afficher seule.
+      // Le drapeau est posé ici et pas par l'appelant : c'est le wizard qui sait
+      // dans quelle intention la pose vient d'être prise.
+      sequenceOnly: this.isLink ? true : old?.sequenceOnly,
     }
     await this.store.saveGesture(gesture)
-    this.saved.emit()
+    this.saved.emit(gesture.id)
+  }
+
+  /**
+   * Écrit les maillons d'un coup, à la toute fin. Rien n'a été persisté avant :
+   * abandonner au maillon 2 sur 3 ne laisse aucune trace, là où un enregistrement
+   * au fil de l'eau aurait semé des gestures orphelines que personne ne relie
+   * plus à rien.
+   */
+  private async saveChain(lastThreshold: number): Promise<void> {
+    const baseline = this.store.baseline()
+    const profileId = this.store.activeProfile()?.id ?? 'default'
+    const all: LinkDraft[] = [
+      ...this.drafts(),
+      {
+        name: this.linkName(this.drafts().length),
+        source: this.source,
+        keptRaw: this.keptRaw,
+        kept: this.keptBlocks,
+        threshold: lastThreshold,
+      },
+    ]
+
+    const ids: string[] = []
+    for (const d of all) {
+      const id = crypto.randomUUID()
+      ids.push(id)
+      await this.store.saveGesture({
+        id,
+        profileId,
+        name: d.name,
+        enabled: true,
+        source: d.source,
+        samples: d.keptRaw.map((r) => blocksToJson(featurizeRaw(r, baseline))),
+        rawSamples: d.keptRaw,
+        threshold: d.threshold,
+        thresholdAuto: d.threshold,
+        sensitivity: 1,
+        framesToTrigger: 5,
+        cooldownMs: 1500,
+        // Une pose de maillon n'est jamais « tenue » : un enchaînement se lit
+        // sur des déclenchements, pas sur une durée.
+        holdMode: 'fixed_duration',
+        featurizerVersion: FEATURIZER_VERSION,
+        // Le point de toute l'affaire : ces poses servent l'enchaînement et
+        // n'affichent rien seules.
+        sequenceOnly: true,
+      })
+    }
+    this.savedChain.emit(ids)
   }
 }
