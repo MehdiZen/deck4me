@@ -149,7 +149,24 @@ export class DetectionService {
       }
       this.status.set('accès caméra…')
       const wanted = this.selectedCameraId()
-      const base: MediaTrackConstraints = { width: 640, height: 480, frameRate: 30 }
+      // Aucune contrainte de définition : on prend la source TELLE QU'ELLE
+      // SORT, et on réduit nous-mêmes.
+      //
+      // Demander 640×480 semblait économe. En réalité, quand la source ne
+      // délivre pas cette définition — la caméra virtuelle publie du 1280×720
+      // en RGB24 —, WebView2 accepte le flux puis redimensionne chaque image
+      // dans sa propre chaîne de capture, en logiciel. Ce travail-là n'apparaît
+      // dans aucun de nos compteurs : il se présente comme de l'ATTENTE.
+      // Mesuré : 104 ms d'attente par image et 9 fps, alors que notre
+      // traitement complet tenait en 12 ms.
+      //
+      // Notre réduction à nous coûte 0,2 ms, mesurée sur la même image. Le
+      // marché est donc simple : on encaisse 0,2 ms pour ne plus subir un
+      // rééchantillonnage dont on ne contrôle rien.
+      //
+      // `frameRate` reste demandé : une cadence se choisit parmi les modes du
+      // pilote, elle ne se fabrique pas par conversion.
+      const base: MediaTrackConstraints = { frameRate: 30 }
       try {
         this.stream = await navigator.mediaDevices.getUserMedia({
           video: wanted ? { ...base, deviceId: { exact: wanted } } : base,
