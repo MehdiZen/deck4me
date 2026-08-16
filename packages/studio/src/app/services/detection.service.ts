@@ -18,6 +18,10 @@ export type FrameListener = (raw: RawFrame, viz: VizFrame, ts: number) => void
  *  webcam définitivement partie ne fait que brûler du CPU pendant un live. */
 const MAX_RETRIES = 5
 
+/** Côté long donné à MediaPipe. Les modèles redimensionnent eux-mêmes en
+ *  interne ; au-delà, on paie une réduction pour rien. */
+const DETECT_LONG_SIDE = 640
+
 /**
  * Caméra + MediaPipe. La boucle tourne HORS de la change detection Angular :
  * les listeners (matcher, wizard, canvas live) sont appelés à ~30 Hz en direct,
@@ -204,10 +208,20 @@ export class DetectionService {
     }, delay)
   }
 
+  /** Dimensions de réduction, ou `null` quand la source est déjà assez petite
+   *  pour être donnée directement. Le rapport d'image est conservé : les
+   *  landmarks sont normalisés sur le cadre fourni, les déformer les ferait
+   *  tomber à côté dans l'aperçu. */
+  private sizeOf(vw: number, vh: number): { w: number; h: number } | null {
+    const long = Math.max(vw, vh)
+    if (long <= DETECT_LONG_SIDE) return null
+    const s = DETECT_LONG_SIDE / long
+    return { w: Math.round(vw * s), h: Math.round(vh * s) }
+  }
+
   private loop(): void {
     const video = this.video
     if (!video) return
-    const DETECT_LONG_SIDE = 640
 
     const tick = () => {
       if (this.stopped || !this.video) return
@@ -232,23 +246,33 @@ export class DetectionService {
         schedule()
         return
       }
-      if (!this.work) {
-        this.work = document.createElement('canvas')
-        this.workCtx = this.work.getContext('2d', { willReadFrequently: false })
+      // Source déjà assez petite (webcam en 640×480) : on la donne TELLE
+      // QUELLE à MediaPipe. La toile intermédiaire ne servait alors qu'à
+      // recopier l'image à l'identique — une copie CPU par frame, et surtout
+      // la perte du chemin direct vidéo→texture GPU, qui évite de repasser par
+      // la mémoire centrale. Elle n'est utile que face à une source 720p/1440p,
+      // typiquement la caméra virtuelle.
+      const src = this.sizeOf(vw, vh)
+      let input: HTMLVideoElement | HTMLCanvasElement = video
+      if (src) {
+        if (!this.work) {
+          this.work = document.createElement('canvas')
+          this.workCtx = this.work.getContext('2d', { willReadFrequently: false })
+        }
+        if (this.work.width !== src.w || this.work.height !== src.h) {
+          this.work.width = src.w
+          this.work.height = src.h
+        }
+        this.workCtx!.drawImage(video, 0, 0, src.w, src.h)
+        input = this.work
       }
-      const scale = Math.min(1, DETECT_LONG_SIDE / Math.max(vw, vh))
-      const dw = Math.round(vw * scale)
-      const dh = Math.round(vh * scale)
-      if (this.work.width !== dw || this.work.height !== dh) {
-        this.work.width = dw
-        this.work.height = dh
+      if (this.sourceSize()?.w !== vw || this.sourceSize()?.h !== vh) {
         this.sourceSize.set({ w: vw, h: vh })
       }
-      this.workCtx!.drawImage(video, 0, 0, dw, dh)
 
       const tPrep = performance.now()
-      const faceRes = this.face!.detectForVideo(this.work, ts)
-      const handRes = this.hand!.detectForVideo(this.work, ts)
+      const faceRes = this.face!.detectForVideo(input, ts)
+      const handRes = this.hand!.detectForVideo(input, ts)
       const tInfer = performance.now()
       this.prepAcc += tPrep - ts
       this.infAcc += tInfer - tPrep
