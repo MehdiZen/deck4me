@@ -92,7 +92,11 @@ impl VirtualCam {
                     _ => None,
                 })
                 // ne jamais proposer de se recapturer soi-même
-                .filter(|d| !d.name.contains("deck4me"))
+                // Ancien nom compris : sur une machine qui a connu meme4me, le
+                // filtre reste déclaré sous « meme4me Camera » tant qu'il n'a
+                // pas été réenregistré. L'oublier ici laisserait la pompe
+                // choisir sa PROPRE sortie comme source — une boucle.
+                .filter(|d| !d.name.contains("deck4me") && !d.name.contains("meme4me"))
                 .collect(),
             Err(_) => vec![],
         }

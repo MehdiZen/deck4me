@@ -174,10 +174,20 @@ export class VcamService {
     }
   }
 
-  /** Bascule la détection sur la caméra virtuelle (elle seule reste lisible). */
+  /**
+   * Bascule la détection sur la caméra virtuelle : une fois le pompage lancé,
+   * c'est la seule source encore lisible.
+   *
+   * Le motif accepte AUSSI l'ancien nom. Le filtre DirectShow porte son nom
+   * dans le registre Windows, posé au moment de l'installation : une machine
+   * qui a connu meme4me garde « meme4me Camera » déclarée tant que le pilote
+   * n'a pas été réenregistré. Ne chercher que le nouveau nom faisait échouer
+   * la bascule en silence, et Windows accordait alors la première caméra venue
+   * — vécu : la détection est partie sur une caméra tierce.
+   */
   private async switchDetectionToVirtual(restart: boolean): Promise<void> {
     await this.detection.listCameras()
-    const virt = this.detection.cameras().find((c) => /deck4me/i.test(c.label))
+    const virt = this.detection.cameras().find((c) => /(deck|meme)4me/i.test(c.label))
     if (virt) {
       // `useCamera` et non `selectCamera` : c'est une bascule imposée, pas un
       // choix de l'utilisateur. La persister écrasait sa préférence, si bien
@@ -185,7 +195,17 @@ export class VcamService {
       await this.detection.useCamera(virt.deviceId)
       this.switched.set(true)
     } else {
+      // Échec bruyant : sans message, la détection reste sur une caméra
+      // arbitraire et l'utilisateur croit à un bug de reconnaissance alors que
+      // c'est la mauvaise image qui entre.
       this.switched.set(false)
+      this.status.update((st) => ({
+        ...st,
+        error:
+          "La caméra virtuelle est introuvable dans la liste des périphériques. " +
+          'Réenregistre le pilote (« Retirer le pilote », puis réinstalle-le) : ' +
+          "il porte peut-être encore l'ancien nom.",
+      }))
     }
     if (restart && !this.detection.running()) await this.detection.start().catch(() => {})
   }
