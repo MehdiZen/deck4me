@@ -85,6 +85,32 @@ interface OverlayStats {
           Le premier étage — la caméra elle-même — n'est pas mesurable depuis ici
           et s'ajoute à ce budget (compte 20 à 60 ms selon la webcam).
         </p>
+
+        <!-- L'étage qui manquait. Sans lui, 12 ms de travail mesurés et 59 ms
+             réellement écoulées font accuser le logiciel, alors que la boucle
+             passe le reste du temps à attendre l'image suivante. -->
+        @if (detection.running()) {
+          <div class="totrow wait">
+            <span class="lbl">Attente de l'image suivante</span>
+            <span class="readout" [style.color]="waitColor()">
+              {{ detection.waitMs().toFixed(0) }} ms
+            </span>
+            <span class="spacer"></span>
+            <span class="lbl">
+              <b class="num">{{ detection.fps() }}</b> fps obtenus
+              @if (detection.trackFps()) {
+                sur <b class="num">{{ detection.trackFps() }}</b> annoncés
+              }
+            </span>
+          </div>
+          <p class="lbl note">
+            Ce temps-là n'est pas du travail : la boucle ne fait rien. S'il
+            domine, la cadence est imposée par la SOURCE, pas par la détection —
+            une webcam allonge son exposition en faible lumière et descend à 15
+            fps, voire 7,5, sans cesser d'en annoncer 30. Plus de lumière rend
+            des images.
+          </p>
+        }
       </div>
     </div>
 
@@ -384,6 +410,16 @@ export class DebugPage implements AfterViewInit, OnDestroy {
   readonly noisyUsed = computed(() =>
     this.shapes().filter((s) => s.used && s.span > this.UNSTABLE),
   )
+
+  /** Rouge quand l'attente dépasse le travail : c'est le seuil à partir duquel
+   *  optimiser le logiciel ne rendrait plus une seule image. */
+  readonly waitColor = computed(() => {
+    const w = this.detection.waitMs()
+    const work = this.detection.inferenceMs() + this.detection.prepMs()
+    if (w > work * 3) return 'var(--st-live)'
+    if (w > work) return 'var(--st-candidate)'
+    return 'var(--ink)'
+  })
 
   readonly stages = computed(() => {
     const d = this.detection

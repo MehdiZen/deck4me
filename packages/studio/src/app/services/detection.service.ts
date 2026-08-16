@@ -40,8 +40,23 @@ export class DetectionService {
    *  source. Ensemble ils expliquent la cadence bien mieux que le fps seul. */
   readonly inferenceMs = signal(0)
   readonly prepMs = signal(0)
+  /**
+   * Temps passé à ATTENDRE l'image suivante, par frame.
+   *
+   * L'étage qui manquait, et le plus important quand la cadence déçoit : sans
+   * lui, 12 ms de travail mesurés et 59 ms réellement écoulées laissaient
+   * croire à une lenteur du logiciel. Une webcam qui rallonge son exposition
+   * en faible lumière descend à 15 fps tout en continuant d'en annoncer 30 —
+   * c'est elle qu'on voit ici, pas nous.
+   */
+  readonly waitMs = signal(0)
+  /** Cadence négociée avec la source, telle qu'elle la déclare. À comparer aux
+   *  fps réellement obtenus : l'écart entre les deux EST le diagnostic. */
+  readonly trackFps = signal(0)
   private infAcc = 0
   private prepAcc = 0
+  private waitAcc = 0
+  private lastTickEnd = 0
 
   /** Caméras disponibles + sélection persistée (localStorage). */
   readonly cameras = signal<MediaDeviceInfo[]>([])
@@ -150,6 +165,7 @@ export class DetectionService {
       // reflète la caméra réellement obtenue + rafraîchit les labels
       const settings = this.stream.getVideoTracks()[0]?.getSettings()
       if (settings?.deviceId) this.selectedCameraId.set(settings.deviceId)
+      this.trackFps.set(Math.round(settings?.frameRate ?? 0))
       void this.listCameras()
       const video = document.createElement('video')
       video.muted = true
@@ -175,6 +191,7 @@ export class DetectionService {
     this.stream = null
     this.video = null
     this.fps.set(0)
+    this.lastTickEnd = 0
     this.running.set(false)
     this.status.set('caméra arrêtée')
   }
@@ -226,6 +243,8 @@ export class DetectionService {
     const tick = () => {
       if (this.stopped || !this.video) return
       const ts = performance.now()
+      // Depuis la fin du tour précédent : c'est du temps mort, pas du travail.
+      if (this.lastTickEnd) this.waitAcc += ts - this.lastTickEnd
 
       // Perte de caméra : débranchée, ou reprise par un autre logiciel.
       // `requestVideoFrameCallback` cesse simplement d'être appelé — la boucle
@@ -327,11 +346,14 @@ export class DetectionService {
         this.fps.set(Math.round((this.frameCount * 1000) / (ts - this.lastFpsAt || 1)))
         this.inferenceMs.set(this.infAcc / n)
         this.prepMs.set(this.prepAcc / n)
+        this.waitMs.set(this.waitAcc / n)
         this.infAcc = 0
         this.prepAcc = 0
+        this.waitAcc = 0
         this.frameCount = 0
         this.lastFpsAt = ts
       }
+      this.lastTickEnd = performance.now()
       schedule()
     }
     const schedule = () => {
