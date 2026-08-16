@@ -8,6 +8,7 @@ import {
   effect,
   inject,
 } from '@angular/core'
+import { FaceLandmarker } from '@mediapipe/tasks-vision'
 import { DetectionService, type VizFrame } from '../services/detection.service'
 
 /** Squelette MediaPipe : paume puis les cinq doigts. Relier les points fait
@@ -20,6 +21,34 @@ const HAND_BONES: [number, number][] = [
   [13, 17], [17, 18], [18, 19], [19, 20],
   [0, 17],
 ]
+
+/**
+ * Maillage du visage, en deux couches.
+ *
+ * MediaPipe fournit les arêtes toutes faites : la tesselation (≈2500 arêtes,
+ * le filet complet) et les contours (les traits qui font une figure — ovale,
+ * sourcils, yeux, lèvres). Les dessiner d'un seul poids donnerait une bouillie
+ * blanche ; ici le filet est presque invisible et ne sert qu'à donner du
+ * volume, les contours portent la lecture.
+ *
+ * Les iris sont laissés de côté : deux anneaux brillants au milieu du visage
+ * attirent l'œil vers la seule information qu'on n'utilise PAS (voir
+ * l'exclusion des `eyeLook*` dans le featurizer).
+ *
+ * Mis à plat une fois pour toutes : la conversion {start,end} → paire coûte
+ * peu, mais la refaire 30 fois par seconde n'a aucune raison d'être.
+ */
+const flat = (c: { start: number; end: number }[]): [number, number][] =>
+  c.map((e) => [e.start, e.end])
+const FACE_MESH = flat(FaceLandmarker.FACE_LANDMARKS_TESSELATION)
+const FACE_LINES = flat([
+  ...FaceLandmarker.FACE_LANDMARKS_FACE_OVAL,
+  ...FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW,
+  ...FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW,
+  ...FaceLandmarker.FACE_LANDMARKS_LEFT_EYE,
+  ...FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE,
+  ...FaceLandmarker.FACE_LANDMARKS_LIPS,
+])
 
 /**
  * Preview caméra + landmarks. Le <video> local rejoue le MediaStream partagé ;
@@ -111,29 +140,22 @@ export class CameraView implements AfterViewInit, OnDestroy {
     }
     const ctx = canvas.getContext('2d')!
     ctx.clearRect(0, 0, canvas.width, canvas.height)
-    // Le maillage du visage est un nuage : des points fins et translucides
-    // laissent voir le visage dessous. Les mains, elles, portent l'information
-    // utile au geste — points pleins et articulations reliées.
+    // Le visage se dessine sous les mains : quand une main passe devant la
+    // bouche, c'est la main qu'on veut lire par-dessus, pas le filet.
     if (viz.faceLandmarks) {
-      ctx.fillStyle = '#5eead480'
-      for (let i = 0; i < viz.faceLandmarks.length; i += 4) {
-        const p = viz.faceLandmarks[i]!
-        ctx.fillRect(p.x * canvas.width, p.y * canvas.height, 1.6, 1.6)
-      }
+      const lm = viz.faceLandmarks
+      ctx.strokeStyle = '#5eead41f'
+      ctx.lineWidth = 0.6
+      this.bones(ctx, lm, FACE_MESH)
+      ctx.strokeStyle = '#5eead4bb'
+      ctx.lineWidth = 1.3
+      this.bones(ctx, lm, FACE_LINES)
     }
     viz.handLandmarks.forEach((lm, h) => {
       const color = h === 0 ? '#a78bfa' : '#f0abfc'
       ctx.strokeStyle = color + '99'
       ctx.lineWidth = 1.6
-      ctx.beginPath()
-      for (const [a, b] of HAND_BONES) {
-        const p = lm[a]
-        const q = lm[b]
-        if (!p || !q) continue
-        ctx.moveTo(p.x * canvas.width, p.y * canvas.height)
-        ctx.lineTo(q.x * canvas.width, q.y * canvas.height)
-      }
-      ctx.stroke()
+      this.bones(ctx, lm, HAND_BONES)
       ctx.fillStyle = color
       for (const p of lm) {
         ctx.beginPath()
@@ -141,5 +163,24 @@ export class CameraView implements AfterViewInit, OnDestroy {
         ctx.fill()
       }
     })
+  }
+
+  /** Un seul chemin pour tout un jeu d'arêtes : 2500 `stroke()` séparés
+   *  coûteraient un ordre de grandeur de plus qu'un `stroke()` unique. */
+  private bones(
+    ctx: CanvasRenderingContext2D,
+    lm: { x: number; y: number }[],
+    bones: [number, number][],
+  ): void {
+    const { width, height } = ctx.canvas
+    ctx.beginPath()
+    for (const [a, b] of bones) {
+      const p = lm[a]
+      const q = lm[b]
+      if (!p || !q) continue
+      ctx.moveTo(p.x * width, p.y * height)
+      ctx.lineTo(q.x * width, q.y * height)
+    }
+    ctx.stroke()
   }
 }
