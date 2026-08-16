@@ -243,7 +243,10 @@ import {
               }
               · <span class="num">{{ g.rawSamples.length }}</span> prises
               @if (needsPosition(g)) {
-                <span class="badge warn" title="Enregistrée avant la prise en compte de la position des mains">
+                <span
+                  class="badge warn"
+                  title="Le repère de position de cet enregistrement ne survivait pas à une tête tournée. Il a été abandonné : cette pose est jugée sur la forme de la main seule. Réenregistre-la pour lui rendre sa position."
+                >
                   sans position
                 </span>
               }
@@ -572,11 +575,20 @@ export class GesturesPage {
     return this.store.asset(this.store.binding(g.id)?.assetId)
   }
 
-  /** Gesture à main enregistrée sans ancre visage : la position ne peut pas
-   *  la distinguer d'une autre pose de même forme. */
+  /**
+   * Gesture à main que la position ne peut pas distinguer d'une autre pose de
+   * même forme.
+   *
+   * On exige `eyes`, pas seulement `faceAnchor` : le repère d'avant la v7 est
+   * bien présent dans ces enregistrements, mais il partait du bout du nez et
+   * se mesurait à l'écart entre les yeux — deux grandeurs qui s'effondrent dès
+   * qu'on tourne la tête. Il a été abandonné, et il est irrécupérable faute
+   * d'avoir persisté les points du visage. Ces poses tournent donc sur la
+   * forme seule, ce que le badge doit dire.
+   */
   needsPosition(g: StoredGesture): boolean {
     if (g.source === 'face') return false
-    return !g.rawSamples.some((r) => r.faceAnchor)
+    return !g.rawSamples.some((r) => r.faceAnchor?.eyes)
   }
 
   srcLabel(s: string): string {

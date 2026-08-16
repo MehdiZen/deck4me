@@ -253,15 +253,34 @@ export class DetectionService {
       this.prepAcc += tPrep - ts
       this.infAcc += tInfer - tPrep
 
-      // Ancre visage (featurizer v2) : nez + écart inter-oculaire, pour situer
-      // les mains par rapport à la tête indépendamment de la distance caméra.
+      // Ancre visage : situe les mains par rapport à la tête, indépendamment de
+      // la distance à la caméra.
+      //
+      // v2 (nez + écart inter-oculaire) s'écroulait dès qu'on tournait la tête.
+      // Le bout du nez est le point du visage qui se déplace le PLUS en
+      // rotation — il dépasse — et l'écart entre les yeux rétrécit en
+      // projection : −13 % à 30°, −29 % à 45°. La position étant divisée par
+      // cette échelle, elle enflait de 41 % à main strictement immobile.
+      // Symptôme vécu : le signe ne passe plus dès qu'on regarde le second
+      // écran.
+      //
+      // v7 corrige les deux : origine entre les yeux (creux stable, ne dépasse
+      // pas) et échelle prise sur la HAUTEUR du visage, front→menton, qui elle
+      // ne rétrécit pas quand on tourne la tête sur le côté.
+      //
+      // `nose` et `scale` restent écrits pour les enregistrements d'avant, qui
+      // n'ont que ce repère-là. Voir featurizePosition.
       const fl = faceRes.faceLandmarks?.[0] ?? null
       let faceAnchor: FaceAnchor | null = null
       if (fl && fl.length > 263) {
         const nose = fl[1]!
+        const l = fl[33]!
+        const r = fl[263]!
         faceAnchor = {
           nose: { x: nose.x, y: nose.y },
-          scale: Math.hypot(fl[263]!.x - fl[33]!.x, fl[263]!.y - fl[33]!.y),
+          scale: Math.hypot(r.x - l.x, r.y - l.y),
+          eyes: { x: (l.x + r.x) / 2, y: (l.y + r.y) / 2 },
+          height: Math.hypot(fl[152]!.x - fl[10]!.x, fl[152]!.y - fl[10]!.y),
         }
       }
       const raw: RawFrame = {

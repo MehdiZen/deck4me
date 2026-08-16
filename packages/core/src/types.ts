@@ -19,11 +19,27 @@ export interface RawHand {
   landmarks: Landmark[] // 21 points MediaPipe
 }
 
-/** Ancre visage pour situer les mains PAR RAPPORT à la tête (featurizer v2) :
- *  nez + échelle inter-oculaire, en coordonnées image normalisées. */
+/**
+ * Ancre visage pour situer les mains PAR RAPPORT à la tête, en coordonnées
+ * image normalisées.
+ *
+ * `nose` + `scale` (inter-oculaire) sont le repère v2, conservés parce que les
+ * enregistrements faits avant la v7 ne contiennent que ceux-là. Ils ne sont
+ * plus utilisés pour featuriser : voir featurizePosition.
+ *
+ * `eyes` + `height` sont le repère v7, insensible à la rotation de la tête.
+ * Optionnels par nécessité — une frame relue depuis la base peut être plus
+ * vieille que le champ.
+ */
 export interface FaceAnchor {
   nose: { x: number; y: number }
   scale: number
+  /** Milieu des coins externes des yeux. Origine stable en rotation, là où le
+   *  bout du nez, lui, dépasse et se déplace. */
+  eyes?: { x: number; y: number }
+  /** Hauteur du visage, front→menton. Ne rétrécit pas quand la tête tourne sur
+   *  le côté, contrairement à l'écart entre les yeux. */
+  height?: number
 }
 
 /** Frame brute telle que sortie de MediaPipe — c'est CE format qu'on persiste

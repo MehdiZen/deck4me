@@ -29,7 +29,13 @@ import type {
 //
 //      Ce jeu vaut pour CE visage, avec CES lunettes, sous CET éclairage. Voir
 //      la piste « pondération par utilisateur » dans HANDOFF.md.
-export const FEATURIZER_VERSION = 6
+// v7 : nouveau repère de position, insensible à la rotation de la tête. Le
+//      repère v2 partait du bout du nez et se mesurait à l'écart entre les
+//      yeux — les deux pires choix possibles dès qu'on tourne la tête. Voir
+//      featurizePosition. Conséquence assumée : les gestures « mains »
+//      enregistrées avant perdent leur bloc position, faute de pouvoir le
+//      recalculer.
+export const FEATURIZER_VERSION = 7
 
 /**
  * Sous-ensemble des blendshapes ARKit (52 exposés par MediaPipe).
@@ -177,23 +183,45 @@ export function featurizeHand(landmarks: Landmark[]): Float32Array {
 const SLOT: Record<Handedness, 0 | 1> = { Left: 0, Right: 1 }
 
 export const POS_DIMS = 2
-/** La position est exprimée en largeurs de visage (nez → poignet, ÷ échelle
- *  inter-oculaire ×4 pour rester ~[-1,1] sur les poses réalistes), puis
- *  pondérée pour peser comme les autres blocs dans la distance.
+/** La position est exprimée en tailles de visage (milieu des yeux → poignet,
+ *  ÷ hauteur du visage × POS_RANGE pour rester ~[-1,1] sur les poses
+ *  réalistes), puis pondérée pour peser comme les autres blocs dans la
+ *  distance.
  *
  *  POS_SCALE arbitre entre « distinguer épaules vs derrière la tête » (il en
  *  faut assez) et « tolérer que la main ne soit jamais exactement au même
  *  endroit » (il n'en faut pas trop). À 0.35, un déplacement d'une largeur de
  *  tête reste très au-dessus d'un seuil typique, alors que le tremblement
- *  naturel de la main passe dessous. */
-export const POS_RANGE = 4
+ *  naturel de la main passe dessous.
+ *
+ *  POS_RANGE vaut 1.5 sur la hauteur du visage, contre 4 sur l'inter-oculaire
+ *  en v2 : la hauteur front→menton fait environ 2,7 fois l'écart entre les
+ *  yeux, donc les positions restent dans la MÊME plage numérique qu'avant. Ce
+ *  n'est pas de la coquetterie — les seuils enregistrés vivent dans cette
+ *  plage, la changer les décalerait tous en silence. */
+export const POS_RANGE = 1.5
 export const POS_SCALE = 0.35
 
-export function featurizePosition(wrist: Landmark, anchor: FaceAnchor): Float32Array {
-  const s = anchor.scale * POS_RANGE || 1e-6
+/**
+ * Position du poignet relative à la tête.
+ *
+ * Retourne `null` si l'ancre n'a pas le repère v7. C'est le cas des frames
+ * enregistrées avant : elles ne contiennent que `nose` + `scale`, et les points
+ * du visage qui auraient permis de recalculer le nouveau repère n'ont jamais
+ * été persistés. Les convertir est donc IMPOSSIBLE, pas seulement coûteux.
+ *
+ * Plutôt que de comparer une position v2 à une position v7 — deux espaces
+ * différents, ce qui produirait des distances absurdes sans rien signaler —
+ * ces échantillons perdent simplement leur bloc position et ne sont plus jugés
+ * que sur la forme de la main. `frameBlocks` gère déjà l'absence. Ré-enregistrer
+ * la pose lui rend sa position.
+ */
+export function featurizePosition(wrist: Landmark, anchor: FaceAnchor): Float32Array | null {
+  if (!anchor.eyes || !anchor.height) return null
+  const s = anchor.height * POS_RANGE || 1e-6
   const out = new Float32Array(POS_DIMS)
-  out[0] = ((wrist.x - anchor.nose.x) / s) * POS_SCALE
-  out[1] = ((wrist.y - anchor.nose.y) / s) * POS_SCALE
+  out[0] = ((wrist.x - anchor.eyes.x) / s) * POS_SCALE
+  out[1] = ((wrist.y - anchor.eyes.y) / s) * POS_SCALE
   return out
 }
 
@@ -214,6 +242,8 @@ export function featurize(
       const slot = SLOT[h.handedness]
       out.hands[slot] = featurizeHand(h.landmarks)
       if (anchor) out.handPos[slot] = featurizePosition(h.landmarks[0]!, anchor)
+      // handPos reste null si l'ancre est trop vieille : bloc position ignoré
+      // des deux côtés, la gesture est jugée sur la forme seule.
     }
   }
   return out

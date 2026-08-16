@@ -8,7 +8,14 @@ function hand(cx: number, cy: number, handedness: 'Left' | 'Right' = 'Right'): R
   for (let i = 0; i < 21; i++) pts.push({ x: cx + Math.sin(i) * 0.02, y: cy - i * 0.008, z: 0 })
   return { handedness, landmarks: pts }
 }
-const anchor: FaceAnchor = { nose: { x: 0.5, y: 0.3 }, scale: 0.08 }
+// Repère v7 : ce sont `eyes` + `height` qui servent. `nose`/`scale` restent
+// dans le type pour les enregistrements d'avant, mais plus rien ne les lit.
+const anchor: FaceAnchor = {
+  nose: { x: 0.5, y: 0.34 },
+  scale: 0.08,
+  eyes: { x: 0.5, y: 0.3 },
+  height: 0.22,
+}
 
 describe('diagnostics par bloc (« pourquoi ça ne déclenche pas »)', () => {
   it('décompose forme et position pour chaque main enregistrée', () => {
