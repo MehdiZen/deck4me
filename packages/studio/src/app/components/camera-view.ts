@@ -187,10 +187,10 @@ export class CameraView implements AfterViewInit, OnDestroy {
     // ronds deviennent ovales une fois la toile étirée dans le cadre.
     const src = this.detection.sourceSize()
     if (src) {
-      // En flux direct, la toile épouse la taille réelle de l'image reçue :
-      // la fixer à 640 rendrait inutile toute augmentation côté Rust, l'image
-      // serait réduite ici juste après avoir été agrandie là-bas.
-      const w = feed ? Math.min(src.w, 1280) : 640
+      // La toile épouse la source, plafonnée à 1280. Elle était figée à 640,
+      // ce qui annulait d'avance toute amélioration en amont : l'image aurait
+      // été réduite ici juste après avoir été obtenue en plus grand.
+      const w = Math.min(src.w, 1280)
       const h = Math.round((w * src.h) / src.w)
       if (canvas.width !== w || canvas.height !== h) {
         canvas.width = w

@@ -291,24 +291,28 @@ export class DetectionService {
       await this.ensureModels()
       this.status.set('accès caméra…')
       const wanted = this.selectedCameraId()
-      // Aucune contrainte de définition : on prend la source TELLE QU'ELLE
-      // SORT, et on réduit nous-mêmes.
+      // On demande un mode CONFORTABLE POUR L'ŒIL, pas le minimum utile à la
+      // détection.
       //
-      // Demander 640×480 semblait économe. En réalité, quand la source ne
-      // délivre pas cette définition — la caméra virtuelle publie du 1280×720
-      // en RGB24 —, WebView2 accepte le flux puis redimensionne chaque image
-      // dans sa propre chaîne de capture, en logiciel. Ce travail-là n'apparaît
-      // dans aucun de nos compteurs : il se présente comme de l'ATTENTE.
-      // Mesuré : 104 ms d'attente par image et 9 fps, alors que notre
-      // traitement complet tenait en 12 ms.
+      // Le code réclamait 640×480 depuis toujours, par économie. La mesure a
+      // retiré tout fondement à cette économie : réduire une image nous coûte
+      // 1,4 ms, et MediaPipe redimensionne de toute façon en interne autour de
+      // 200 px — lui donner du 720p ou du 480p ne change pas un landmark.
       //
-      // Notre réduction à nous coûte 0,2 ms, mesurée sur la même image. Le
-      // marché est donc simple : on encaisse 0,2 ms pour ne plus subir un
-      // rééchantillonnage dont on ne contrôle rien.
+      // Ce que ça changeait, en revanche : l'aperçu ne pouvait pas être meilleur
+      // que ce qu'on avait demandé. Une caméra 1440p affichée en 640×480 dans
+      // un logiciel qui ne s'en sert jamais à cette taille, c'est une dégradation
+      // sans contrepartie.
       //
-      // `frameRate` reste demandé : une cadence se choisit parmi les modes du
-      // pilote, elle ne se fabrique pas par conversion.
-      const base: MediaTrackConstraints = { frameRate: 30 }
+      // `ideal` et non une valeur exacte : le pilote choisit le mode le plus
+      // proche parmi les siens. Exiger une définition qu'il n'expose pas ferait
+      // échouer l'ouverture, ou le forcerait à convertir — ce qu'on ne veut
+      // surtout pas lui demander.
+      const base: MediaTrackConstraints = {
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        frameRate: { ideal: 30 },
+      }
       try {
         this.stream = await navigator.mediaDevices.getUserMedia({
           video: wanted ? { ...base, deviceId: { exact: wanted } } : base,
