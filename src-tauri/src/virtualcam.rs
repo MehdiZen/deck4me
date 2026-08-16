@@ -43,6 +43,15 @@ pub struct VcamStatus {
     pub width: u32,
     pub height: u32,
     pub fps: f32,
+    /// Découpage du temps passé sur une image, en millisecondes, lissé sur ~1 s.
+    ///
+    /// Sans ça, une pompe à 17 fps sur une caméra capable de 60 ne dit pas OÙ
+    /// partent les 42 ms manquantes : attendre l'image de la webcam, la
+    /// décoder, ou la convertir. Trois causes, trois correctifs sans rapport —
+    /// et deux chances sur trois de réécrire le mauvais code.
+    pub grab_ms: f32,
+    pub decode_ms: f32,
+    pub convert_ms: f32,
     pub camera: Option<String>,
     pub error: Option<String>,
 }
@@ -387,21 +396,25 @@ fn pump(
     let mut rgb = vec![0u8; (src_w * src_h * 3) as usize];
     let mut frames = 0u32;
     let mut window_start = Instant::now();
+    let (mut grab_acc, mut dec_acc, mut conv_acc) = (0.0f32, 0.0f32, 0.0f32);
 
     let result = loop {
         if stop.load(Ordering::SeqCst) {
             break Ok(());
         }
+        let t0 = Instant::now();
         let frame = match camera.frame() {
             Ok(f) => f,
             Err(e) => break Err(format!("caméra perdue : {e}")),
         };
+        let t_grab = Instant::now();
         // Décodage dans un tampon réutilisé : décoder vers une image neuve
         // à chaque frame, c'est 11 Mo alloués puis jetés 30 fois par seconde
         // en 1440p — le processeur passe son temps à gérer de la mémoire.
         if let Err(e) = frame.decode_image_to_buffer::<RgbFormat>(&mut rgb) {
             break Err(format!("décodage : {e}"))
         }
+        let t_dec = Instant::now();
 
         // RGB (nokhwa) → BGR (convention DirectShow), avec recadrage éventuel
         // aux multiples de 4. Par tranches plutôt que par indices : le
@@ -422,11 +435,22 @@ fn pump(
             }
         }
         unsafe { sc_send(cam_handle, bgr.as_ptr() as *const c_void) };
+        let t_end = Instant::now();
 
+        grab_acc += (t_grab - t0).as_secs_f32() * 1000.0;
+        dec_acc += (t_dec - t_grab).as_secs_f32() * 1000.0;
+        conv_acc += (t_end - t_dec).as_secs_f32() * 1000.0;
         frames += 1;
         if window_start.elapsed().as_secs_f32() >= 1.0 {
             let mut s = status.lock().unwrap();
             s.fps = frames as f32 / window_start.elapsed().as_secs_f32();
+            let n = frames.max(1) as f32;
+            s.grab_ms = grab_acc / n;
+            s.decode_ms = dec_acc / n;
+            s.convert_ms = conv_acc / n;
+            grab_acc = 0.0;
+            dec_acc = 0.0;
+            conv_acc = 0.0;
             s.connected = unsafe { sc_connected(cam_handle) };
             frames = 0;
             window_start = Instant::now();

@@ -130,6 +130,13 @@ import { VcamService } from '../services/vcam.service'
             <i class="led" [class.on]="vcam.status().connected"></i>
             {{ vcam.status().connected ? 'Streamlabs reçoit le flux' : 'personne ne regarde encore' }}
           </span>
+          <!-- Une cadence basse a trois causes possibles et trois correctifs
+               sans rapport. Le chiffre seul ne dit pas lequel. -->
+          <span class="badge" title="Temps passé sur une image, dans la pompe">
+            attente webcam <b class="num">{{ vcam.status().grabMs.toFixed(0) }}</b> ·
+            décodage <b class="num">{{ vcam.status().decodeMs.toFixed(0) }}</b> ·
+            conversion <b class="num">{{ vcam.status().convertMs.toFixed(0) }}</b> ms
+          </span>
         </div>
         <p class="lbl">
           @if (vcam.switched()) {

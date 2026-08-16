@@ -213,11 +213,28 @@ export class DetectionService {
         })
       } catch (e) {
         if (!wanted) throw e
-        // Caméra indisponible — débranchée, ou prise par le pompage de la
-        // caméra virtuelle. On retombe sur celle par défaut pour cette
-        // session, mais on NE TOUCHE PAS à la préférence : la panne est
-        // souvent temporaire, et effacer le choix obligeait à le refaire à
-        // chaque fois.
+        // Deux échecs très différents, longtemps traités pareil.
+        //
+        // Si la caméra a DISPARU de la liste — débranchée —, retomber sur
+        // celle par défaut est le bon geste : on rend une image plutôt qu'une
+        // erreur.
+        //
+        // Si elle est TOUJOURS LÀ mais refuse de s'ouvrir, c'est qu'une autre
+        // application la tient : Streamlabs, ou notre propre pompe de caméra
+        // virtuelle. Basculer alors sur la première caméra venue est le pire
+        // geste possible — on filme autre chose, sans le dire, et la détection
+        // se met à mal reconnaître pour une raison introuvable. Vécu : la
+        // détection est partie sur une caméra tierce, et rien ne l'expliquait.
+        await this.listCameras()
+        const stillThere = this.cameras().some((c) => c.deviceId === wanted)
+        if (stillThere) {
+          const label = this.cameras().find((c) => c.deviceId === wanted)?.label || 'Cette caméra'
+          this.status.set(
+            `${label} est prise par une autre application (Streamlabs, ou la caméra virtuelle de deck4me). ` +
+              'Arrête la caméra virtuelle, ou choisis « deck4me Camera ».',
+          )
+          throw e
+        }
         this.selectedCameraId.set('')
         this.stream = await navigator.mediaDevices.getUserMedia({ video: base, audio: false })
       }

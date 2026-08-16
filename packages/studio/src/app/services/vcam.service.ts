@@ -10,6 +10,12 @@ export interface VcamStatus {
   width: number
   height: number
   fps: number
+  /** Découpage d'une image dans la pompe, en ms : attente webcam, décodage,
+   *  conversion. Trois causes possibles à une cadence basse, trois correctifs
+   *  différents. */
+  grabMs: number
+  decodeMs: number
+  convertMs: number
   camera: string | null
   error: string | null
 }
@@ -32,6 +38,9 @@ export const EMPTY_VCAM: VcamStatus = {
   width: 0,
   height: 0,
   fps: 0,
+  grabMs: 0,
+  decodeMs: 0,
+  convertMs: 0,
   camera: null,
   error: null,
 }
