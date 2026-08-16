@@ -334,7 +334,23 @@ Points d'archi verrouillés (handoff + review 2026-08-15) :
   calibration → changement de version ou de baseline = re-featurisation silencieuse au boot.
   « À réenregistrer » n'est que le fallback sans données brutes.
 - Baseline neutre par utilisateur (biais morphologique + lunettes), soustraite partout.
-  Subset visage SANS eyeLook* (regard + lunettes = bruit).
+  Subset visage de **31 blendshapes sur 52** (v4). Le critère n'est pas « cette expression
+  est utile » mais « ce blendshape bouge-t-il de façon fiable ET indépendante » : la
+  distance est une RMS normalisée par le nombre de dimensions, donc une clé morte dilue
+  le signal des autres, et une clé qui bouge au hasard — ou pendant qu'on parle — ajoute
+  du bruit à *toutes* les comparaisons. Écartés : `eyeLook*` (du regard, pas de la pose,
+  bruité par les lunettes), `mouthStretch*` (part sur chaque « i »/« è »), `mouthPress*` +
+  `mouthRoll*` + `mouthClose` (synonymes, faible amplitude), `mouthShrug*` (recouvre
+  `mouthPucker`), `mouthLowerDown*` (inséparable de `jawOpen`), `noseSneer*` (doublon de
+  `mouthUpperUp`, nez sous la monture).
+  **Les clés v1 restent en tête, dans l'ordre** — une baseline enregistrée est un tableau
+  indexé par position ; insérer au milieu soustrairait le biais de la mauvaise expression,
+  sans erreur ni message. Verrouillé par `packages/core/test/facekeys.test.ts`.
+- Un bump de `FEATURIZER_VERSION` **recalcule les seuils**, pas seulement les samples :
+  ajouter des dimensions rétrécit toutes les distances, un seuil hérité deviendrait
+  mécaniquement plus permissif. Le multiplicateur `sensitivity` réglé à la main est
+  conservé — il est relatif au seuil auto. La baseline de calibration est recalculée
+  d'abord, depuis les frames neutres brutes.
 - Distance euclidienne RMS normalisée par dimension (cosinus rejeté : vecteurs tous
   positifs → dynamique écrasée). Seuil auto homogène en distances, avec plancher.
 - Hystérésis de sortie ×1.4, state machine PAR gesture. [FIGÉ]

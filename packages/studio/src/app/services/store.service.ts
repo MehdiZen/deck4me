@@ -2,9 +2,11 @@ import { Injectable, computed, inject, signal } from '@angular/core'
 import {
   DEFAULT_RENDER,
   FEATURIZER_VERSION,
+  NEIGHBOR_CAP,
   blocksFromJson,
   blocksToJson,
   computeBaseline,
+  computeThreshold,
   featurizeRaw,
   migrateRenderParams,
   normalizeAction,
@@ -270,10 +272,33 @@ export class StoreService {
       const cal = await this.tauri.invoke<Calibration | null>('get_calibration', {}, null)
       this.calibration.set(cal)
     }
+    // La calibration D'ABORD : tout ce qui suit se featurise avec sa baseline.
+    await this.migrateCalibration()
     await this.migrateFeaturizerVersion()
     await this.migrateRenderModel()
     await this.dropOrphanActions()
     this.loaded.set(true)
+  }
+
+  /**
+   * Recalcule la baseline quand le featurizer a changé de dimensions.
+   *
+   * Une baseline est un tableau de la taille de FACE_KEYS au moment où elle a
+   * été écrite. Les nouvelles clés n'y ont donc aucune entrée et ne verraient
+   * jamais leur biais morphologique soustrait — précisément ce que la
+   * calibration existe pour faire, et ce qui compte le plus avec des lunettes.
+   * Les frames neutres brutes étant conservées, le recalcul est silencieux.
+   */
+  private async migrateCalibration(): Promise<void> {
+    const c = this.calibration()
+    if (!c || c.featurizerVersion === FEATURIZER_VERSION || !c.negativesRaw?.length) return
+    const next: Calibration = {
+      ...c,
+      featurizerVersion: FEATURIZER_VERSION,
+      baseline: Array.from(computeBaseline(c.negativesRaw)),
+    }
+    await this.tauri.invoke('save_calibration', { calibration: next })
+    this.calibration.set(next)
   }
 
   /**
@@ -299,15 +324,54 @@ export class StoreService {
     )
   }
 
-  /** featurizerVersion a bougé → re-featurisation SILENCIEUSE depuis le brut,
-   *  persistée. « 3 gestures à réenregistrer » n'est que le fallback sans raw. */
+  /**
+   * featurizerVersion a bougé → re-featurisation SILENCIEUSE depuis le brut.
+   * « N gestures à réenregistrer » n'est que le fallback sans frames brutes.
+   *
+   * Le seuil est recalculé, et ce n'est pas un luxe : la distance est une RMS
+   * normalisée par le nombre de dimensions, donc ajouter des clés au visage
+   * RÉTRÉCIT toutes les distances. Un seuil hérité deviendrait mécaniquement
+   * plus permissif — c'est-à-dire des faux positifs en direct, sans que rien
+   * n'ait l'air d'avoir changé. Le multiplicateur `sensitivity` réglé à la main
+   * est en revanche conservé : il est relatif au seuil auto, pas absolu.
+   */
   private async migrateFeaturizerVersion(): Promise<void> {
     const b = this.baseline()
-    for (const g of this.allGestures()) {
-      if (g.featurizerVersion === FEATURIZER_VERSION || !g.rawSamples.length) continue
+    const stale = this.allGestures().filter(
+      (g) => g.featurizerVersion !== FEATURIZER_VERSION && g.rawSamples.length,
+    )
+    if (!stale.length) return
+
+    // Deux passes : on refeaturise TOUT avant de calculer le moindre seuil,
+    // sinon une gesture serait comparée à des voisines encore dans l'ancien
+    // espace, et le seuil obtenu n'aurait aucun sens.
+    const refeaturized = new Map(
+      this.allGestures().map((g) => [
+        g.id,
+        g.rawSamples.length
+          ? g.rawSamples.map((r) => featurizeRaw(r, b))
+          : g.samples.map(blocksFromJson),
+      ]),
+    )
+    const negatives = this.negatives()
+
+    for (const g of stale) {
+      const samples = refeaturized.get(g.id)!
+      const others = this.allGestures()
+        .filter((o) => o.id !== g.id && (o.profileId || 'default') === (g.profileId || 'default'))
+        .map((o) => ({ gestureId: o.id, samples: refeaturized.get(o.id)!, source: o.source }))
+      const v = computeThreshold(samples, g.source, others, negatives)
+      // Sur un verdict de collision, `threshold` n'est PAS plafonné par le
+      // voisin — c'est voulu côté wizard, qui refuse alors l'enregistrement.
+      // Ici on ne peut rien refuser : on prend le minimum, donc le plus strict.
+      const threshold = v.nearestOther
+        ? Math.min(v.threshold, v.nearestOther.dist * NEIGHBOR_CAP)
+        : v.threshold
       await this.saveGesture({
         ...g,
-        samples: g.rawSamples.map((r) => blocksToJson(featurizeRaw(r, b))),
+        samples: samples.map(blocksToJson),
+        threshold,
+        thresholdAuto: threshold,
         featurizerVersion: FEATURIZER_VERSION,
       })
     }

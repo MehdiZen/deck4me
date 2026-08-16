@@ -11,17 +11,42 @@ import type {
 // v2 : ajout du bloc handPos (position du poignet relative au visage).
 // v3 : POS_SCALE abaissé — en v2 la position écrasait la forme, un petit
 //      décalage de main suffisait à empêcher le match.
+// v4 : 8 blendshapes de plus (langue, dégoût, mâchoire avancée, vrai sourire,
+//      asymétrie). Le visage tenait sur 23 dimensions, contre 42 pour une
+//      seule main : c'était le bloc le plus sollicité et le plus pauvre.
 // Les raws v1 sans faceAnchor restent featurisables : bloc position absent.
-export const FEATURIZER_VERSION = 3
+export const FEATURIZER_VERSION = 4
 
 /**
- * Sous-ensemble v1 des blendshapes ARKit. Choix délibérés :
- * - PAS de eyeLook* : c'est du regard, pas de la pose volontaire, et les
- *   lunettes le rendent bruité (réflexions, monture devant l'iris).
- * - Les squint/blink restent : utiles pour les grimaces, la baseline neutre
- *   absorbe le biais constant lunettes/morphologie.
+ * Sous-ensemble des blendshapes ARKit (52 exposés par MediaPipe).
+ *
+ * ─── Pourquoi un sous-ensemble ──────────────────────────────────────────────
+ * La distance est une RMS normalisée par le nombre de dimensions : chaque clé
+ * ajoutée divise le signal des autres. Une clé qui ne bouge jamais coûte donc
+ * de la dilution sans rien rapporter, et une clé qui bouge au hasard (ou
+ * pendant qu'on parle) ajoute du bruit à TOUTES les comparaisons, pas seulement
+ * à celles qui l'emploient. Le critère n'est pas « cette expression est utile »
+ * mais « ce blendshape bouge-t-il de façon fiable ET indépendante des autres ».
+ *
+ * ─── Écartés, et pourquoi ───────────────────────────────────────────────────
+ * · eyeLook* (×8) — du regard, pas de la pose ; et des lunettes le rendent
+ *   bruité (réflexions, monture devant l'iris).
+ * · mouthStretch* — part sur chaque « i », « è », « ê » : usine à faux positifs.
+ * · mouthPress*, mouthRoll*, mouthClose — cinq dimensions quasi synonymes, de
+ *   faible amplitude, très fréquentes entre deux mots.
+ * · mouthShrug* — recouvre mouthPucker, déjà présent.
+ * · mouthLowerDown* — en pratique inséparable de jawOpen, déjà présent.
+ * · noseSneer* — doublon de mouthUpperUp, et l'arête du nez porte les lunettes.
+ *
+ * ─── Ordre ──────────────────────────────────────────────────────────────────
+ * Les clés v1 restent EN TÊTE, dans leur ordre d'origine. Une baseline de
+ * calibration écrite avant v4 est un tableau de 23 nombres : les 23 premiers
+ * indices doivent garder exactement le même sens, sinon on soustrairait le
+ * biais du sourcil gauche à la mâchoire. Ne jamais insérer au milieu —
+ * uniquement ajouter à la fin. Un test verrouille ce préfixe.
  */
 export const FACE_KEYS = [
+  // --- v1 : ordre figé, ne pas réordonner ---
   'browDownLeft',
   'browDownRight',
   'browInnerUp',
@@ -45,7 +70,32 @@ export const FACE_KEYS = [
   'mouthFunnel',
   'mouthLeft',
   'mouthRight',
+
+  // --- v4 ---
+  /** Tirer la langue. Aucune autre clé ne la couvre, impossible par accident.
+   *  Réserve connue : c'est le blendshape le plus faible du modèle MediaPipe,
+   *  souvent bloqué près de 0. À vérifier avant de bâtir une pose dessus. */
+  'tongueOut',
+  /** Mâchoire avancée. Complète la famille (Open/Left/Right déjà là) pour une
+   *  seule dimension, sans recouvrir aucune autre. */
+  'jawForward',
+  /** Lèvre supérieure retroussée : le dégoût. Franchement distinct du sourire
+   *  comme de la moue. */
+  'mouthUpperUpLeft',
+  'mouthUpperUpRight',
+  /** Plissement des joues — le marqueur de Duchenne, qui sépare un vrai
+   *  sourire d'un sourire poli. Axe réellement indépendant de mouthSmile. */
+  'cheekSquintLeft',
+  'cheekSquintRight',
+  /** Rictus en coin. Seul axe franchement ASYMÉTRIQUE du jeu : toutes les
+   *  autres clés sont des paires employées symétriquement. */
+  'mouthDimpleLeft',
+  'mouthDimpleRight',
 ] as const
+
+/** Nombre de clés v1. Une baseline écrite avant v4 a exactement cette taille ;
+ *  ses valeurs restent valides puisque le préfixe n'a pas bougé. */
+export const FACE_KEYS_V1 = 23
 
 export const FACE_DIMS = FACE_KEYS.length
 export const HAND_DIMS = 42 // 21 points × (x, y), z volontairement absent
