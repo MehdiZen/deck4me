@@ -96,10 +96,23 @@ import { StoreService, effectiveThreshold, type StoredGesture } from '../service
           <div class="cardhead">
             <h2>Distances</h2>
             <span class="lbl legend">
-              gradué par seuil · trait plein = seuil · pointillé = relâche (×{{ HYSTERESIS }})
+              glisse le trait pour régler · double-clic = auto · pointillé =
+              relâche (×{{ HYSTERESIS }})
             </span>
           </div>
-          <canvas #bars></canvas>
+          <!-- mouseup et mouseleave sur la fenêtre : relâcher hors de la toile
+               doit terminer le geste, sinon le glissement reste collé au
+               curseur après coup. -->
+          <canvas
+            #bars
+            [class.grabbing]="!!drag()"
+            [class.grab]="!drag() && !!hover()"
+            (mousedown)="onBarsDown($event)"
+            (mousemove)="onBarsMove($event)"
+            (mouseleave)="hover.set(null)"
+            (dblclick)="onBarsDbl($event)"
+            (window:mouseup)="onBarsUp()"
+          ></canvas>
         </div>
 
         <!-- Repliable, et replié par défaut : régler la sensibilité est une
@@ -215,6 +228,10 @@ import { StoreService, effectiveThreshold, type StoredGesture } from '../service
     .hint { max-width: 64ch; margin-bottom: 14px; }
 
     canvas { display: block; width: 100%; }
+    /* Le curseur est la seule affordance possible sur une toile : il doit dire
+       « ça s'attrape » avant qu'on essaie. */
+    canvas.grab { cursor: ew-resize; }
+    canvas.grabbing { cursor: grabbing; user-select: none; }
     .empty { color: var(--ink-3); font-size: 13px; }
 
     .log-panel { max-height: 320px; display: flex; flex-direction: column; }
@@ -297,6 +314,78 @@ export class LivePage implements AfterViewInit, OnDestroy {
 
   /** Filtre du panneau de sensibilité. */
   q = signal('')
+
+  // ---- Réglage de la sensibilité À MÊME le graphe ----
+  //
+  // Le trait de seuil EST le réglage. Un curseur séparé, plus bas, obligeait à
+  // faire l'aller-retour entre la barre qu'on regarde et la commande qu'on
+  // manipule, en tenant de tête la correspondance entre un pourcentage et une
+  // position. Ici on attrape la chose elle-même.
+  //
+  // Le panneau « Sensibilité » est conservé, replié : il reste le seul chemin
+  // accessible au clavier, qu'une toile ne peut pas offrir.
+
+  /** Zones cliquables reconstruites à chaque tracé — la toile n'a pas de DOM. */
+  private hit: { gestureId: string; auto: number; top: number; x: number }[] = []
+  private readonly ROW = 66
+  /** Tolérance de préhension autour du trait. */
+  private readonly GRAB = 9
+
+  protected hover = signal<string | null>(null)
+  protected drag = signal<{ gestureId: string; auto: number } | null>(null)
+
+  private rowAt(ev: MouseEvent): { gestureId: string; auto: number; x: number; near: boolean } | null {
+    const canvas = this.barsRef?.nativeElement
+    if (!canvas) return null
+    const r = canvas.getBoundingClientRect()
+    const x = ev.clientX - r.left
+    const y = ev.clientY - r.top
+    const row = this.hit.find((h) => y >= h.top && y < h.top + this.ROW)
+    if (!row) return null
+    return { gestureId: row.gestureId, auto: row.auto, x, near: Math.abs(x - row.x) <= this.GRAB }
+  }
+
+  onBarsMove(ev: MouseEvent): void {
+    const d = this.drag()
+    if (d) {
+      // Le x se lit sur la toile, PAS via rowAt : sortir de la ligne
+      // verticalement pendant qu'on glisse est normal, et ça ne doit pas
+      // renvoyer « aucune ligne » donc x = 0, donc sensibilité au minimum.
+      const rect = this.barsRef!.nativeElement.getBoundingClientRect()
+      const x = ev.clientX - rect.left
+      // Position → sensibilité, bornée à la même plage que l'ancien curseur.
+      const sens = Math.min(3, Math.max(0.4, (x / Math.max(1, rect.width)) * 3))
+      // En mémoire seulement pendant le glissement : écrire sur le disque à
+      // chaque pixel ferait des centaines d'écritures par réglage.
+      this.store.setSensitivityLocal(d.gestureId, sens)
+      return
+    }
+    const r = this.rowAt(ev)
+    this.hover.set(r?.near ? r.gestureId : null)
+  }
+
+  onBarsDown(ev: MouseEvent): void {
+    const r = this.rowAt(ev)
+    if (!r?.near) return
+    ev.preventDefault()
+    this.drag.set({ gestureId: r.gestureId, auto: r.auto })
+  }
+
+  /** Fin de geste : c'est là, et seulement là, qu'on écrit. */
+  onBarsUp(): void {
+    const d = this.drag()
+    if (!d) return
+    this.drag.set(null)
+    void this.store.persistGesture(d.gestureId)
+  }
+
+  /** Double-clic sur la poignée : retour au seuil calculé par le wizard. */
+  onBarsDbl(ev: MouseEvent): void {
+    const r = this.rowAt(ev)
+    if (!r?.near) return
+    this.store.setSensitivityLocal(r.gestureId, 1)
+    void this.store.persistGesture(r.gestureId)
+  }
 
   /** Panneau replié par défaut. L'état survit à la navigation : quelqu'un en
    *  train de régler ses poses ne doit pas le rouvrir à chaque aller-retour.
@@ -420,8 +509,8 @@ export class LivePage implements AfterViewInit, OnDestroy {
     const canvas = this.barsRef?.nativeElement
     if (!canvas) return
     const snaps = this.matcher.lastSnapshots
-    const ROW = 66
-    const BAR_H = 12
+    const ROW = this.ROW // une seule source : le tracé et la préhension doivent
+    const BAR_H = 12 //     s'accorder au pixel près, sinon on clique à côté
     const cssW = canvas.clientWidth || 480
     const cssH = Math.max(1, snaps.length) * ROW + 10
     const dpr = window.devicePixelRatio || 1
@@ -459,20 +548,32 @@ export class LivePage implements AfterViewInit, OnDestroy {
       return
     }
 
-    // Chaque ligne est graduée en MULTIPLES DE SON PROPRE SEUIL, pas en
-    // distance absolue. Le trait de seuil tombe donc toujours au même x, sur
-    // toutes les lignes : il forme une colonne fixe, et la seule question qui
-    // compte — « ma barre a-t-elle passé le trait ? » — se lit d'un coup d'œil.
+    // Échelle PAR LIGNE, fondée sur le seuil AUTO de la gesture.
     //
-    // L'échelle commune adaptative d'avant recalculait le facteur à partir de
-    // la plus grande distance affichée : dès qu'une pose s'éloignait, TOUS les
-    // traits de seuil glissaient à l'écran alors qu'aucune valeur n'avait
-    // changé. Une référence qui bouge n'est pas une référence.
+    // Trois exigences qui semblaient s'exclure :
+    //   1. le trait de seuil ne doit pas bouger tout seul ;
+    //   2. il doit bouger quand on règle la sensibilité — c'est CE qu'on règle ;
+    //   3. on doit pouvoir l'attraper à la souris.
     //
-    // Ce qu'on perd : comparer deux distances absolues entre lignes. Ça n'avait
-    // aucun sens, chaque gesture ayant son propre seuil.
-    const T_X = cssW * 0.42 // ratio 1.0 — le seuil
-    const MAX_RATIO = cssW / T_X
+    // La faute d'origine n'était pas « échelle absolue » mais « échelle PARTAGÉE
+    // et recalculée à chaque frame sur les distances vivantes » : une pose qui
+    // s'éloignait faisait glisser les traits de toutes les autres. En prenant
+    // `thresholdAuto × SPAN` comme pleine largeur, l'échelle ne dépend plus
+    // d'aucune mesure — `thresholdAuto` ne change qu'au réenregistrement.
+    //
+    // Le trait tombe alors en `sensibilité / SPAN` de la largeur : il ne dépend
+    // QUE de la sensibilité. Conséquence heureuse — toutes les gestures laissées
+    // en automatique (sensibilité = 1) alignent leur trait au tiers, ce qui
+    // reconstitue la colonne de référence, et seules celles qu'on a retouchées
+    // s'en écartent visiblement.
+    const SPAN = 3 // pleine largeur = 3 × seuil auto, couvre la plage 0,4–3
+    // Reconstruites à chaque tracé : une gesture supprimée ne doit pas laisser
+    // derrière elle une zone cliquable qui règle un fantôme.
+    this.hit = []
+    const autoOf = (id: string) => {
+      const g = this.store.gestures().find((x) => x.id === id)
+      return g ? (g.thresholdAuto ?? g.threshold) : null
+    }
 
     snaps.forEach((s, i) => {
       const y = i * ROW + 8
@@ -501,12 +602,19 @@ export class LivePage implements AfterViewInit, OnDestroy {
       ctx.fillText(s.dist === null ? '—' : s.dist.toFixed(3), cssW, y + 9)
       ctx.textAlign = 'left'
 
+      // Pleine largeur = seuil auto × SPAN. Sans seuil auto connu (gesture tout
+      // juste supprimée), on retombe sur le seuil effectif : jamais de division
+      // par zéro, jamais de barre qui disparaît.
+      const auto = autoOf(s.gestureId) ?? s.threshold ?? 1
+      const full = (auto || 1) * SPAN
+      const T_X = Math.min(cssW - 2, (s.threshold / full) * cssW)
+      this.hit[i] = { gestureId: s.gestureId, auto: auto || 1, top: y, x: T_X }
+
       const barY = y + 18
       ctx.fillStyle = track
       this.bar(ctx, 0, barY, cssW, BAR_H)
       if (s.dist !== null) {
-        const ratio = Math.min(MAX_RATIO, s.dist / (s.threshold || 1))
-        const w = Math.max(3, ratio * T_X)
+        const w = Math.max(3, Math.min(cssW, (s.dist / full) * cssW))
         // Une gesture qui déclenche mérite d'être vue du coin de l'œil :
         // c'est le seul moment où la toile s'autorise une lueur.
         if (active) {
@@ -521,10 +629,12 @@ export class LivePage implements AfterViewInit, OnDestroy {
         ctx.shadowBlur = 0
       }
 
-      // Repères FIXES : seuil (plein) et sortie d'hystérésis (pointillé).
-      // Leur position ne dépend plus d'aucune valeur mesurée.
-      ctx.fillStyle = ink2
-      ctx.fillRect(T_X, barY - 4, 1.5, BAR_H + 8)
+      // Poignée de seuil. Elle ne bouge que si on la bouge — ou si on
+      // réenregistre la pose. Épaissie au survol pour dire qu'elle s'attrape.
+      const grabbed = this.drag()?.gestureId === s.gestureId
+      const hot = grabbed || this.hover() === s.gestureId
+      ctx.fillStyle = hot ? color : ink2
+      ctx.fillRect(T_X - (hot ? 1 : 0), barY - 7, hot ? 3 : 1.5, BAR_H + 14)
       ctx.strokeStyle = ink3
       ctx.lineWidth = 1
       ctx.setLineDash([2, 3])
@@ -534,6 +644,23 @@ export class LivePage implements AfterViewInit, OnDestroy {
       ctx.lineTo(hx, barY + BAR_H + 4)
       ctx.stroke()
       ctx.setLineDash([])
+
+      // Pendant le glissement : le pourcentage et le seuil obtenu, au-dessus du
+      // curseur. C'est le chiffre qu'affichait l'ancien curseur, rendu là où
+      // l'œil est déjà.
+      if (grabbed) {
+        const sens = s.threshold / (auto || 1)
+        const label = `${(sens * 100).toFixed(0)}%  ·  ${s.threshold.toFixed(3)}`
+        ctx.font = dataFont
+        const tw = ctx.measureText(label).width + 14
+        const bx = Math.max(0, Math.min(cssW - tw, T_X - tw / 2))
+        ctx.fillStyle = panel
+        this.bar(ctx, bx, barY - 30, tw, 20)
+        ctx.fillStyle = ink
+        ctx.textAlign = 'center'
+        ctx.fillText(label, bx + tw / 2, barY - 16)
+        ctx.textAlign = 'left'
+      }
 
       // Détail par partie. Comparer un bloc seul au seuil est une heuristique
       // (le seuil porte sur la moyenne) mais c'est ce qui se lit le mieux :

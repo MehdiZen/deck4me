@@ -212,6 +212,25 @@ export class StoreService {
     return c ? c.negativesRaw.map((r) => featurizeRaw(r, b)) : []
   })
 
+  /**
+   * Mémo de featurisation, indexé par le TABLEAU de frames brutes.
+   *
+   * Régler la sensibilité au curseur produit `{ ...g, sensitivity }` : l'objet
+   * gesture change à chaque pixel, mais `rawSamples` garde la même référence.
+   * Sans ce cache, chaque mouvement de souris re-featurisait tous les samples
+   * de toutes les gestures — un travail inutile qui dispute le processeur à la
+   * boucle de détection, précisément pendant qu'on la regarde réagir.
+   */
+  private featCache = new WeakMap<RawFrame[], { baseline: Float32Array | null; blocks: FeatureBlocks[] }>()
+
+  private featurizeSamples(raws: RawFrame[], baseline: Float32Array | null): FeatureBlocks[] {
+    const hit = this.featCache.get(raws)
+    if (hit && hit.baseline === baseline) return hit.blocks
+    const blocks = raws.map((r) => featurizeRaw(r, baseline))
+    this.featCache.set(raws, { baseline, blocks })
+    return blocks
+  }
+
   /** Gestures prêtes pour le Matcher : re-featurisées depuis les frames brutes
    *  avec la baseline COURANTE. Le champ `samples` persisté n'est qu'un cache :
    *  changer de baseline ou de FEATURIZER_VERSION ne casse jamais rien. */
@@ -220,7 +239,7 @@ export class StoreService {
     return this.gestures().map((g) => ({
       ...g,
       samples: g.rawSamples.length
-        ? g.rawSamples.map((r) => featurizeRaw(r, b))
+        ? this.featurizeSamples(g.rawSamples, b)
         : g.samples.map(blocksFromJson),
       threshold: effectiveThreshold(g),
       featurizerVersion: FEATURIZER_VERSION,
