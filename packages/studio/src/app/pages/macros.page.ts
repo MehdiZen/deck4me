@@ -10,6 +10,7 @@ import {
   MACRO_DEFAULT_WINDOW_MS,
   MACRO_MAX_STEPS,
   MACRO_MIN_STEPS,
+  describeAction,
   type MacroDef,
 } from '@meme4me/core'
 import { ActionList } from '../components/action-list'
@@ -126,9 +127,38 @@ import {
       </div>
     }
 
+    <!-- Filtre : au-delà de quelques macros, retrouver la bonne à l'œil coûte
+         plus cher que de taper trois lettres. Il cherche aussi dans les noms de
+         poses et d'actions — on se souvient souvent de ce que la macro FAIT
+         plutôt que du nom qu'on lui a donné. -->
+    @if (store.macros().length > 3) {
+      <div class="filter">
+        <app-icon name="target" [size]="15" />
+        <input
+          [value]="q()"
+          (input)="q.set($any($event.target).value)"
+          placeholder="Filtrer par nom, pose ou action…"
+          aria-label="Filtrer les macros"
+        />
+        @if (q()) {
+          <button class="ghost sm" (click)="q.set('')" aria-label="Effacer le filtre">
+            <app-icon name="close" [size]="14" />
+          </button>
+        }
+        <span class="spacer"></span>
+        <button class="ghost sm" (click)="toggleAll()">
+          {{ allOpen() ? 'Tout replier' : 'Tout déplier' }}
+        </button>
+      </div>
+    }
+
+    @if (store.macros().length && !visible().length) {
+      <p class="lbl none">Aucune macro ne correspond à « {{ q() }} ».</p>
+    }
+
     <div class="list">
-      @for (m of store.macros(); track m.id) {
-        <article class="card mac" [class.off]="!m.enabled">
+      @for (m of visible(); track m.id) {
+        <article class="card mac" [class.off]="!m.enabled" [class.folded]="!isOpen(m.id)">
           <div class="top">
             <label class="switch">
               <input
@@ -138,13 +168,47 @@ import {
                 [attr.aria-label]="'Activer ' + m.name"
               />
             </label>
-            <input
-              class="nm"
-              [value]="m.name"
-              (change)="rename(m, $any($event.target).value)"
-              [attr.aria-label]="'Nom de ' + m.name"
-            />
+            @if (isOpen(m.id)) {
+              <input
+                class="nm"
+                [value]="m.name"
+                (change)="rename(m, $any($event.target).value)"
+                [attr.aria-label]="'Nom de ' + m.name"
+              />
+            } @else {
+              <!-- Replié, le nom est un bouton : cliquer sur la ligne déplie,
+                   ce qui est le geste attendu. Un champ de saisie y volerait le
+                   clic pour une édition que personne ne demandait. -->
+              <button class="nmbtn" (click)="toggleOpen(m.id)">{{ m.name }}</button>
+              <span class="sum">
+                @for (s of m.steps; track $index) {
+                  @if (!$first) {
+                    <span class="arrow" aria-hidden="true">›</span>
+                  }
+                  <span class="chip" [class.lit]="(progressOf(m.id) ?? 0) > $index">
+                    {{ shortName(s) }}
+                  </span>
+                }
+              </span>
+            }
             <span class="spacer"></span>
+            @if (!isOpen(m.id)) {
+              <!-- Ce que la macro fait, en deux pastilles : c'est l'information
+                   qu'on cherche en parcourant la liste. -->
+              @if (asset(m.id)) {
+                <span class="badge" title="Cette macro affiche un meme">
+                  <app-icon name="image" [size]="12" /> meme
+                </span>
+              }
+              @if (store.actionsOf(m.id).length; as n) {
+                <span class="badge" [title]="actionSummary(m.id)">
+                  <app-icon name="terminal" [size]="12" /> {{ n }}
+                </span>
+              }
+              @if (warning(m)) {
+                <span class="badge warn" [title]="warning(m) ?? ''">!</span>
+              }
+            }
             @if (progressOf(m.id); as p) {
               <span class="badge ok"><i class="led on"></i>{{ p }}/{{ m.steps.length }} en cours</span>
             }
@@ -155,11 +219,20 @@ import {
             >
               <app-icon name="zap" [size]="14" /> Tester
             </button>
+            <button
+              class="ghost sm"
+              (click)="toggleOpen(m.id)"
+              [attr.aria-expanded]="isOpen(m.id)"
+              [attr.aria-label]="(isOpen(m.id) ? 'Replier ' : 'Déplier ') + m.name"
+            >
+              <app-icon [name]="isOpen(m.id) ? 'up' : 'down'" [size]="15" />
+            </button>
             <button class="ghost sm" (click)="remove(m)" [attr.aria-label]="'Supprimer ' + m.name">
               <app-icon name="trash" [size]="15" />
             </button>
           </div>
 
+          @if (isOpen(m.id)) {
           <!-- Enchaînement -->
           <div class="chain">
             @for (step of m.steps; track $index) {
@@ -176,14 +249,14 @@ import {
                   @if (store.linkGestures().length) {
                     <optgroup label="Maillons">
                       @for (g of store.linkGestures(); track g.id) {
-                        <option [value]="g.id">{{ g.name }}</option>
+                        <option [value]="g.id" [selected]="g.id === step">{{ g.name }}</option>
                       }
                     </optgroup>
                   }
                   @if (store.memeGestures().length) {
                     <optgroup label="Poses à meme">
                       @for (g of store.memeGestures(); track g.id) {
-                        <option [value]="g.id">{{ g.name }}</option>
+                        <option [value]="g.id" [selected]="g.id === step">{{ g.name }}</option>
                       }
                     </optgroup>
                   }
@@ -247,6 +320,7 @@ import {
 
           @if (warning(m); as w) {
             <p class="badge warn block">{{ w }}</p>
+          }
           }
         </article>
       }
@@ -322,11 +396,51 @@ import {
     .empty b { display: block; margin-bottom: 7px; font-weight: 620; font-size: 15px; }
     .empty .lbl { max-width: 54ch; margin: 0 auto; }
 
+    /* Barre de filtre — discrète, elle ne doit pas peser autant qu'une carte. */
+    .filter {
+      display: flex; align-items: center; gap: 9px;
+      padding: 7px 12px; margin-bottom: 14px;
+      border-radius: var(--r-control);
+      background: var(--void); border: 1px solid var(--line-soft);
+    }
+    .filter app-icon { color: var(--ink-3); }
+    .filter input {
+      flex: 1; min-width: 0;
+      background: none; border-color: transparent; padding: 4px 2px;
+      font-size: 13px;
+    }
+    .none { margin: 0 0 14px; text-transform: none; letter-spacing: 0; }
+
     .list { display: flex; flex-direction: column; gap: 14px; }
     .mac { padding: 15px 17px; }
     .mac.off { opacity: 0.55; }
+    /* Repliée, la carte tient sur une ligne : c'est l'état par défaut, donc
+       celui qui doit être le plus compact. La liste redevient parcourable. */
+    .mac.folded { padding: 9px 12px 9px 15px; }
+    .list { gap: 14px; }
+    .mac.folded + .mac.folded { margin-top: -8px; }
 
     .top { display: flex; align-items: center; gap: 11px; margin-bottom: 14px; }
+    .mac.folded .top { margin-bottom: 0; }
+
+    .nmbtn {
+      flex: none; max-width: 220px;
+      background: none; border: none; padding: 5px 4px;
+      color: var(--ink); font-size: 14px; font-weight: 600; letter-spacing: -0.01em;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .nmbtn:hover { color: var(--accent-hi); }
+
+    /* Résumé de l'enchaînement en vue repliée. */
+    .sum { display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; }
+    .sum .chip {
+      padding: 3px 8px; border-radius: 6px; flex: none;
+      background: var(--panel-3); color: var(--ink-2);
+      font-size: 11px; max-width: 130px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .sum .chip.lit { background: #17a26822; color: var(--st-armed); }
+    .sum .arrow { font-size: 14px; }
     .nm {
       font-weight: 600; font-size: 14.5px; letter-spacing: -0.01em;
       background: none; border-color: transparent; padding: 5px 8px; max-width: 280px;
@@ -393,6 +507,75 @@ export class MacrosPage implements OnDestroy {
   protected readonly MAX = MACRO_MAX_STEPS
 
   protected readonly RECORD = '__record'
+
+  /**
+   * Macros dépliées. Repliées par défaut : une carte ouverte fait trois cents
+   * pixels, et on passe l'essentiel de son temps à PARCOURIR la liste, pas à
+   * régler une macro précise. La ligne repliée porte donc ce qu'on cherche en
+   * parcourant — l'enchaînement, s'il y a un meme, combien d'actions.
+   *
+   * L'état n'est pas persisté : il est juste de la session en cours, et une
+   * macro qu'on vient de créer s'ouvre d'elle-même.
+   */
+  private opened = signal(new Set<string>())
+  /** Filtre libre — nom, poses ou actions. */
+  q = signal('')
+
+  readonly visible = computed(() => {
+    const needle = this.q().trim().toLowerCase()
+    if (!needle) return this.store.macros()
+    return this.store.macros().filter((m) => this.haystack(m).includes(needle))
+  })
+
+  readonly allOpen = computed(() => {
+    const list = this.visible()
+    return list.length > 0 && list.every((m) => this.opened().has(m.id))
+  })
+
+  /** Nom, noms des poses, étiquettes des actions : on se souvient plus souvent
+   *  de ce qu'une macro FAIT que du nom qu'on lui a donné. */
+  private haystack(m: MacroDef): string {
+    const steps = m.steps.map((s) => this.shortName(s)).join(' ')
+    const actions = this.store
+      .actionsOf(m.id)
+      .map((a) => describeAction(a))
+      .join(' ')
+    return `${m.name} ${steps} ${actions}`.toLowerCase()
+  }
+
+  isOpen(id: string): boolean {
+    return this.opened().has(id)
+  }
+
+  toggleOpen(id: string): void {
+    this.opened.update((s) => {
+      const next = new Set(s)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
+  }
+
+  private open(id: string): void {
+    this.opened.update((s) => new Set(s).add(id))
+  }
+
+  toggleAll(): void {
+    const close = this.allOpen()
+    this.opened.set(close ? new Set() : new Set(this.visible().map((m) => m.id)))
+  }
+
+  /** Nom de la pose d'un maillon, ou un repère lisible si elle a disparu. */
+  shortName(gestureId: string): string {
+    return this.store.gestures().find((g) => g.id === gestureId)?.name ?? '— manquante —'
+  }
+
+  /** Résumé des actions, pour l'infobulle de la pastille en vue repliée. */
+  actionSummary(macroId: string): string {
+    return this.store
+      .actionsOf(macroId)
+      .map((a) => describeAction(a))
+      .join('\n')
+  }
 
   editing = signal<{ gesture: StoredGesture; binding: StoredBinding } | null>(null)
   /** Enregistrement en cours : soit tout un enchaînement, soit un seul maillon
@@ -463,14 +646,18 @@ export class MacrosPage implements OnDestroy {
         ? free.slice(0, MACRO_MAX_STEPS).map((g) => g.id)
         : [...free, ...rest].slice(0, MACRO_MIN_STEPS).map((g) => g.id)
     if (steps.length < MACRO_MIN_STEPS) return
+    const id = crypto.randomUUID()
     await this.store.saveMacro({
-      id: crypto.randomUUID(),
+      id,
       profileId: this.store.activeProfile()?.id ?? 'default',
       name: this.defaultName(free.length >= MACRO_MIN_STEPS ? free[0]!.name : null),
       enabled: true,
       steps,
       windowMs: MACRO_DEFAULT_WINDOW_MS,
     })
+    // Une macro qu'on vient de créer s'ouvre : on la crée pour la régler.
+    this.open(id)
+    this.q.set('')
   }
 
   /**
@@ -501,14 +688,17 @@ export class MacrosPage implements OnDestroy {
     // Les maillons s'appellent « <nom> ① » : on retire le chiffre cerclé pour
     // retrouver le nom que l'utilisateur a réellement tapé.
     const name = (first?.name ?? 'Enchaînement').replace(/\s*[①②③④]\s*$/, '')
+    const id = crypto.randomUUID()
     await this.store.saveMacro({
-      id: crypto.randomUUID(),
+      id,
       profileId: this.store.activeProfile()?.id ?? 'default',
       name,
       enabled: true,
       steps: ids,
       windowMs: MACRO_DEFAULT_WINDOW_MS,
     })
+    this.open(id)
+    this.q.set('')
   }
 
   /** Un maillon enregistré seul vient prendre sa place dans la macro visée.

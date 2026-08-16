@@ -115,7 +115,9 @@ interface OverlayStats {
     <div class="card">
       <div class="cardhead">
         <h2>État des gestures</h2>
+        <span class="lbl legend">{{ rows().length }} pose(s)</span>
       </div>
+      <div class="scroller">
       <table>
         <thead>
           <tr>
@@ -153,6 +155,7 @@ interface OverlayStats {
           }
         </tbody>
       </table>
+      </div>
     </div>
 
     <!-- Environnement -->
@@ -221,7 +224,15 @@ interface OverlayStats {
 
     canvas { display: block; width: 100%; }
 
+    /* Le tableau grandit avec le nombre de poses. Plafonné et défilant en
+       interne, avec l'en-tête collé : sinon on scrolle la page entière et on
+       perd de vue le nom des colonnes au moment où on en a besoin. */
+    .scroller { max-height: 52vh; overflow-y: auto; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead th {
+      position: sticky; top: 0; z-index: 1;
+      background: var(--panel); backdrop-filter: blur(6px);
+    }
     th {
       text-align: left; font-size: 10.5px; font-weight: 600; letter-spacing: 0.08em;
       text-transform: uppercase; color: var(--ink-3);

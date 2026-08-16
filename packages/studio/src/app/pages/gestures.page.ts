@@ -69,7 +69,28 @@ import {
         <app-icon name="zap" [size]="15" /> Maillons de macro
         <span class="cnt">{{ store.linkGestures().length }}</span>
       </button>
+
+      @if (store.gestures().length > 6) {
+        <span class="filter">
+          <app-icon name="target" [size]="14" />
+          <input
+            [value]="q()"
+            (input)="q.set($any($event.target).value)"
+            placeholder="Filtrer…"
+            aria-label="Filtrer les poses"
+          />
+          @if (q()) {
+            <button class="ghost sm" (click)="q.set('')" aria-label="Effacer le filtre">
+              <app-icon name="close" [size]="13" />
+            </button>
+          }
+        </span>
+      }
     </div>
+
+    @if (q() && !list().length && store.gestures().length) {
+      <p class="lbl none">Aucune pose ne correspond à « {{ q() }} » dans cet onglet.</p>
+    }
 
     @if (!store.calibration() && store.loaded()) {
       <div class="notice warn rise">
@@ -328,10 +349,22 @@ import {
     /* Sélecteur de famille. Le compteur fait partie de l'onglet : c'est le
        nombre de poses qui plafonne tout le reste, autant l'avoir sous les yeux. */
     .tabs {
-      display: inline-flex; gap: 3px; margin-bottom: 18px;
+      display: flex; align-items: center; gap: 3px; margin-bottom: 18px;
       padding: 3px; border-radius: 11px;
       background: var(--void); border: 1px solid var(--line-soft);
     }
+    .filter {
+      display: flex; align-items: center; gap: 7px;
+      flex: 1; min-width: 0; margin-left: 8px; padding-left: 10px;
+      border-left: 1px solid var(--line-soft);
+    }
+    .filter app-icon { color: var(--ink-3); }
+    .filter input {
+      flex: 1; min-width: 0; max-width: 280px;
+      background: none; border-color: transparent;
+      padding: 5px 2px; font-size: 12.5px;
+    }
+    .none { margin: -6px 0 16px; text-transform: none; letter-spacing: 0; }
     .tab {
       display: inline-flex; align-items: center; gap: 8px;
       padding: 8px 14px; border-radius: 8px;
@@ -476,13 +509,18 @@ export class GesturesPage {
    *  une pose à meme affiche quelque chose, un maillon arme un enchaînement. */
   tab = signal<'meme' | 'link'>('meme')
 
+  /** Filtre libre sur le nom. */
+  q = signal('')
+
   readonly isLink = computed(() => this.tab() === 'link')
-  readonly list = computed(() =>
-    this.isLink() ? this.store.linkGestures() : this.store.memeGestures(),
-  )
+  readonly list = computed(() => {
+    const src = this.isLink() ? this.store.linkGestures() : this.store.memeGestures()
+    const needle = this.q().trim().toLowerCase()
+    return needle ? src.filter((g) => g.name.toLowerCase().includes(needle)) : src
+  })
   /** La grille des cartes à meme ne rend rien sur l'onglet Maillons — ceux-ci
    *  ont leur propre gabarit, sans cadre OBS. */
-  readonly memeList = computed(() => (this.isLink() ? [] : this.store.memeGestures()))
+  readonly memeList = computed(() => (this.isLink() ? [] : this.list()))
 
   /** Le wizard hérite de l'onglet : enregistrer depuis « Maillons » produit
    *  directement une pose de maillon, sans case à cocher à retrouver après coup.

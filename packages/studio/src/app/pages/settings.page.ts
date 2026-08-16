@@ -32,8 +32,14 @@ import { StoreService } from '../services/store.service'
             @if (!detection.cameras().length) {
               <option value="">— clique Détecter —</option>
             }
+            <!-- [selected] : la valeur du select est posée avant que @for ait
+                 créé les options, sans quoi l'écran annonce la première caméra
+                 alors que la détection en utilise une autre. -->
             @for (cam of detection.cameras(); track cam.deviceId) {
-              <option [value]="cam.deviceId">
+              <option
+                [value]="cam.deviceId"
+                [selected]="cam.deviceId === detection.selectedCameraId()"
+              >
                 {{ cam.label || 'Caméra ' + ($index + 1) }}
               </option>
             }

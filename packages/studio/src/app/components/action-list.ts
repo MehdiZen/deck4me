@@ -224,7 +224,7 @@ import { Icon } from './icon'
                           (change)="patch(a, { method: $any($event.target).value })"
                         >
                           @for (m of METHODS; track m) {
-                            <option [value]="m">{{ m }}</option>
+                            <option [value]="m" [selected]="m === a.method">{{ m }}</option>
                           }
                         </select>
                       </label>

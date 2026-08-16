@@ -54,8 +54,13 @@ import { VcamService } from '../services/vcam.service'
           @if (!vcam.devices().length) {
             <option value="-1">— aucune caméra détectée —</option>
           }
+          <!-- [selected] indispensable : la valeur du select est posée avant que
+               @for ait créé les options. Ici l'enjeu n'est pas cosmétique — on
+               republierait la mauvaise webcam en croyant lire la bonne. -->
           @for (d of vcam.devices(); track d.index) {
-            <option [value]="d.index">{{ d.name }}</option>
+            <option [value]="d.index" [selected]="d.index === vcam.selected()">
+              {{ d.name }}
+            </option>
           }
         </select>
         <button [disabled]="vcam.busy()" (click)="vcam.refresh()">Actualiser</button>
@@ -71,7 +76,10 @@ import { VcamService } from '../services/vcam.service'
         >
           <option value="">Automatique</option>
           @for (f of vcam.formats(); track f.width + 'x' + f.height) {
-            <option [value]="f.width + 'x' + f.height + '@' + f.fps">
+            <option
+              [value]="f.width + 'x' + f.height + '@' + f.fps"
+              [selected]="f.width + 'x' + f.height + '@' + f.fps === vcam.formatKey()"
+            >
               {{ f.width }}×{{ f.height }} · {{ f.fps }} fps
             </option>
           }

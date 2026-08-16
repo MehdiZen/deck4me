@@ -47,8 +47,12 @@ import { VcamService } from './services/vcam.service'
                 (change)="switchProfile($event)"
                 aria-label="Profil actif"
               >
+                <!-- [selected] sur l'option, pas seulement [value] sur le
+                     select : la valeur du select est posée AVANT que @for ait
+                     créé les options, elle ne correspond donc à rien et
+                     l'affichage retombe sur la première entrée. -->
                 @for (p of store.profiles(); track p.id) {
-                  <option [value]="p.id">{{ p.name }}</option>
+                  <option [value]="p.id" [selected]="p.isActive">{{ p.name }}</option>
                 }
               </select>
             </label>

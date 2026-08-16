@@ -102,15 +102,42 @@ import { StoreService, effectiveThreshold, type StoredGesture } from '../service
           <canvas #bars></canvas>
         </div>
 
+        <!-- Repliable, et replié par défaut : régler la sensibilité est une
+             activité de préparation, pas de direct. Déplié, ce panneau fait la
+             hauteur du nombre de poses et repousse tout le reste hors écran. -->
         <div class="card">
-          <div class="cardhead">
+          <button class="cardhead fold" (click)="toggleSens()" [attr.aria-expanded]="sensOpen()">
             <h2>Sensibilité</h2>
-          </div>
+            <span class="cnt num">{{ store.gestures().length }}</span>
+            <span class="spacer"></span>
+            @if (tuned(); as n) {
+              <span class="badge" [title]="n + ' pose(s) réglée(s) à la main'">{{ n }} réglée(s)</span>
+            }
+            <app-icon [name]="sensOpen() ? 'up' : 'down'" [size]="16" />
+          </button>
+
+          @if (sensOpen()) {
           <p class="lbl hint">
             Vers la droite, la pose déclenche plus facilement — et les faux positifs
             arrivent plus vite. Prends la pose, regarde où s'arrête la barre, puis
             amène le seuil juste au-delà.
           </p>
+          @if (store.gestures().length > 6) {
+            <div class="filter">
+              <app-icon name="target" [size]="14" />
+              <input
+                [value]="q()"
+                (input)="q.set($any($event.target).value)"
+                placeholder="Filtrer les poses…"
+                aria-label="Filtrer les poses"
+              />
+              @if (q()) {
+                <button class="ghost sm" (click)="q.set('')" aria-label="Effacer">
+                  <app-icon name="close" [size]="13" />
+                </button>
+              }
+            </div>
+          }
           @if (!store.gestures().length) {
             <p class="empty">Aucune gesture enregistrée pour l'instant.</p>
           }
@@ -121,7 +148,7 @@ import { StoreService, effectiveThreshold, type StoredGesture } from '../service
           <div class="sens">
             @for (grp of groups(); track grp.key) {
               @if (grp.rows.length) {
-                @if (showGroupTitles()) {
+                @if (showGroupTitles() && !q()) {
                   <p class="grp lbl">{{ grp.title }}</p>
                 }
                 @for (g of grp.rows; track g.id) {
@@ -151,6 +178,7 @@ import { StoreService, effectiveThreshold, type StoredGesture } from '../service
               }
             }
           </div>
+          }
         </div>
       </div>
     </div>
@@ -205,7 +233,38 @@ import { StoreService, effectiveThreshold, type StoredGesture } from '../service
     .log li.failed .nm, .log li.failed .kind { color: var(--st-live); }
     .log .led.bad { background: var(--st-live); box-shadow: 0 0 8px var(--st-live); }
 
-    .sens { display: flex; flex-direction: column; gap: 2px; }
+    /* En-tête cliquable : toute la ligne est la cible, pas seulement la flèche. */
+    .fold {
+      display: flex; align-items: center; gap: 9px; width: 100%;
+      background: none; border: none; padding: 0; text-align: left;
+    }
+    .fold h2 { margin: 0; }
+    .fold app-icon { color: var(--ink-3); }
+    .fold:hover app-icon { color: var(--ink); }
+    .cnt {
+      padding: 1px 7px; border-radius: 99px;
+      background: var(--panel-3); color: var(--ink-2); font-size: 10.5px;
+    }
+
+    .filter {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 10px; margin-bottom: 8px;
+      border-radius: var(--r-control);
+      background: var(--void); border: 1px solid var(--line-soft);
+    }
+    .filter app-icon { color: var(--ink-3); }
+    .filter input {
+      flex: 1; min-width: 0; background: none; border-color: transparent;
+      padding: 3px 2px; font-size: 12.5px;
+    }
+
+    /* Plafond de hauteur : le panneau défile en interne au lieu de repousser
+       le reste de la page hors de l'écran. */
+    .sens {
+      display: flex; flex-direction: column; gap: 2px;
+      max-height: 46vh; overflow-y: auto;
+      margin-right: -6px; padding-right: 6px;
+    }
     .grp {
       margin: 10px 0 3px; padding: 0 9px;
       border-top: 1px solid var(--line-soft); padding-top: 10px;
@@ -236,10 +295,35 @@ export class LivePage implements AfterViewInit, OnDestroy {
 
   readonly armed = computed(() => this.store.gestures().filter((g) => g.enabled).length)
 
+  /** Filtre du panneau de sensibilité. */
+  q = signal('')
+
+  /** Panneau replié par défaut. L'état survit à la navigation : quelqu'un en
+   *  train de régler ses poses ne doit pas le rouvrir à chaque aller-retour.
+   *  localStorage et pas le store : c'est une préférence d'affichage, pas une
+   *  donnée du profil, et elle n'a rien à faire dans db.json. */
+  sensOpen = signal(localStorage.getItem('m4m.sens') === '1')
+
+  toggleSens(): void {
+    this.sensOpen.update((v) => !v)
+    localStorage.setItem('m4m.sens', this.sensOpen() ? '1' : '0')
+  }
+
+  /** Poses réglées à la main — ce qui mérite d'être signalé panneau fermé :
+   *  un seuil bidouillé et oublié explique beaucoup de comportements bizarres. */
+  readonly tuned = computed(
+    () => this.store.gestures().filter((g) => (g.sensitivity ?? 1) !== 1).length || null,
+  )
+
+  private match(g: StoredGesture): boolean {
+    const needle = this.q().trim().toLowerCase()
+    return !needle || g.name.toLowerCase().includes(needle)
+  }
+
   /** Poses à meme et maillons de macro, groupés et jamais entrelacés. */
   readonly groups = computed(() => [
-    { key: 'meme', title: 'Poses à meme', rows: this.store.memeGestures() },
-    { key: 'link', title: 'Maillons de macro', rows: this.store.linkGestures() },
+    { key: 'meme', title: 'Poses à meme', rows: this.store.memeGestures().filter((g) => this.match(g)) },
+    { key: 'link', title: 'Maillons de macro', rows: this.store.linkGestures().filter((g) => this.match(g)) },
   ])
 
   /** Les titres n'apparaissent que s'il y a bien deux familles à distinguer :
