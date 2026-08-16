@@ -58,8 +58,24 @@ export class DetectionService {
   private waitAcc = 0
   private lastTickEnd = 0
 
-  /** Caméras disponibles + sélection persistée (localStorage). */
   readonly cameras = signal<MediaDeviceInfo[]>([])
+
+  /**
+   * Deux notions distinctes, longtemps confondues en une seule.
+   *
+   * `preferredCameraId` est le choix de L'UTILISATEUR. Il ne change que
+   * lorsqu'il choisit, et il survit à tout le reste.
+   *
+   * `selectedCameraId` est la caméra réellement employée à cet instant. Le
+   * démarrage de la caméra virtuelle la déplace de force — la webcam physique
+   * devient illisible, elle est prise par le pompage —, et une webcam
+   * débranchée fait retomber sur celle par défaut.
+   *
+   * Les mélanger avait une conséquence pénible : lancer la caméra virtuelle
+   * écrasait définitivement le choix, si bien qu'en l'arrêtant on ne savait
+   * plus vers quoi revenir et on repartait sur n'importe quelle caméra.
+   */
+  readonly preferredCameraId = signal<string>(localStorage.getItem('deck4me.cameraId') ?? '')
   readonly selectedCameraId = signal<string>(localStorage.getItem('deck4me.cameraId') ?? '')
 
   /** MediaStream partagé avec les previews (un <video> par vue, même stream). */
@@ -109,20 +125,43 @@ export class DetectionService {
    *  ou par une réinstallation, la base non. */
   onCameraChange: ((deviceId: string) => void) | null = null
 
-  /** Change de caméra, persiste, et redémarre la détection si elle tournait. */
+  /** Choix explicite de l'utilisateur : retenu, et il fait référence. */
   async selectCamera(deviceId: string): Promise<void> {
-    this.selectedCameraId.set(deviceId)
+    this.preferredCameraId.set(deviceId)
     localStorage.setItem('deck4me.cameraId', deviceId)
     this.onCameraChange?.(deviceId)
+    await this.useCamera(deviceId)
+  }
+
+  /**
+   * Bascule imposée par les circonstances, pas demandée par l'utilisateur :
+   * démarrage de la caméra virtuelle, retour ensuite. Rien n'est persisté, la
+   * préférence reste intacte — c'est elle qui dit où revenir.
+   */
+  async useCamera(deviceId: string): Promise<void> {
+    if (deviceId === this.selectedCameraId() && this.running()) return
+    this.selectedCameraId.set(deviceId)
     if (this.running()) {
       this.stop()
       await this.start()
     }
   }
 
+  /** Retour à la caméra choisie par l'utilisateur, si elle est toujours là.
+   *  Sinon on ne force rien : mieux vaut la caméra par défaut qu'une erreur
+   *  d'ouverture sur un périphérique débranché. */
+  async restorePreferred(): Promise<void> {
+    const want = this.preferredCameraId()
+    if (!want) return
+    await this.listCameras()
+    if (!this.cameras().some((c) => c.deviceId === want)) return
+    await this.useCamera(want)
+  }
+
   /** Reprend le choix persisté en base quand le localStorage est vide. */
   adoptSavedCamera(deviceId: string): void {
-    if (deviceId && !this.selectedCameraId()) {
+    if (deviceId && !this.preferredCameraId()) {
+      this.preferredCameraId.set(deviceId)
       this.selectedCameraId.set(deviceId)
       localStorage.setItem('deck4me.cameraId', deviceId)
     }
@@ -174,14 +213,24 @@ export class DetectionService {
         })
       } catch (e) {
         if (!wanted) throw e
-        // caméra sauvegardée débranchée/indisponible → retombe sur la défaut
-        localStorage.removeItem('deck4me.cameraId')
+        // Caméra indisponible — débranchée, ou prise par le pompage de la
+        // caméra virtuelle. On retombe sur celle par défaut pour cette
+        // session, mais on NE TOUCHE PAS à la préférence : la panne est
+        // souvent temporaire, et effacer le choix obligeait à le refaire à
+        // chaque fois.
         this.selectedCameraId.set('')
         this.stream = await navigator.mediaDevices.getUserMedia({ video: base, audio: false })
       }
       // reflète la caméra réellement obtenue + rafraîchit les labels
       const settings = this.stream.getVideoTracks()[0]?.getSettings()
       if (settings?.deviceId) this.selectedCameraId.set(settings.deviceId)
+      // Première utilisation : la caméra obtenue devient la préférence, sinon
+      // on n'aurait aucune référence vers laquelle revenir.
+      if (settings?.deviceId && !this.preferredCameraId()) {
+        this.preferredCameraId.set(settings.deviceId)
+        localStorage.setItem('deck4me.cameraId', settings.deviceId)
+        this.onCameraChange?.(settings.deviceId)
+      }
       this.trackFps.set(Math.round(settings?.frameRate ?? 0))
       void this.listCameras()
       const video = document.createElement('video')

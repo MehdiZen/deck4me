@@ -179,7 +179,10 @@ export class VcamService {
     await this.detection.listCameras()
     const virt = this.detection.cameras().find((c) => /deck4me/i.test(c.label))
     if (virt) {
-      await this.detection.selectCamera(virt.deviceId)
+      // `useCamera` et non `selectCamera` : c'est une bascule imposée, pas un
+      // choix de l'utilisateur. La persister écrasait sa préférence, si bien
+      // qu'en arrêtant la caméra virtuelle on ne savait plus vers quoi revenir.
+      await this.detection.useCamera(virt.deviceId)
       this.switched.set(true)
     } else {
       this.switched.set(false)
@@ -187,14 +190,29 @@ export class VcamService {
     if (restart && !this.detection.running()) await this.detection.start().catch(() => {})
   }
 
+  /**
+   * Arrêt, puis RETOUR à la caméra choisie par l'utilisateur.
+   *
+   * Sans ce retour, la détection restait pointée sur une caméra virtuelle qui
+   * n'existait plus, échouait à l'ouvrir et retombait sur la première venue.
+   * D'où l'impression que l'app changeait de caméra toute seule.
+   */
   async stop(): Promise<void> {
     this.busy.set(true)
     this.switched.set(false)
+    const wasDetecting = this.detection.running()
     try {
       // libérer la caméra virtuelle AVANT que la détection ne la relâche,
       // sinon la webcam physique reste prise par le pompage
-      if (this.detection.running()) this.detection.stop()
+      if (wasDetecting) this.detection.stop()
       this.status.set(await this.tauri.invoke<VcamStatus>('vcam_stop', {}, EMPTY_VCAM))
+      // Le pompage vient tout juste de rendre la webcam physique ; Windows met
+      // un instant à la rouvrir au demandeur suivant.
+      await new Promise((r) => setTimeout(r, 300))
+      await this.detection.restorePreferred()
+      if (wasDetecting && !this.detection.running()) {
+        await this.detection.start().catch(() => {})
+      }
     } catch (e) {
       this.status.update((s) => ({ ...s, error: String(e) }))
     } finally {
