@@ -23,12 +23,17 @@
 //
 // Toutes les suppressions sont best-effort : un échec ici ne doit jamais faire
 // tomber le build, le balayage suivant repassera derrière.
-import { existsSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs'
+//
+// À n'exécuter QUE juste avant un build : il retire softcam.dll de
+// target/release en comptant sur Tauri pour le recopier dans la foulée. Lancé
+// seul, il laisse le meme4me.exe déjà présent sans sa DLL voisine — l'app
+// démarre mais la caméra virtuelle est introuvable.
+import { existsSync, readdirSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
-const src = join(root, 'vendor', 'softcam', 'dist', 'bin', 'x64', 'softcam.dll')
+
 
 /** Les deux préfixes déjà semés dans la nature : `softcam.locked.*` (ce
  *  script) et `softcam.old-*` (une improvisation antérieure). Le second n'est
@@ -58,12 +63,17 @@ for (const dir of [join(root, 'src-tauri', 'target', 'release'), join(root, 'tar
     else held++
   }
 
-  // Le softcam.dll en place, lui, n'est écarté que s'il résiste à la
-  // suppression : sans ça on créerait un fichier parqué à CHAQUE build, y
-  // compris les fois où rien ne le verrouillait.
+  // Le softcam.dll en place est TOUJOURS retiré du chemin, même identique à
+  // la source : Tauri recopie la ressource sans comparer quoi que ce soit, et
+  // c'est cette copie qui meurt sur « os error 32 ». Comparer les tailles pour
+  // « éviter du travail inutile » ne fait qu'abandonner le fichier verrouillé
+  // en place et laisser le build échouer — première version de ce script,
+  // corrigée après l'avoir vue tomber.
+  //
+  // La suppression est tentée d'abord : quand rien ne tient le fichier, elle
+  // passe et aucun résidu n'est créé. Le renommage n'est que le plan B.
   const dst = join(dir, 'softcam.dll')
-  if (!existsSync(dst) || !existsSync(src)) continue
-  if (statSync(dst).size === statSync(src).size) continue // déjà à jour, on n'y touche pas
+  if (!existsSync(dst)) continue
   if (tryRemove(dst)) continue
 
   const parked = join(dir, `softcam.locked.${Date.now()}.dll`)

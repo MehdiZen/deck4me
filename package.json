@@ -19,7 +19,7 @@
     "dev:front": "npm run build:overlay && npm --prefix packages/studio start",
     "tauri": "tauri",
     "dev": "tauri dev",
-    "build:app": "tauri build"
+    "build:app": "node scripts/build-app.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.0.0"
