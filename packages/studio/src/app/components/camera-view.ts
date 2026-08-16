@@ -23,31 +23,21 @@ const HAND_BONES: [number, number][] = [
 ]
 
 /**
- * Maillage du visage, en deux couches.
+ * Maillage du visage : la tesselation MediaPipe, ≈2500 arêtes, et rien
+ * d'autre.
  *
- * MediaPipe fournit les arêtes toutes faites : la tesselation (≈2500 arêtes,
- * le filet complet) et les contours (les traits qui font une figure — ovale,
- * sourcils, yeux, lèvres). Les dessiner d'un seul poids donnerait une bouillie
- * blanche ; ici le filet est presque invisible et ne sert qu'à donner du
- * volume, les contours portent la lecture.
- *
- * Les iris sont laissés de côté : deux anneaux brillants au milieu du visage
- * attirent l'œil vers la seule information qu'on n'utilise PAS (voir
- * l'exclusion des `eyeLook*` dans le featurizer).
+ * Les contours (ovale, sourcils, yeux, lèvres) ont été essayés par-dessus et
+ * retirés : appuyer sur les traits d'un visage réel n'y ajoute aucune lecture,
+ * ça le cerne et ça l'alourdit. Le filet seul suit le relief et se laisse
+ * oublier — c'est ce qu'on veut d'un calque qu'on garde à l'écran en continu.
+ * Ne pas les remettre « pour la lisibilité » : c'était le raisonnement d'avant.
  *
  * Mis à plat une fois pour toutes : la conversion {start,end} → paire coûte
  * peu, mais la refaire 30 fois par seconde n'a aucune raison d'être.
  */
-const flat = (c: { start: number; end: number }[]): [number, number][] =>
-  c.map((e) => [e.start, e.end])
-const FACE_MESH = flat(FaceLandmarker.FACE_LANDMARKS_TESSELATION)
-const FACE_LINES = flat([
-  ...FaceLandmarker.FACE_LANDMARKS_FACE_OVAL,
-  ...FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW,
-  ...FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW,
-  ...FaceLandmarker.FACE_LANDMARKS_LEFT_EYE,
-  ...FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE,
-  ...FaceLandmarker.FACE_LANDMARKS_LIPS,
+const FACE_MESH: [number, number][] = FaceLandmarker.FACE_LANDMARKS_TESSELATION.map((e) => [
+  e.start,
+  e.end,
 ])
 
 /**
@@ -143,13 +133,11 @@ export class CameraView implements AfterViewInit, OnDestroy {
     // Le visage se dessine sous les mains : quand une main passe devant la
     // bouche, c'est la main qu'on veut lire par-dessus, pas le filet.
     if (viz.faceLandmarks) {
-      const lm = viz.faceLandmarks
-      ctx.strokeStyle = '#5eead41f'
+      // Opacité relevée depuis que le filet est seul : à 12 % il ne servait que
+      // de fond aux contours, il doit maintenant se tenir tout seul.
+      ctx.strokeStyle = '#5eead440'
       ctx.lineWidth = 0.6
-      this.bones(ctx, lm, FACE_MESH)
-      ctx.strokeStyle = '#5eead4bb'
-      ctx.lineWidth = 1.3
-      this.bones(ctx, lm, FACE_LINES)
+      this.bones(ctx, viz.faceLandmarks, FACE_MESH)
     }
     viz.handLandmarks.forEach((lm, h) => {
       const color = h === 0 ? '#a78bfa' : '#f0abfc'
