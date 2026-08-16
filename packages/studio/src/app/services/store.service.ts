@@ -362,6 +362,20 @@ export class StoreService {
     return this.macros().filter((m) => m.steps.includes(gestureId))
   }
 
+  /**
+   * Maillons enregistrés qui n'arment encore aucune macro, dans leur ordre
+   * d'enregistrement.
+   *
+   * C'est le stock que l'interface doit consommer d'elle-même : quelqu'un qui
+   * vient d'enregistrer trois poses pour une macro ne devrait pas avoir à les
+   * redésigner une par une dans des listes déroulantes — il les a déjà
+   * désignées en les enregistrant.
+   */
+  readonly freeLinkGestures = computed(() => {
+    const used = this.gesturesInMacros()
+    return this.linkGestures().filter((g) => !used.has(g.id))
+  })
+
   binding(gestureId: string): StoredBinding | null {
     return this.bindings().find((b) => b.gestureId === gestureId) ?? null
   }

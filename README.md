@@ -156,6 +156,21 @@ Un maillon peut aussi s'ajouter **plus tard**, un à la fois : le bouton
 « + Maillon » et l'option « ＋ Enregistrer une nouvelle pose… » de chaque liste
 déroulante ouvrent le wizard et glissent la pose obtenue à la bonne place.
 
+**Les maillons libres sont pré-sélectionnés.** Une pose enregistrée pour un
+enchaînement a déjà été désignée en étant enregistrée : la refaire choisir dans
+des listes déroulantes n'apporte rien. Donc —
+
+- un bandeau signale les maillons qui n'arment encore aucune macro (c'est presque
+  toujours un enchaînement commencé et pas fini) ;
+- le bouton devient **« Relier mes N maillons libres »** et en fait une macro
+  d'un clic, dans leur ordre d'enregistrement ;
+- « + Maillon » consomme un maillon libre s'il en reste, et n'ouvre le wizard
+  que sinon ;
+- la macro hérite du nom donné à l'enregistrement — « Truc ① » donne « Truc ».
+  Le chiffre cerclé est exigé : c'est lui qui atteste que la pose vient d'un
+  enregistrement d'enchaînement, sinon une pose nommée « poing » à la main
+  baptiserait la macro « poing ».
+
 #### Les deux familles de poses ne se mélangent pas
 
 `sequenceOnly` n'est pas un détail de réglage, c'est **la frontière entre deux

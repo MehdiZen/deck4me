@@ -48,15 +48,52 @@ import {
         </p>
       </div>
       <span class="spacer"></span>
-      @if (store.gestures().length >= 2) {
+      @if (store.freeLinkGestures().length >= MIN) {
+        <!-- Des maillons attendent d'être reliés : c'est le geste évident, il
+             passe devant l'enregistrement d'un nouvel enchaînement. -->
+        <button class="primary" (click)="create()">
+          <app-icon name="layers" [size]="16" />
+          Relier mes {{ store.freeLinkGestures().length }} maillons libres
+        </button>
+      } @else if (store.gestures().length >= 2) {
         <button [disabled]="!store.calibration()" (click)="create()">
           <app-icon name="layers" [size]="16" /> Depuis mes poses
         </button>
       }
-      <button class="primary" [disabled]="!store.calibration()" (click)="record()">
+      <button
+        [class.primary]="store.freeLinkGestures().length < MIN"
+        [disabled]="!store.calibration()"
+        (click)="record()"
+      >
         <app-icon name="hand" [size]="16" /> Enregistrer un enchaînement
       </button>
     </div>
+
+    <!-- Des maillons enregistrés que rien n'utilise, c'est presque toujours une
+         macro qu'on a commencée sans la finir. Le dire ici évite de les chercher
+         dans Gestures en se demandant pourquoi rien ne se déclenche. -->
+    @if (store.freeLinkGestures().length && store.calibration()) {
+      <div class="notice rise">
+        <app-icon name="zap" [size]="18" />
+        <div>
+          <b>
+            {{ store.freeLinkGestures().length }} maillon(s) enregistré(s) n'arment
+            aucune macro.
+          </b>
+          <p class="lbl">
+            @for (g of store.freeLinkGestures(); track g.id) {
+              <span class="badge">{{ g.name }}</span>
+            }
+            @if (store.freeLinkGestures().length >= MIN) {
+              — « Relier mes maillons libres » en fait une macro d'un clic, dans
+              leur ordre d'enregistrement.
+            } @else {
+              — il en faut au moins {{ MIN }} pour former un enchaînement.
+            }
+          </p>
+        </div>
+      </div>
+    }
 
     @if (!store.calibration()) {
       <div class="card empty">
@@ -257,9 +294,23 @@ import {
     }
   `,
   styles: `
-    .head { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 20px; }
+    .head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 20px; }
     .head h1 { margin: 0 0 4px; }
     .sub { margin: 0; text-transform: none; letter-spacing: 0; }
+
+    .notice {
+      display: flex; align-items: flex-start; gap: 11px;
+      padding: 13px 16px; margin-bottom: 16px;
+      border-radius: var(--r-panel); font-size: 13px; line-height: 1.55;
+      background: #38bdf80e; border: 1px solid #38bdf844;
+      box-shadow: var(--edge);
+    }
+    .notice app-icon { color: var(--cyan); margin-top: 1px; }
+    .notice b { font-weight: 620; }
+    .notice .lbl {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      margin: 6px 0 0; text-transform: none; letter-spacing: 0;
+    }
 
     .empty { text-align: center; padding: 46px 24px; }
     .bigmark {
@@ -392,17 +443,48 @@ export class MacrosPage implements OnDestroy {
     return null
   }
 
-  /** Chemin « depuis mes poses » : réutilise des gestures qui existent déjà. */
+  /**
+   * Monte une macro à partir de poses déjà enregistrées.
+   *
+   * Les maillons libres passent d'abord, TOUS et dans leur ordre
+   * d'enregistrement : quelqu'un qui vient d'enregistrer trois poses pour une
+   * macro les a déjà désignées en les enregistrant — les lui faire re-choisir
+   * une par une dans des listes déroulantes n'apporte rien. On ne retombe sur
+   * des poses à meme que s'il n'y a pas assez de maillons libres.
+   */
   async create(): Promise<void> {
-    const gs = this.store.gestures()
+    const free = this.store.freeLinkGestures()
+    const freeIds = new Set(free.map((g) => g.id))
+    // Complément : tout le reste du profil, maillons déjà employés compris —
+    // réutiliser un maillon dans deux macros est parfaitement légitime.
+    const rest = this.store.gestures().filter((g) => !freeIds.has(g.id))
+    const steps =
+      free.length >= MACRO_MIN_STEPS
+        ? free.slice(0, MACRO_MAX_STEPS).map((g) => g.id)
+        : [...free, ...rest].slice(0, MACRO_MIN_STEPS).map((g) => g.id)
+    if (steps.length < MACRO_MIN_STEPS) return
     await this.store.saveMacro({
       id: crypto.randomUUID(),
       profileId: this.store.activeProfile()?.id ?? 'default',
-      name: `Macro ${this.store.macros().length + 1}`,
+      name: this.defaultName(free.length >= MACRO_MIN_STEPS ? free[0]!.name : null),
       enabled: true,
-      steps: [gs[0]!.id, gs[1]!.id],
+      steps,
       windowMs: MACRO_DEFAULT_WINDOW_MS,
     })
+  }
+
+  /**
+   * « Truc ① » donne une macro nommée « Truc » : le nom a été saisi une fois, au
+   * moment de l'enregistrement de l'enchaînement, autant le reprendre.
+   *
+   * Le chiffre cerclé est exigé — c'est LUI qui atteste que la pose vient d'un
+   * enregistrement d'enchaînement. Sans cette vérification, une pose nommée
+   * « poing » à la main baptiserait la macro « poing », ce qui n'a aucun sens.
+   */
+  private defaultName(firstLinkName: string | null): string {
+    const fallback = `Macro ${this.store.macros().length + 1}`
+    if (!firstLinkName || !/[①②③④]\s*$/.test(firstLinkName)) return fallback
+    return firstLinkName.replace(/\s*[①②③④]\s*$/, '').trim() || fallback
   }
 
   /** Chemin normal : on enregistre les poses de l'enchaînement à la suite. */
@@ -466,10 +548,19 @@ export class MacrosPage implements OnDestroy {
     void this.patch(m, { steps })
   }
 
-  /** Ajouter un maillon = enregistrer une pose de plus. Recycler une gesture
-   *  déjà utilisée serait le mauvais défaut : elle déclencherait aussi son
-   *  propre meme, et deux maillons identiques d'affilée sont irréalisables. */
+  /**
+   * Ajouter un maillon consomme d'abord un maillon LIBRE s'il en reste un —
+   * il a été enregistré pour ça. Sinon on ouvre le wizard.
+   *
+   * Recycler une pose à meme serait le mauvais défaut : elle afficherait son
+   * meme au passage de l'enchaînement, ce que personne ne demande ici.
+   */
   addStep(m: MacroDef): void {
+    const free = this.store.freeLinkGestures().find((g) => g.id !== m.steps.at(-1))
+    if (free) {
+      void this.patch(m, { steps: [...m.steps, free.id] })
+      return
+    }
     this.recording.set({ kind: 'link', macroId: m.id, index: m.steps.length })
   }
 
