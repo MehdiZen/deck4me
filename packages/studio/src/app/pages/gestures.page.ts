@@ -5,7 +5,7 @@ import { ActionList } from '../components/action-list'
 import { AssetPicker } from '../components/asset-picker'
 import { BindingEditor } from '../components/binding-editor'
 import { Icon } from '../components/icon'
-import { Wizard } from '../components/wizard'
+import { Wizard, type WizardMode } from '../components/wizard'
 import { MatcherService } from '../services/matcher.service'
 import {
   StoreService,
@@ -29,13 +29,45 @@ import {
       <div>
         <h1>Gestures</h1>
         <p class="lbl sub">
-          {{ store.gestures().length }} pose(s) dans « {{ store.activeProfile()?.name }} » ·
-          <span class="num">{{ bound() }}</span> avec un meme
+          {{ store.gestures().length }} pose(s) dans « {{ store.activeProfile()?.name }} »
+          @if (isLink()) {
+            · <span class="num">{{ store.linkGestures().length }}</span> maillons
+          } @else {
+            · <span class="num">{{ bound() }}</span> avec un meme
+          }
         </p>
       </div>
       <span class="spacer"></span>
       <button class="primary" [disabled]="!store.calibration()" (click)="newGesture()">
-        <app-icon name="plus" [size]="16" /> Enregistrer une gesture
+        <app-icon name="plus" [size]="16" />
+        {{ isLink() ? 'Enregistrer un maillon' : 'Enregistrer une gesture' }}
+      </button>
+    </div>
+
+    <!-- Les deux familles ne partagent ni leurs réglages ni leur raison d'être :
+         une pose à meme affiche quelque chose, un maillon arme un enchaînement.
+         Le compteur de chaque onglet donne au passage le budget de collisions,
+         qui est ce qui plafonne réellement le nombre de poses. -->
+    <div class="tabs" role="tablist">
+      <button
+        class="tab"
+        role="tab"
+        [class.on]="!isLink()"
+        [attr.aria-selected]="!isLink()"
+        (click)="tab.set('meme')"
+      >
+        <app-icon name="image" [size]="15" /> Memes
+        <span class="cnt">{{ store.memeGestures().length }}</span>
+      </button>
+      <button
+        class="tab"
+        role="tab"
+        [class.on]="isLink()"
+        [attr.aria-selected]="isLink()"
+        (click)="tab.set('link')"
+      >
+        <app-icon name="zap" [size]="15" /> Maillons de macro
+        <span class="cnt">{{ store.linkGestures().length }}</span>
       </button>
     </div>
 
@@ -62,19 +94,94 @@ import {
       </div>
     }
 
-    @if (!store.gestures().length && store.calibration()) {
+    @if (!list().length && store.calibration()) {
       <div class="card empty">
-        <span class="bigmark"><app-icon name="hand" [size]="30" /></span>
-        <b>Aucune gesture dans ce profil.</b>
-        <p class="lbl">
-          Vise huit à quinze poses volontaires et exagérées, lisibles à la caméra.
-          Une pose que le viewer ne devine pas ne fait pas un bon bit.
-        </p>
+        @if (isLink()) {
+          <span class="bigmark"><app-icon name="zap" [size]="30" /></span>
+          <b>Aucun maillon dans ce profil.</b>
+          <p class="lbl">
+            Un maillon est une pose qui n'affiche rien toute seule : elle ne sert
+            qu'à armer un enchaînement. Le plus simple est de partir de
+            <a routerLink="/macros">Macros</a> et d'enregistrer les poses à la
+            suite ; celles créées ici restent disponibles pour n'importe quelle
+            macro.
+          </p>
+        } @else {
+          <span class="bigmark"><app-icon name="hand" [size]="30" /></span>
+          <b>Aucune gesture dans ce profil.</b>
+          <p class="lbl">
+            Vise huit à quinze poses volontaires et exagérées, lisibles à la caméra.
+            Une pose que le viewer ne devine pas ne fait pas un bon bit.
+          </p>
+        }
+      </div>
+    }
+
+    <!-- ---- Maillons : carte compacte, sans cadre OBS ni actions ----
+         Un maillon n'a par définition ni meme ni action propre — le matcher ne
+         le déclenche même pas seul. Lui donner la carte des gestures à meme
+         afficherait quatre zones vides et un cadre OBS qui ne servira jamais. -->
+    @if (isLink()) {
+      <div class="links">
+        @for (g of list(); track g.id) {
+          <article class="card link" [class.off]="!g.enabled">
+            <label class="switch">
+              <input
+                type="checkbox"
+                [checked]="g.enabled"
+                (change)="toggle(g, $event)"
+                [attr.aria-label]="'Activer ' + g.name"
+              />
+            </label>
+            <div class="lmeta">
+              <b class="nm" [title]="g.name">{{ g.name }}</b>
+              <span class="stats lbl">
+                {{ srcLabel(g.source) }} · seuil
+                <span class="num">{{ effective(g).toFixed(3) }}</span>
+                @if ((g.sensitivity ?? 1) !== 1) {
+                  <span class="num sens">{{ ((g.sensitivity ?? 1) * 100).toFixed(0) }}%</span>
+                }
+                · <span class="num">{{ g.rawSamples.length }}</span> prises
+              </span>
+            </div>
+
+            <!-- À quoi il sert : l'info qui manque le plus sur un maillon. -->
+            <div class="used">
+              @if (store.macrosUsing(g.id).length) {
+                @for (m of store.macrosUsing(g.id); track m.id) {
+                  <a class="badge ok" routerLink="/macros">{{ m.name }}</a>
+                }
+              } @else {
+                <span class="badge warn" title="Cette pose n'arme aucun enchaînement">
+                  aucune macro
+                </span>
+              }
+            </div>
+
+            <button
+              class="ghost sm"
+              (click)="rerecord(g)"
+              title="Refaire la pose en gardant sa place dans les macros"
+            >
+              <app-icon name="hand" [size]="15" />
+            </button>
+            <button
+              class="ghost sm"
+              (click)="promote(g)"
+              title="Rendre cette pose autonome : elle repassera dans Memes"
+            >
+              <app-icon name="up" [size]="15" />
+            </button>
+            <button class="ghost sm" (click)="remove(g)" [attr.aria-label]="'Supprimer ' + g.name">
+              <app-icon name="trash" [size]="15" />
+            </button>
+          </article>
+        }
       </div>
     }
 
     <div class="grid">
-      @for (g of store.gestures(); track g.id) {
+      @for (g of memeList(); track g.id) {
         <article class="card interactive tile" [class.off]="!g.enabled">
           <!-- Miniature du cadre OBS, à l'échelle exacte -->
           <div class="mini alpha-grid" (click)="edit(g)" [title]="'Régler le rendu de ' + g.name">
@@ -123,6 +230,8 @@ import {
             </div>
           </div>
 
+          <!-- Basculer ce drapeau DÉPLACE la carte vers l'onglet Maillons :
+               c'est lui qui définit la frontière entre les deux familles. -->
           @if (store.gesturesInMacros().has(g.id)) {
             <label class="chainopt" [title]="'Utilisée dans un enchaînement'">
               <span class="switch">
@@ -135,8 +244,8 @@ import {
               <span>
                 Maillon seulement
                 <span class="lbl">
-                  Reconnue et comptée dans les macros, mais n'affiche pas son
-                  meme toute seule.
+                  N'affichera plus son meme toute seule, et passera dans l'onglet
+                  <b>Maillons de macro</b>.
                 </span>
               </span>
             </label>
@@ -197,6 +306,7 @@ import {
     @if (wizardOpen()) {
       <app-wizard
         [replacing]="rerecording()"
+        [mode]="wizardMode()"
         (cancel)="closeWizard()"
         (saved)="closeWizard()"
       />
@@ -214,6 +324,52 @@ import {
     .head { display: flex; align-items: flex-start; gap: 14px; margin-bottom: 20px; }
     .head h1 { margin: 0 0 4px; }
     .sub { margin: 0; }
+
+    /* Sélecteur de famille. Le compteur fait partie de l'onglet : c'est le
+       nombre de poses qui plafonne tout le reste, autant l'avoir sous les yeux. */
+    .tabs {
+      display: inline-flex; gap: 3px; margin-bottom: 18px;
+      padding: 3px; border-radius: 11px;
+      background: var(--void); border: 1px solid var(--line-soft);
+    }
+    .tab {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 14px; border-radius: 8px;
+      background: none; border: 1px solid transparent;
+      color: var(--ink-3); font-size: 13px; font-weight: 520;
+      transition: color 160ms var(--ease), background 160ms var(--ease);
+    }
+    .tab:hover { color: var(--ink-2); }
+    .tab.on {
+      background: var(--panel-2); border-color: var(--line);
+      color: var(--ink); font-weight: 580;
+      box-shadow: var(--edge);
+    }
+    .tab.on app-icon { color: var(--accent-hi); }
+    .cnt {
+      min-width: 20px; padding: 1px 6px; border-radius: 99px;
+      background: var(--panel-3); color: var(--ink-2);
+      font-family: var(--font-data); font-variant-numeric: tabular-nums;
+      font-size: 10.5px; text-align: center;
+    }
+    .tab.on .cnt { background: var(--accent-wash); color: var(--accent-hi); }
+
+    /* Maillons : une ligne chacun. Pas de cadre OBS — ils n'afficheront
+       jamais rien — donc pas de raison d'occuper la surface d'une tuile. */
+    .links { display: flex; flex-direction: column; gap: 8px; }
+    .link {
+      display: flex; align-items: center; gap: 13px;
+      padding: 11px 14px;
+    }
+    .link.off { opacity: 0.55; }
+    .lmeta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+    .lmeta .nm {
+      font-size: 13.5px; font-weight: 600; letter-spacing: -0.01em;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .lmeta .stats { text-transform: none; letter-spacing: 0; }
+    .used { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; max-width: 45%; }
+    .used a { text-decoration: none; }
 
     .notice {
       display: flex; align-items: flex-start; gap: 11px;
@@ -316,6 +472,27 @@ export class GesturesPage {
   rerecording = signal<StoredGesture | null>(null)
   editing = signal<{ gesture: StoredGesture; binding: StoredBinding } | null>(null)
 
+  /** Famille affichée. Les deux n'ont ni les mêmes réglages ni le même sens :
+   *  une pose à meme affiche quelque chose, un maillon arme un enchaînement. */
+  tab = signal<'meme' | 'link'>('meme')
+
+  readonly isLink = computed(() => this.tab() === 'link')
+  readonly list = computed(() =>
+    this.isLink() ? this.store.linkGestures() : this.store.memeGestures(),
+  )
+  /** La grille des cartes à meme ne rend rien sur l'onglet Maillons — ceux-ci
+   *  ont leur propre gabarit, sans cadre OBS. */
+  readonly memeList = computed(() => (this.isLink() ? [] : this.store.memeGestures()))
+
+  /** Le wizard hérite de l'onglet : enregistrer depuis « Maillons » produit
+   *  directement une pose de maillon, sans case à cocher à retrouver après coup.
+   *  Un réenregistrement, lui, garde la nature de la pose existante. */
+  readonly wizardMode = computed<WizardMode>(() => {
+    const g = this.rerecording()
+    if (g) return g.sequenceOnly ? 'link' : 'gesture'
+    return this.isLink() ? 'link' : 'gesture'
+  })
+
   /** Refaire la pose sans toucher au reste — c'est aussi la façon de repasser
    *  une vieille gesture au featurizer courant sans relier son meme. */
   rerecord(g: StoredGesture): void {
@@ -333,8 +510,16 @@ export class GesturesPage {
     this.rerecording.set(null)
   }
 
+  /** Rend un maillon autonome : il repasse dans Memes et pourra afficher un
+   *  meme. Il reste dans ses macros — une pose peut très bien faire les deux,
+   *  au prix de voir son meme apparaître au passage de l'enchaînement. */
+  async promote(g: StoredGesture): Promise<void> {
+    await this.store.saveGesture({ ...g, sequenceOnly: false })
+    this.tab.set('meme')
+  }
+
   readonly bound = computed(
-    () => this.store.gestures().filter((g) => this.store.binding(g.id)).length,
+    () => this.store.memeGestures().filter((g) => this.store.binding(g.id)).length,
   )
 
   effective(g: StoredGesture): number {

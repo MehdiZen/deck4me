@@ -172,6 +172,21 @@ export class StoreService {
     return this.allMacros().filter((m) => (m.profileId || 'default') === active)
   })
 
+  /**
+   * Deux familles de poses, qui ne se mélangent jamais dans l'interface.
+   *
+   * Une pose à meme est une fin en soi : elle affiche quelque chose. Une pose de
+   * maillon n'existe que pour armer un enchaînement — pas de meme, pas d'action
+   * propre (le matcher ne la déclenche même pas seule), pas de mode « tenue ».
+   * Les afficher dans la même liste revenait à mélanger des objets qui n'ont ni
+   * les mêmes réglages ni le même sens.
+   *
+   * Le drapeau `sequenceOnly` EST la frontière : le basculer déplace la pose
+   * d'une famille à l'autre, ce qui rend le classement réversible et lisible.
+   */
+  readonly memeGestures = computed(() => this.gestures().filter((g) => !g.sequenceOnly))
+  readonly linkGestures = computed(() => this.gestures().filter((g) => !!g.sequenceOnly))
+
   /** Gestures engagées dans au moins une macro du profil actif : l'interface
    *  s'en sert pour expliquer pourquoi une pose ne déclenche rien seule. */
   readonly gesturesInMacros = computed(() => {
@@ -339,6 +354,12 @@ export class StoreService {
     const meta = await this.tauri.invoke<AssetMeta>('import_asset_from_url', { url })
     this.assets.update((all) => [...all.filter((a) => a.id !== meta.id), meta])
     return meta
+  }
+
+  /** Macros du profil actif qui se servent de cette pose — c'est l'information
+   *  qui manque le plus sur une carte de maillon : à quoi elle sert. */
+  macrosUsing(gestureId: string): MacroDef[] {
+    return this.macros().filter((m) => m.steps.includes(gestureId))
   }
 
   binding(gestureId: string): StoredBinding | null {

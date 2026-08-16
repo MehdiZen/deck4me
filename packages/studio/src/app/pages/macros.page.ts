@@ -133,8 +133,22 @@ import {
                   (change)="setStep(m, $index, $any($event.target).value)"
                   [attr.aria-label]="'Pose ' + ($index + 1)"
                 >
-                  @for (g of store.gestures(); track g.id) {
-                    <option [value]="g.id">{{ g.name }}</option>
+                  <!-- Les maillons d'abord : c'est ce qu'on cherche ici neuf
+                       fois sur dix. Une pose à meme reste choisissable, mais
+                       elle affichera son meme au passage de l'enchaînement. -->
+                  @if (store.linkGestures().length) {
+                    <optgroup label="Maillons">
+                      @for (g of store.linkGestures(); track g.id) {
+                        <option [value]="g.id">{{ g.name }}</option>
+                      }
+                    </optgroup>
+                  }
+                  @if (store.memeGestures().length) {
+                    <optgroup label="Poses à meme">
+                      @for (g of store.memeGestures(); track g.id) {
+                        <option [value]="g.id">{{ g.name }}</option>
+                      }
+                    </optgroup>
                   }
                   <!-- Enregistrer une pose SANS quitter la macro : c'est ce qui
                        permet de la construire en plusieurs fois. -->

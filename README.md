@@ -156,8 +156,26 @@ Un maillon peut aussi s'ajouter **plus tard**, un à la fois : le bouton
 « + Maillon » et l'option « ＋ Enregistrer une nouvelle pose… » de chaque liste
 déroulante ouvrent le wizard et glissent la pose obtenue à la bonne place.
 
-Les poses ainsi créées naissent **« maillon seulement »** : elles alimentent
-l'enchaînement sans afficher de meme. Trois conséquences voulues :
+#### Les deux familles de poses ne se mélangent pas
+
+`sequenceOnly` n'est pas un détail de réglage, c'est **la frontière entre deux
+familles** qui n'ont ni les mêmes réglages ni le même sens : une pose à meme est
+une fin en soi, un maillon n'existe que pour armer un enchaînement. L'écran
+Gestures a donc deux onglets, **Memes** et **Maillons de macro**, chacun avec son
+compteur — c'est le nombre de poses qui plafonne tout le reste.
+
+Le maillon a son propre gabarit de carte : pas de cadre OBS ni de liste
+d'actions (le matcher ne le déclenche même pas seul), mais la liste des macros
+qui s'en servent, et un bouton pour le rendre autonome. Basculer le drapeau
+déplace la carte d'un onglet à l'autre — le classement est réversible.
+
+Deux surfaces gardent volontairement les deux familles : **Live**, où l'on règle
+la sensibilité en regardant la barre réagir, et **Debug**. Les y masquer voudrait
+dire qu'une macro qui ne part pas n'a plus aucun endroit où se diagnostiquer.
+Elles y sont **groupées, jamais entrelacées**.
+
+Les poses créées depuis Macros naissent **« maillon seulement »**. Trois
+conséquences voulues :
 
 - le mode « tant que tenue » disparaît — un maillon se lit sur un déclenchement,
   pas sur une durée ;

@@ -114,26 +114,41 @@ import { StoreService, effectiveThreshold, type StoredGesture } from '../service
           @if (!store.gestures().length) {
             <p class="empty">Aucune gesture enregistrée pour l'instant.</p>
           }
+          <!-- Les deux familles sont groupées, pas mélangées — mais les maillons
+               restent ici : c'est la seule surface où l'on règle une pose en la
+               regardant réagir, et une macro qui ne part pas se diagnostique
+               exactement comme une gesture. -->
           <div class="sens">
-            @for (g of store.gestures(); track g.id) {
-              <div class="sensrow">
-                <span class="nm" [title]="g.name">{{ g.name }}</span>
-                <input
-                  type="range"
-                  min="0.4"
-                  max="3"
-                  step="0.05"
-                  [value]="g.sensitivity ?? 1"
-                  (input)="onSlide(g, $event)"
-                  (change)="onCommit(g)"
-                  [attr.aria-label]="'Sensibilité de ' + g.name"
-                />
-                <span class="pct num">{{ ((g.sensitivity ?? 1) * 100).toFixed(0) }}%</span>
-                <span class="thr num">{{ effective(g).toFixed(3) }}</span>
-                <button class="ghost sm" (click)="resetSens(g)" [disabled]="(g.sensitivity ?? 1) === 1">
-                  Auto
-                </button>
-              </div>
+            @for (grp of groups(); track grp.key) {
+              @if (grp.rows.length) {
+                @if (showGroupTitles()) {
+                  <p class="grp lbl">{{ grp.title }}</p>
+                }
+                @for (g of grp.rows; track g.id) {
+                  <div class="sensrow">
+                    <span class="nm" [title]="g.name">{{ g.name }}</span>
+                    <input
+                      type="range"
+                      min="0.4"
+                      max="3"
+                      step="0.05"
+                      [value]="g.sensitivity ?? 1"
+                      (input)="onSlide(g, $event)"
+                      (change)="onCommit(g)"
+                      [attr.aria-label]="'Sensibilité de ' + g.name"
+                    />
+                    <span class="pct num">{{ ((g.sensitivity ?? 1) * 100).toFixed(0) }}%</span>
+                    <span class="thr num">{{ effective(g).toFixed(3) }}</span>
+                    <button
+                      class="ghost sm"
+                      (click)="resetSens(g)"
+                      [disabled]="(g.sensitivity ?? 1) === 1"
+                    >
+                      Auto
+                    </button>
+                  </div>
+                }
+              }
             }
           </div>
         </div>
@@ -191,6 +206,11 @@ import { StoreService, effectiveThreshold, type StoredGesture } from '../service
     .log .led.bad { background: var(--st-live); box-shadow: 0 0 8px var(--st-live); }
 
     .sens { display: flex; flex-direction: column; gap: 2px; }
+    .grp {
+      margin: 10px 0 3px; padding: 0 9px;
+      border-top: 1px solid var(--line-soft); padding-top: 10px;
+    }
+    .grp:first-child { margin-top: 0; border-top: 0; padding-top: 0; }
     .sensrow {
       display: flex; align-items: center; gap: 12px;
       padding: 6px 9px; border-radius: var(--r-control);
@@ -215,6 +235,16 @@ export class LivePage implements AfterViewInit, OnDestroy {
   private raf = 0
 
   readonly armed = computed(() => this.store.gestures().filter((g) => g.enabled).length)
+
+  /** Poses à meme et maillons de macro, groupés et jamais entrelacés. */
+  readonly groups = computed(() => [
+    { key: 'meme', title: 'Poses à meme', rows: this.store.memeGestures() },
+    { key: 'link', title: 'Maillons de macro', rows: this.store.linkGestures() },
+  ])
+
+  /** Les titres n'apparaissent que s'il y a bien deux familles à distinguer :
+   *  sur un profil sans macro, « Poses à meme » ne dirait rien à personne. */
+  readonly showGroupTitles = computed(() => this.store.linkGestures().length > 0)
   readonly flash = signal(false)
   private lastLogged = 0
 

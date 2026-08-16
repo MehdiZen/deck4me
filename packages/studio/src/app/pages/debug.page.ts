@@ -131,7 +131,12 @@ interface OverlayStats {
         <tbody>
           @for (r of rows(); track r.id) {
             <tr>
-              <td class="nm">{{ r.name }}</td>
+              <td class="nm">
+                {{ r.name }}
+                @if (r.isLink) {
+                  <span class="badge" title="Maillon de macro — n'affiche rien seul">maillon</span>
+                }
+              </td>
               <td>
                 <span class="badge" [style.color]="r.color">
                   <i class="led" [style.background]="r.color"></i>{{ r.state.toLowerCase() }}
@@ -340,12 +345,17 @@ export class DebugPage implements AfterViewInit, OnDestroy {
   readonly rows = computed(() => {
     this.tick()
     const snaps = new Map(this.matcher.lastSnapshots.map((s) => [s.gestureId, s]))
-    return this.store.gestures().map((g) => {
+    // Poses à meme d'abord, maillons ensuite : les deux restent mesurables —
+    // c'est un instrument, pas une bibliothèque — mais elles ne s'entrelacent
+    // plus dans le tableau.
+    const ordered = [...this.store.memeGestures(), ...this.store.linkGestures()]
+    return ordered.map((g) => {
       const s = snaps.get(g.id)
       const threshold = effectiveThreshold(g)
       return {
         id: g.id,
         name: g.name,
+        isLink: !!g.sequenceOnly,
         state: s?.state ?? (g.enabled ? 'IDLE' : 'DÉSACTIVÉE'),
         dist: s?.dist ?? null,
         threshold,
