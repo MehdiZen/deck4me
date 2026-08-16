@@ -272,7 +272,31 @@ export class StoreService {
     }
     await this.migrateFeaturizerVersion()
     await this.migrateRenderModel()
+    await this.dropOrphanActions()
     this.loaded.set(true)
+  }
+
+  /**
+   * Une action n'appartient qu'à une MACRO.
+   *
+   * Une pose seule peut partir par accident ; un enchaînement de deux gestes
+   * volontaires, non. Confier « lance ce script » à une pose isolée était le
+   * maillon faible de tout le modèle — d'autant qu'un meme a déjà son son.
+   *
+   * Reste le cas des actions attachées à une gesture par une version
+   * antérieure : plus aucun écran ne les montre, mais le chemin de
+   * déclenchement les exécuterait encore. Invisible ET actif, c'est le pire
+   * mode d'échec possible — on les supprime, et on le dit dans le journal.
+   */
+  private async dropOrphanActions(): Promise<void> {
+    const macroIds = new Set(this.allMacros().map((m) => m.id))
+    const orphans = this.actions().filter((a) => !macroIds.has(a.ownerId))
+    if (!orphans.length) return
+    for (const a of orphans) await this.deleteAction(a.id)
+    console.warn(
+      `${orphans.length} action(s) n'appartenaient à aucune macro et ont été supprimées :`,
+      orphans.map((a) => a.label || a.target),
+    )
   }
 
   /** featurizerVersion a bougé → re-featurisation SILENCIEUSE depuis le brut,

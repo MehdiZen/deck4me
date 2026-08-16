@@ -15,8 +15,13 @@ import { StoreService } from '../services/store.service'
 import { Icon } from './icon'
 
 /**
- * Chaîne d'actions d'un déclencheur — gesture ou macro, le composant ne
- * distingue pas : il ne reçoit qu'un `ownerId`.
+ * Chaîne d'actions d'une MACRO.
+ *
+ * Le composant ne reçoit qu'un `ownerId` et resterait techniquement utilisable
+ * pour une gesture — mais il ne doit plus l'être. Une pose seule peut partir
+ * par accident ; deux gestes volontaires enchaînés, non. C'est donc le seul
+ * endroit assez sûr pour « ouvre ceci » ou « lance ce script », et un meme a de
+ * toute façon déjà son son.
  *
  * Le parti pris d'affichage : une action repliée tient sur une ligne et se lit
  * comme une phrase. On n'ouvre le formulaire que pour celle qu'on modifie. Une
@@ -441,7 +446,7 @@ import { Icon } from './icon'
   `,
 })
 export class ActionList {
-  /** Gesture ou macro — le composant s'en moque, c'est tout l'intérêt. */
+  /** Identifiant de la macro propriétaire. */
   @Input({ required: true }) set ownerId(v: string) {
     this.owner.set(v)
   }

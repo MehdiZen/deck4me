@@ -8,9 +8,15 @@
  * commande de chat, appeler un webhook. Le meme devient une action parmi
  * d'autres, et l'app sort du stream.
  *
- * Le propriétaire d'une action est un `ownerId` opaque : identifiant de gesture
- * OU de macro, indifféremment. Les deux chemins de déclenchement passent déjà
- * par `gesture_fired(id)` — les actions s'y branchent sans distinguer.
+ * Le propriétaire d'une action est une MACRO, et seulement une macro. Une pose
+ * seule peut partir par accident ; deux gestes volontaires enchaînés dans une
+ * fenêtre courte sont hors d'atteinte d'une gesticulation ordinaire. C'est donc
+ * le seul endroit assez sûr pour « ouvre ceci » ou « lance ce script » — et un
+ * meme dispose de toute façon déjà de son son.
+ *
+ * Le champ garde le nom générique `ownerId` : le format n'a pas à connaître la
+ * différence, et le déclenchement passe par le même `gesture_fired(id)` pour
+ * les deux. C'est l'interface qui tient la règle, pas le schéma.
  *
  * ─── Sur la sécurité ────────────────────────────────────────────────────────
  * Oui, ceci permet d'exécuter des programmes arbitraires. Ce n'est pas une

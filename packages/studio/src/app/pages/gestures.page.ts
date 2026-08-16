@@ -1,7 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core'
 import { RouterLink } from '@angular/router'
 import { type HoldMode } from '@meme4me/core'
-import { ActionList } from '../components/action-list'
 import { AssetPicker } from '../components/asset-picker'
 import { BindingEditor } from '../components/binding-editor'
 import { Icon } from '../components/icon'
@@ -23,7 +22,7 @@ import {
  */
 @Component({
   selector: 'app-gestures-page',
-  imports: [Wizard, RouterLink, Icon, BindingEditor, AssetPicker, ActionList],
+  imports: [Wizard, RouterLink, Icon, BindingEditor, AssetPicker],
   template: `
     <div class="head">
       <div>
@@ -295,7 +294,7 @@ import {
             <button
               class="sm"
               (click)="matcher.testTrigger(g.id)"
-              title="Joue le déclenchement complet : meme et actions"
+              title="Affiche le meme dans OBS"
             >
               <app-icon name="zap" [size]="14" /> Tester
             </button>
@@ -318,8 +317,6 @@ import {
               <app-asset-picker (picked)="attach(g, $event)" />
             </div>
           }
-
-          <app-action-list [ownerId]="g.id" />
         </article>
       }
     </div>

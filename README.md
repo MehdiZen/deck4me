@@ -209,9 +209,17 @@ indistinguables du même enchaînement passeraient sans un mot.
 
 ### Actions — faire faire des choses à la machine
 
-Afficher un meme est **un cas particulier**. Le cas général : un déclencheur
-(gesture *ou* macro, indifféremment) porte une **chaîne d'actions**, exécutée
-dans l'ordre. Une macro peut n'avoir aucun meme et ne servir qu'à ça.
+Une **macro** — et elle seule — porte une **chaîne d'actions** exécutée dans
+l'ordre. Elle peut n'avoir aucun meme et ne servir qu'à ça.
+
+**Pourquoi pas sur une gesture.** Une pose seule peut partir par accident ; deux
+gestes volontaires enchaînés dans une fenêtre courte sont hors d'atteinte d'une
+gesticulation ordinaire. C'est donc le seul endroit assez sûr pour « ouvre ceci »
+ou « lance ce script ». Et une pose à meme dispose déjà de son son, ce qui couvre
+le besoin courant. Le champ garde le nom générique `ownerId` : le format n'a pas
+à connaître la différence, c'est l'interface qui tient la règle. Une action
+attachée à une gesture par une version antérieure est **supprimée au chargement**
+— invisible dans l'interface mais toujours exécutée serait le pire des états.
 
 | Genre | Ce que ça fait | Ce que ça ouvre comme usages |
 | --- | --- | --- |
