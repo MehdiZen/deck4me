@@ -178,6 +178,11 @@ export class CameraView implements AfterViewInit, OnDestroy {
   private draw(viz: VizFrame): void {
     const canvas = this.canvasRef?.nativeElement
     if (!canvas) return
+    // En flux direct il n'y a pas de MediaStream, donc rien à donner au
+    // <video> : l'image arrive en JPEG depuis Rust et se dessine ici, sous les
+    // landmarks. Sans ça, l'aperçu resterait noir alors que la détection
+    // tourne — et on croirait la caméra en panne.
+    const feed = this.detection.feedActive()
     // Aligner la toile sur le rapport de la source, sinon les points dessinés
     // ronds deviennent ovales une fois la toile étirée dans le cadre.
     const src = this.detection.sourceSize()
@@ -191,6 +196,10 @@ export class CameraView implements AfterViewInit, OnDestroy {
     }
     const ctx = canvas.getContext('2d')!
     ctx.clearRect(0, 0, canvas.width, canvas.height)
+    const bmp = this.detection.bitmap
+    if (feed && bmp && !this.hidden()) {
+      ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height)
+    }
     // Le visage se dessine sous les mains : quand une main passe devant la
     // bouche, c'est la main qu'on veut lire par-dessus, pas le filet.
     if (viz.faceLandmarks) {

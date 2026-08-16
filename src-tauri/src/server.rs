@@ -204,6 +204,26 @@ fn token_ok(state: &ServerState, q: &HashMap<String, String>) -> bool {
     q.get("t").map(String::as_str) == Some(state.token.as_str())
 }
 
+/// Origines admises pour le flux caméra.
+///
+/// La webview Tauri ne se présente PAS comme `http://127.0.0.1` : sous Windows
+/// elle annonce `http://tauri.localhost`. La garde de l'overlay la rejetterait,
+/// alors que c'est précisément elle qu'on veut servir ici — et elle seule, avec
+/// OBS. Une page web quelconque reste refusée, et le jeton de session est exigé
+/// dans tous les cas.
+fn origin_ok_app(headers: &HeaderMap) -> bool {
+    match headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
+        None => true,
+        Some(o) => {
+            o.starts_with("http://127.0.0.1")
+                || o.starts_with("http://localhost")
+                || o.starts_with("tauri://")
+                || o.starts_with("http://tauri.localhost")
+                || o.starts_with("https://tauri.localhost")
+        }
+    }
+}
+
 fn origin_ok(headers: &HeaderMap) -> bool {
     match headers.get(header::ORIGIN).and_then(|v| v.to_str().ok()) {
         // client non-navigateur : pas d'Origin, le token suffit
@@ -304,11 +324,47 @@ async fn client_loop(mut socket: WebSocket, state: ServerState) {
     m.clients = m.clients.saturating_sub(1);
 }
 
+/// Images de la caméra virtuelle, poussées vers la webview.
+///
+/// Même porte que l'overlay, mêmes gardes : jeton et origine. Le flux est du
+/// JPEG binaire, une image par message — pas de découpage à gérer côté client,
+/// contrairement à un flux MJPEG multipart.
+async fn camera(
+    State(state): State<ServerState>,
+    Query(q): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    ws: WebSocketUpgrade,
+) -> Response {
+    if !token_ok(&state, &q) || !origin_ok_app(&headers) {
+        return (StatusCode::UNAUTHORIZED, "token ou origin invalide").into_response();
+    }
+    ws.on_upgrade(move |socket| camera_loop(socket))
+}
+
+async fn camera_loop(mut socket: WebSocket) {
+    let mut rx = crate::camfeed::subscribe();
+    loop {
+        match rx.recv().await {
+            Ok(frame) => {
+                if socket.send(Message::Binary(frame.to_vec().into())).await.is_err() {
+                    break;
+                }
+            }
+            // En retard : on saute au plus récent au lieu de rattraper. Une
+            // image de détection périmée ne vaut rien, et rattraper la file
+            // ajouterait exactement le retard qu'on cherche à supprimer.
+            Err(broadcast::error::RecvError::Lagged(_)) => continue,
+            Err(broadcast::error::RecvError::Closed) => break,
+        }
+    }
+}
+
 pub fn router(state: ServerState) -> Router {
     Router::new()
         .route("/overlay", get(overlay_page))
         .route("/assets/{file}", get(asset))
         .route("/events", get(events))
+        .route("/camera", get(camera))
         .with_state(state)
 }
 

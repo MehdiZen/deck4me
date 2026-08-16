@@ -12,6 +12,7 @@
 use serde::Serialize;
 use std::ffi::c_void;
 use std::path::PathBuf;
+use crate::camfeed;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -394,6 +395,10 @@ fn pump(
 
     let mut bgr = vec![0u8; (w * h * 3) as usize];
     let mut rgb = vec![0u8; (src_w * src_h * 3) as usize];
+    // Tampons du chemin direct vers la webview, réutilisés d'une image à
+    // l'autre. Voir camfeed : ils ne servent que si la détection écoute.
+    let mut small = Vec::new();
+    let mut jpeg = Vec::new();
     let mut frames = 0u32;
     let mut window_start = Instant::now();
     let (mut grab_acc, mut dec_acc, mut conv_acc) = (0.0f32, 0.0f32, 0.0f32);
@@ -436,6 +441,11 @@ fn pump(
         }
         unsafe { sc_send(cam_handle, bgr.as_ptr() as *const c_void) };
         let t_end = Instant::now();
+
+        // Livraison directe à la détection, APRÈS l'envoi à Streamlabs : la
+        // diffusion est ce qu'on ne doit jamais retarder. Sans abonné, l'appel
+        // rend la main immédiatement.
+        camfeed::publish(&rgb, src_w, src_h, &mut small, &mut jpeg);
 
         grab_acc += (t_grab - t0).as_secs_f32() * 1000.0;
         dec_acc += (t_dec - t_grab).as_secs_f32() * 1000.0;

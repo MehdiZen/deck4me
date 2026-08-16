@@ -12,6 +12,8 @@ export interface VizFrame {
   handLandmarks: NormalizedLandmark[][]
 }
 
+type ImageSource = HTMLVideoElement | HTMLCanvasElement | ImageBitmap
+
 export type FrameListener = (raw: RawFrame, viz: VizFrame, ts: number) => void
 
 /** Au-delà, on cesse d'espérer et on le dit : marteler l'ouverture d'une
@@ -83,6 +85,26 @@ export class DetectionService {
 
   /** Dimensions réellement délivrées par la source (peut être du 1440p). */
   readonly sourceSize = signal<{ w: number; h: number } | null>(null)
+
+  /**
+   * Flux direct depuis Rust, employé quand la caméra virtuelle tourne.
+   *
+   * Dans ce cas la webcam physique est prise par la pompe, et consommer
+   * « deck4me Camera » comme une webcam ordinaire faisait perdre une image sur
+   * deux : WebView2 n'arrive pas à absorber du RGB24 720p au rythme où il
+   * arrive. Rust tient déjà l'image ; il la réduit à 640 px, l'encode en JPEG
+   * et la pousse par le serveur local. Six fois moins d'octets, et plus aucune
+   * dépendance à la vitesse de la pile de capture Windows.
+   */
+  readonly feedActive = signal(false)
+  private feedWs: WebSocket | null = null
+  /** Dernière image reçue, gardée pour l'aperçu — c'est elle que camera-view
+   *  dessine, faute de MediaStream à donner à un <video>. */
+  bitmap: ImageBitmap | null = null
+  /** Une image est en cours de traitement : les suivantes sont ABANDONNÉES.
+   *  Se mettre à la file rendrait la détection de plus en plus en retard, ce
+   *  qui est précisément le défaut qu'on corrige ici. */
+  private busy = false
 
   private video: HTMLVideoElement | null = null
   /** Toile de travail : la détection tourne TOUJOURS en petit, quelle que
@@ -167,25 +189,91 @@ export class DetectionService {
     }
   }
 
+  /** Bascule sur le flux direct servi par Rust. */
+  async startFeed(url: string): Promise<void> {
+    this.stopFeed()
+    await this.ensureModels()
+    this.stream?.getTracks().forEach((t) => t.stop())
+    this.stream = null
+    this.video = null
+    this.stopped = false
+    this.lastTickEnd = 0
+    const ws = new WebSocket(url)
+    ws.binaryType = 'blob'
+    ws.onopen = () => {
+      this.feedActive.set(true)
+      this.running.set(true)
+      this.status.set('détection en cours — flux direct')
+    }
+    ws.onmessage = (ev) => void this.onFeedFrame(ev.data as Blob)
+    ws.onerror = () => this.status.set('flux direct injoignable')
+    ws.onclose = () => {
+      this.feedActive.set(false)
+      if (!this.stopped) this.status.set('flux direct interrompu')
+    }
+    this.feedWs = ws
+  }
+
+  stopFeed(): void {
+    const ws = this.feedWs
+    this.feedWs = null
+    this.feedActive.set(false)
+    if (ws) {
+      ws.onclose = null
+      ws.close()
+    }
+    this.bitmap?.close()
+    this.bitmap = null
+    this.busy = false
+  }
+
+  private async onFeedFrame(blob: Blob): Promise<void> {
+    // Image jetée plutôt que mise en file : voir `busy`.
+    if (this.busy || this.stopped) return
+    this.busy = true
+    const ts = performance.now()
+    if (this.lastTickEnd) this.waitAcc += ts - this.lastTickEnd
+    try {
+      const bmp = await createImageBitmap(blob)
+      this.bitmap?.close()
+      this.bitmap = bmp
+      if (this.sourceSize()?.w !== bmp.width || this.sourceSize()?.h !== bmp.height) {
+        this.sourceSize.set({ w: bmp.width, h: bmp.height })
+      }
+      this.process(bmp, ts)
+    } catch {
+      /* image illisible : on saute, la suivante arrive dans 30 ms */
+    } finally {
+      this.lastTickEnd = performance.now()
+      this.busy = false
+    }
+  }
+
+  /** Chargement des modèles, commun aux deux sources. */
+  private async ensureModels(): Promise<void> {
+    if (this.face && this.hand) return
+    this.status.set('chargement des modèles…')
+    const fileset = await FilesetResolver.forVisionTasks('/vendor/wasm')
+    this.face = await FaceLandmarker.createFromOptions(fileset, {
+      baseOptions: { modelAssetPath: '/vendor/models/face_landmarker.task', delegate: 'GPU' },
+      runningMode: 'VIDEO',
+      numFaces: 1,
+      outputFaceBlendshapes: true,
+    })
+    this.hand = await HandLandmarker.createFromOptions(fileset, {
+      baseOptions: { modelAssetPath: '/vendor/models/hand_landmarker.task', delegate: 'GPU' },
+      runningMode: 'VIDEO',
+      numHands: 2,
+    })
+  }
+
   async start(): Promise<void> {
     if (this.running()) return
+    this.stopFeed()
     clearTimeout(this.retryTimer)
     this.status.set('chargement des modèles…')
     try {
-      if (!this.face || !this.hand) {
-        const fileset = await FilesetResolver.forVisionTasks('/vendor/wasm')
-        this.face = await FaceLandmarker.createFromOptions(fileset, {
-          baseOptions: { modelAssetPath: '/vendor/models/face_landmarker.task', delegate: 'GPU' },
-          runningMode: 'VIDEO',
-          numFaces: 1,
-          outputFaceBlendshapes: true,
-        })
-        this.hand = await HandLandmarker.createFromOptions(fileset, {
-          baseOptions: { modelAssetPath: '/vendor/models/hand_landmarker.task', delegate: 'GPU' },
-          runningMode: 'VIDEO',
-          numHands: 2,
-        })
-      }
+      await this.ensureModels()
       this.status.set('accès caméra…')
       const wanted = this.selectedCameraId()
       // Aucune contrainte de définition : on prend la source TELLE QU'ELLE
@@ -268,6 +356,7 @@ export class DetectionService {
 
   stop(): void {
     this.stopped = true
+    this.stopFeed()
     clearTimeout(this.retryTimer)
     this.retries = 0
     this.stream?.getTracks().forEach((t) => t.stop())
@@ -319,6 +408,81 @@ export class DetectionService {
     return { w: Math.round(vw * s), h: Math.round(vh * s) }
   }
 
+  /**
+   * Traite UNE image, d'où qu'elle vienne.
+   *
+   * Extrait de la boucle vidéo pour être partagé avec le flux direct : les
+   * deux sources ne diffèrent que par la façon dont l'image arrive, jamais par
+   * ce qu'on en fait. Dupliquer ce corps aurait garanti qu'un correctif
+   * n'atterrisse que d'un côté.
+   */
+  private process(input: ImageSource, ts: number): void {
+    const tPrep = performance.now()
+    const faceRes = this.face!.detectForVideo(input, ts)
+    const handRes = this.hand!.detectForVideo(input, ts)
+    const tInfer = performance.now()
+    this.prepAcc += tPrep - ts
+    this.infAcc += tInfer - tPrep
+
+    // Ancre visage : situe les mains par rapport à la tête, indépendamment de
+    // la distance à la caméra.
+    //
+    // v2 (nez + écart inter-oculaire) s'écroulait dès qu'on tournait la tête.
+    // Le bout du nez est le point du visage qui se déplace le PLUS en
+    // rotation — il dépasse — et l'écart entre les yeux rétrécit en
+    // projection : −13 % à 30°, −29 % à 45°. La position étant divisée par
+    // cette échelle, elle enflait de 41 % à main strictement immobile.
+    // Symptôme vécu : le signe ne passe plus dès qu'on regarde le second
+    // écran.
+    //
+    // v7 corrige les deux : origine entre les yeux (creux stable, ne dépasse
+    // pas) et échelle prise sur la HAUTEUR du visage, front→menton, qui elle
+    // ne rétrécit pas quand on tourne la tête sur le côté.
+    //
+    // `nose` et `scale` restent écrits pour les enregistrements d'avant, qui
+    // n'ont que ce repère-là. Voir featurizePosition.
+    const fl = faceRes.faceLandmarks?.[0] ?? null
+    let faceAnchor: FaceAnchor | null = null
+    if (fl && fl.length > 263) {
+      const nose = fl[1]!
+      const l = fl[33]!
+      const r = fl[263]!
+      faceAnchor = {
+        nose: { x: nose.x, y: nose.y },
+        scale: Math.hypot(r.x - l.x, r.y - l.y),
+        eyes: { x: (l.x + r.x) / 2, y: (l.y + r.y) / 2 },
+        height: Math.hypot(fl[152]!.x - fl[10]!.x, fl[152]!.y - fl[10]!.y),
+      }
+    }
+    const raw: RawFrame = {
+      face: faceRes.faceBlendshapes?.[0]?.categories ?? null,
+      hands: (handRes.landmarks ?? []).map((lm, i) => ({
+        handedness: (handRes.handedness?.[i]?.[0]?.categoryName ?? 'Right') as Handedness,
+        landmarks: lm as Landmark[],
+      })),
+      faceAnchor,
+    }
+    const viz: VizFrame = {
+      faceLandmarks: faceRes.faceLandmarks?.[0] ?? null,
+      handLandmarks: handRes.landmarks ?? [],
+    }
+    for (const fn of this.listeners) fn(raw, viz, ts)
+
+    this.frameCount++
+    if (ts - this.lastFpsAt > 1000) {
+      const n = this.frameCount || 1
+      this.fps.set(Math.round((this.frameCount * 1000) / (ts - this.lastFpsAt || 1)))
+      this.inferenceMs.set(this.infAcc / n)
+      this.prepMs.set(this.prepAcc / n)
+      this.waitMs.set(this.waitAcc / n)
+      this.infAcc = 0
+      this.prepAcc = 0
+      this.waitAcc = 0
+      this.frameCount = 0
+      this.lastFpsAt = ts
+    }
+  }
+
   private loop(): void {
     const video = this.video
     if (!video) return
@@ -355,7 +519,7 @@ export class DetectionService {
       // la mémoire centrale. Elle n'est utile que face à une source 720p/1440p,
       // typiquement la caméra virtuelle.
       const src = this.sizeOf(vw, vh)
-      let input: HTMLVideoElement | HTMLCanvasElement = video
+      let input: ImageSource = video
       if (src) {
         if (!this.work) {
           this.work = document.createElement('canvas')
@@ -372,70 +536,7 @@ export class DetectionService {
         this.sourceSize.set({ w: vw, h: vh })
       }
 
-      const tPrep = performance.now()
-      const faceRes = this.face!.detectForVideo(input, ts)
-      const handRes = this.hand!.detectForVideo(input, ts)
-      const tInfer = performance.now()
-      this.prepAcc += tPrep - ts
-      this.infAcc += tInfer - tPrep
-
-      // Ancre visage : situe les mains par rapport à la tête, indépendamment de
-      // la distance à la caméra.
-      //
-      // v2 (nez + écart inter-oculaire) s'écroulait dès qu'on tournait la tête.
-      // Le bout du nez est le point du visage qui se déplace le PLUS en
-      // rotation — il dépasse — et l'écart entre les yeux rétrécit en
-      // projection : −13 % à 30°, −29 % à 45°. La position étant divisée par
-      // cette échelle, elle enflait de 41 % à main strictement immobile.
-      // Symptôme vécu : le signe ne passe plus dès qu'on regarde le second
-      // écran.
-      //
-      // v7 corrige les deux : origine entre les yeux (creux stable, ne dépasse
-      // pas) et échelle prise sur la HAUTEUR du visage, front→menton, qui elle
-      // ne rétrécit pas quand on tourne la tête sur le côté.
-      //
-      // `nose` et `scale` restent écrits pour les enregistrements d'avant, qui
-      // n'ont que ce repère-là. Voir featurizePosition.
-      const fl = faceRes.faceLandmarks?.[0] ?? null
-      let faceAnchor: FaceAnchor | null = null
-      if (fl && fl.length > 263) {
-        const nose = fl[1]!
-        const l = fl[33]!
-        const r = fl[263]!
-        faceAnchor = {
-          nose: { x: nose.x, y: nose.y },
-          scale: Math.hypot(r.x - l.x, r.y - l.y),
-          eyes: { x: (l.x + r.x) / 2, y: (l.y + r.y) / 2 },
-          height: Math.hypot(fl[152]!.x - fl[10]!.x, fl[152]!.y - fl[10]!.y),
-        }
-      }
-      const raw: RawFrame = {
-        face: faceRes.faceBlendshapes?.[0]?.categories ?? null,
-        hands: (handRes.landmarks ?? []).map((lm, i) => ({
-          handedness: (handRes.handedness?.[i]?.[0]?.categoryName ?? 'Right') as Handedness,
-          landmarks: lm as Landmark[],
-        })),
-        faceAnchor,
-      }
-      const viz: VizFrame = {
-        faceLandmarks: faceRes.faceLandmarks?.[0] ?? null,
-        handLandmarks: handRes.landmarks ?? [],
-      }
-      for (const fn of this.listeners) fn(raw, viz, ts)
-
-      this.frameCount++
-      if (ts - this.lastFpsAt > 1000) {
-        const n = this.frameCount || 1
-        this.fps.set(Math.round((this.frameCount * 1000) / (ts - this.lastFpsAt || 1)))
-        this.inferenceMs.set(this.infAcc / n)
-        this.prepMs.set(this.prepAcc / n)
-        this.waitMs.set(this.waitAcc / n)
-        this.infAcc = 0
-        this.prepAcc = 0
-        this.waitAcc = 0
-        this.frameCount = 0
-        this.lastFpsAt = ts
-      }
+      this.process(input, ts)
       this.lastTickEnd = performance.now()
       schedule()
     }

@@ -1,4 +1,5 @@
 pub mod actions;
+mod camfeed;
 pub mod diag;
 pub mod fetch;
 pub mod hotkeys;

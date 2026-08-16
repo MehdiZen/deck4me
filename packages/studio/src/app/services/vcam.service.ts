@@ -196,6 +196,15 @@ export class VcamService {
    */
   private async switchDetectionToVirtual(restart: boolean): Promise<void> {
     await this.detection.listCameras()
+    // Chemin direct d'abord : Rust nous sert les images réduites par le
+    // serveur local, sans passer par DirectShow ni par la pile de capture de
+    // WebView2. Mesuré avant : 17 images publiées, 8 reçues.
+    const feed = this.feedUrl()
+    if (feed) {
+      await this.detection.startFeed(feed)
+      this.switched.set(true)
+      return
+    }
     const virt = this.detection.cameras().find((c) => /(deck|meme)4me/i.test(c.label))
     if (virt) {
       // `useCamera` et non `selectCamera` : c'est une bascule imposée, pas un
@@ -226,6 +235,19 @@ export class VcamService {
    * n'existait plus, échouait à l'ouvrir et retombait sur la première venue.
    * D'où l'impression que l'app changeait de caméra toute seule.
    */
+  /** URL du flux direct, dérivée de celle de l'overlay : même serveur, même
+   *  jeton de session. Vide tant que le serveur n'a pas démarré. */
+  private feedUrl(): string | null {
+    const url = this.store.overlayUrl()
+    if (!url) return null
+    try {
+      const u = new URL(url)
+      return `ws://${u.host}/camera?t=${u.searchParams.get('t') ?? ''}`
+    } catch {
+      return null
+    }
+  }
+
   async stop(): Promise<void> {
     this.busy.set(true)
     this.switched.set(false)
@@ -235,6 +257,7 @@ export class VcamService {
       // sinon la webcam physique reste prise par le pompage
       if (wasDetecting) this.detection.stop()
       this.status.set(await this.tauri.invoke<VcamStatus>('vcam_stop', {}, EMPTY_VCAM))
+      this.detection.stopFeed()
       // Le pompage vient tout juste de rendre la webcam physique ; Windows met
       // un instant à la rouvrir au demandeur suivant.
       await new Promise((r) => setTimeout(r, 300))
