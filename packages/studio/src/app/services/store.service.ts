@@ -2,7 +2,6 @@ import { Injectable, computed, inject, signal } from '@angular/core'
 import {
   DEFAULT_RENDER,
   FEATURIZER_VERSION,
-  NEIGHBOR_CAP,
   blocksFromJson,
   blocksToJson,
   computeBaseline,
@@ -380,21 +379,52 @@ export class StoreService {
         .filter((o) => o.id !== g.id && (o.profileId || 'default') === (g.profileId || 'default'))
         .map((o) => ({ gestureId: o.id, samples: refeaturized.get(o.id)!, source: o.source }))
       const v = computeThreshold(samples, g.source, others, negatives)
-      // Sur un verdict de collision, `threshold` n'est PAS plafonné par le
-      // voisin — c'est voulu côté wizard, qui refuse alors l'enregistrement.
-      // Ici on ne peut rien refuser : on prend le minimum, donc le plus strict.
-      const threshold = v.nearestOther
-        ? Math.min(v.threshold, v.nearestOther.dist * NEIGHBOR_CAP)
-        : v.threshold
+      // Sur une collision, on garde le seuil calculé et on le DIT, au lieu de
+      // le raboter en douce.
+      //
+      // Une version antérieure prenait ici `min(seuil, voisin × NEIGHBOR_CAP)`
+      // au motif qu'une migration ne peut rien refuser, contrairement au
+      // wizard. Deux raisons de l'avoir retiré :
+      //
+      //  1. c'était la seule voie du produit où un seuil bougeait sans que
+      //     personne ne le sache. Une pose devenait plus dure à déclencher
+      //     entre deux lancements, et rien à l'écran ne l'expliquait ;
+      //  2. c'était inutile. Le matcher est en winner-take-all : sur une
+      //     frame, seule la pose la PLUS PROCHE reçoit sa distance, les autres
+      //     reçoivent null. Deux seuils qui se chevauchent ne déclenchent donc
+      //     pas ensemble — la plus proche gagne. Le rétrécissement ne réglait
+      //     rien que le matcher ne règle déjà.
+      //
+      // Reste le vrai risque, que le rabotage ne traitait pas non plus : deux
+      // poses si semblables que c'est le bruit de reproduction qui désigne la
+      // gagnante. Ça, ça se dit à l'utilisateur — il choisit de réenregistrer
+      // ou d'en supprimer une. Ça ne se compense pas dans son dos.
+      if (v.verdict === 'collision' && v.collidesWith) {
+        const other = this.allGestures().find((o) => o.id === v.collidesWith)
+        this.migrationCollisions.update((all) => [
+          ...all,
+          { id: g.id, name: g.name, withName: other?.name ?? '—' },
+        ])
+      }
       await this.saveGesture({
         ...g,
         samples: samples.map(blocksToJson),
-        threshold,
-        thresholdAuto: threshold,
+        threshold: v.threshold,
+        thresholdAuto: v.threshold,
         featurizerVersion: FEATURIZER_VERSION,
       })
     }
   }
+
+  /**
+   * Poses devenues trop proches d'une autre lors de la dernière migration.
+   *
+   * En mémoire seulement, et c'est suffisant : la migration ne tourne qu'au
+   * démarrage, juste avant que l'écran soit lu. Persister ce constat créerait
+   * un état à invalider — après un réenregistrement, après une suppression —
+   * pour une information qui se recalcule en une passe.
+   */
+  readonly migrationCollisions = signal<{ id: string; name: string; withName: string }[]>([])
 
   /** Rendu v1 → v2, une fois, à la lecture. La conversion elle-même vit dans
    *  le core (elle appartient au format) et y est couverte par des tests. */

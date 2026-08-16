@@ -102,6 +102,23 @@ import {
         </div>
       </div>
     }
+    @if (store.migrationCollisions().length) {
+      <div class="notice err rise">
+        <app-icon name="pulse" [size]="18" />
+        <div>
+          <b
+            >{{ store.migrationCollisions().length }} pose(s) sont devenues trop proches d'une
+            autre.</b
+          >
+          Le dernier changement de moteur les a rapprochées au point que c'est ta précision
+          d'exécution, et non la pose, qui décidera laquelle part. Réenregistre-en une, ou
+          supprime-la.
+          @for (c of store.migrationCollisions(); track c.id) {
+            <div class="pair"><b>{{ c.name }}</b> ↔ {{ c.withName }}</div>
+          }
+        </div>
+      </div>
+    }
     @if (store.staleGestures().length) {
       <div class="notice err rise">
         <app-icon name="pulse" [size]="18" />
@@ -413,6 +430,9 @@ import {
     }
     .notice app-icon { margin-top: 1px; }
     .notice b { font-weight: 620; }
+    /* Les paires en cause, nommées : « deux poses se ressemblent » sans dire
+       lesquelles obligerait à les essayer une par une. */
+    .pair { margin-top: 4px; font-size: 12px; color: var(--ink-2); }
     .notice.warn { border-color: #d9901255; background: #d9901214; color: #f0cd94; }
     .notice.warn app-icon { color: var(--st-candidate); }
     .notice.err { border-color: #e03e4e55; background: #e03e4e14; color: #f3b6bc; }
