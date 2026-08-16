@@ -24,15 +24,18 @@
 // Toutes les suppressions sont best-effort : un échec ici ne doit jamais faire
 // tomber le build, le balayage suivant repassera derrière.
 //
-// À n'exécuter QUE juste avant un build : il retire softcam.dll de
-// target/release en comptant sur Tauri pour le recopier dans la foulée. Lancé
-// seul, il laisse le deck4me.exe déjà présent sans sa DLL voisine — l'app
-// démarre mais la caméra virtuelle est introuvable.
-import { existsSync, readdirSync, renameSync, rmSync } from 'node:fs'
+// Le script laisse toujours target/release dans un état COHÉRENT : quand la
+// suppression réussit, la DLL est aussitôt recopiée depuis vendor. Une version
+// antérieure se contentait de supprimer, en comptant sur Tauri pour recopier
+// derrière — vrai pendant un build, faux quand on lance le script seul, ce qui
+// laissait le deck4me.exe déjà construit sans sa DLL voisine. Documenter ce
+// piège n'a pas suffi à l'éviter ; le supprimer, si.
+import { copyFileSync, existsSync, readdirSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
+const src = join(root, 'vendor', 'softcam', 'dist', 'bin', 'x64', 'softcam.dll')
 
 
 /** Les deux préfixes déjà semés dans la nature : `softcam.locked.*` (ce
@@ -74,7 +77,13 @@ for (const dir of [join(root, 'src-tauri', 'target', 'release'), join(root, 'tar
   // passe et aucun résidu n'est créé. Le renommage n'est que le plan B.
   const dst = join(dir, 'softcam.dll')
   if (!existsSync(dst)) continue
-  if (tryRemove(dst)) continue
+  if (tryRemove(dst)) {
+    // Rien ne la tenait : on remet tout de suite une copie fraîche. Tauri
+    // réécrira par-dessus pendant le build, sans que ça coûte quoi que ce soit
+    // — 215 ko —, et hors build l'arborescence reste utilisable.
+    if (existsSync(src)) copyFileSync(src, dst)
+    continue
+  }
 
   const parked = join(dir, `softcam.locked.${Date.now()}.dll`)
   try {
