@@ -171,7 +171,15 @@ import {
               />
             </label>
             <div class="lmeta">
-              <b class="nm" [title]="g.name">{{ g.name }}</b>
+              <!-- Champ et non libellé : un maillon enregistré depuis Macros
+                   s'appelle « Truc ① », un nom de fabrication que personne ne
+                   choisit et que tout le monde veut corriger. -->
+              <input
+                class="nm"
+                [value]="g.name"
+                (change)="rename(g, $any($event.target).value)"
+                [attr.aria-label]="'Nom de ' + g.name"
+              />
               <span class="stats lbl">
                 {{ srcLabel(g.source) }} · seuil
                 <span class="num">{{ effective(g).toFixed(3) }}</span>
@@ -252,7 +260,12 @@ import {
           </div>
 
           <div class="meta">
-            <b class="nm" [title]="g.name">{{ g.name }}</b>
+            <input
+              class="nm"
+              [value]="g.name"
+              (change)="rename(g, $any($event.target).value)"
+              [attr.aria-label]="'Nom de ' + g.name"
+            />
             <div class="stats lbl">
               seuil <span class="num">{{ effective(g).toFixed(3) }}</span>
               @if ((g.sensitivity ?? 1) !== 1) {
@@ -422,6 +435,7 @@ import {
     .lmeta .nm {
       font-size: 13.5px; font-weight: 600; letter-spacing: -0.01em;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      width: 100%; max-width: 240px;
     }
     .lmeta .stats { text-transform: none; letter-spacing: 0; }
     .used { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; max-width: 45%; }
@@ -490,10 +504,18 @@ import {
     .chip.snd { top: auto; bottom: 10px; right: 10px; color: var(--cyan); }
 
     .meta { padding: 13px 15px 0; }
+    /* Le nom est un champ, mais il ne doit pas EN AVOIR l'air tant qu'on ne
+       le vise pas : une grille de cartes couverte de rectangles de saisie se
+       lit comme un formulaire, pas comme une bibliothèque. Le cadre
+       n'apparaît qu'au survol et au focus. */
     .nm {
       display: block; font-weight: 600; font-size: 14.5px; letter-spacing: -0.01em;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      width: 100%; background: none; border-color: transparent; padding: 4px 7px;
+      margin-left: -7px;
     }
+    .nm:hover { border-color: var(--line); background: var(--void); }
+    .nm:focus { background: var(--void); }
     .stats {
       display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
       margin-top: 5px; text-transform: none; letter-spacing: 0; font-size: 11.5px;
@@ -578,6 +600,24 @@ export class GesturesPage {
   /** Rend un maillon autonome : il repasse dans Memes et pourra afficher un
    *  meme. Il reste dans ses macros — une pose peut très bien faire les deux,
    *  au prix de voir son meme apparaître au passage de l'enchaînement. */
+  /**
+   * Renomme une pose. Aucune des deux familles ne le permettait, alors que les
+   * macros, elles, s'éditent en ligne depuis toujours.
+   *
+   * C'est le manque qui coûtait le plus cher aux maillons : enregistrés depuis
+   * Macros, ils s'appellent « Truc ① », « Truc ② » — un nom de fabrication que
+   * personne n'a choisi. Faute de pouvoir le corriger, on cliquait sur le
+   * bouton voisin en espérant qu'il serve à ça.
+   *
+   * Un nom vide est ignoré plutôt que refusé avec un message : le champ
+   * retrouve son ancienne valeur au prochain rendu, ce qui dit la même chose
+   * sans rien interrompre.
+   */
+  async rename(g: StoredGesture, name: string): Promise<void> {
+    const t = name.trim()
+    if (t && t !== g.name) await this.store.saveGesture({ ...g, name: t })
+  }
+
   async promote(g: StoredGesture): Promise<void> {
     await this.store.saveGesture({ ...g, sequenceOnly: false })
     this.tab.set('meme')
