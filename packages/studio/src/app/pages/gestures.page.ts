@@ -270,25 +270,21 @@ import {
             </div>
           </div>
 
-          <!-- Basculer ce drapeau DÉPLACE la carte vers l'onglet Maillons :
-               c'est lui qui définit la frontière entre les deux familles. -->
+          <!-- Information, plus commande : la bascule entre familles vit
+               maintenant dans un seul bouton, en bas de carte. Deux contrôles
+               pour un même drapeau, c'était un de trop.
+               Ce qu'il reste ici ne se déduit d'aucun autre élément de la
+               carte : cette pose sert AUSSI d'étape à une macro, donc son meme
+               s'affichera au passage de l'enchaînement. -->
           @if (store.gesturesInMacros().has(g.id)) {
-            <label class="chainopt" [title]="'Utilisée dans un enchaînement'">
-              <span class="switch">
-                <input
-                  type="checkbox"
-                  [checked]="!!g.sequenceOnly"
-                  (change)="setSequenceOnly(g, $event)"
-                />
-              </span>
-              <span>
-                Maillon seulement
-                <span class="lbl">
-                  N'affichera plus son meme toute seule, et passera dans l'onglet
-                  <b>Maillons de macro</b>.
-                </span>
-              </span>
-            </label>
+            <p class="chainopt lbl">
+              Étape de
+              @for (m of store.macrosUsing(g.id); track m.id) {
+                <a class="badge ok" routerLink="/macros">{{ m.name }}</a>
+              }
+              — son meme s'affichera au passage de l'enchaînement. Le bouton
+              <b>↓</b> la rend maillon seulement.
+            </p>
           }
 
           <div class="ctrl">
@@ -324,6 +320,16 @@ import {
               title="Refaire la pose en gardant le meme, le cadrage et le son"
             >
               <app-icon name="hand" [size]="15" />
+            </button>
+            <!-- Symétrique du bouton « rendre autonome » des maillons. Sans
+                 lui, le passage Maillon → Meme était sans retour dès que la
+                 pose n'appartenait à aucune macro. -->
+            <button
+              class="ghost sm"
+              (click)="demote(g)"
+              title="Renvoyer vers Maillons de macro : la pose n'affichera plus son meme toute seule"
+            >
+              <app-icon name="down" [size]="15" />
             </button>
             <span class="spacer"></span>
             <button class="ghost sm" (click)="remove(g)" [attr.aria-label]="'Supprimer ' + g.name">
@@ -502,8 +508,9 @@ import {
       margin: 12px 15px 0; padding: 9px 11px;
       background: #38bdf80e; border: 1px solid #38bdf833;
       border-radius: var(--r-control);
-      cursor: pointer; font-size: 12.5px;
+      font-size: 12.5px; line-height: 1.5;
     }
+    .chainopt .badge { margin: 0 2px; }
     .chainopt .lbl {
       display: block; margin-top: 2px;
       text-transform: none; letter-spacing: 0; font-size: 11px;
@@ -576,6 +583,24 @@ export class GesturesPage {
     this.tab.set('meme')
   }
 
+  /**
+   * Renvoie une pose vers les maillons. Symétrique exact de `promote`.
+   *
+   * L'interruptrice « Maillon seulement » existait déjà plus bas dans la
+   * carte, mais seulement pour les poses employées dans une macro. Une pose
+   * rendue autonome par erreur et n'appartenant à aucune macro n'avait donc
+   * plus AUCUN chemin de retour : il fallait la supprimer et la réenregistrer.
+   * Un aller sans retour dans une bascule à deux états est toujours un bug.
+   *
+   * Le meme et son cadrage sont conservés : le drapeau ne détruit rien, il
+   * décide seulement si la pose s'affiche toute seule. La repromouvoir lui
+   * rend son meme intact.
+   */
+  async demote(g: StoredGesture): Promise<void> {
+    await this.store.saveGesture({ ...g, sequenceOnly: true })
+    this.tab.set('link')
+  }
+
   readonly bound = computed(
     () => this.store.memeGestures().filter((g) => this.store.binding(g.id)).length,
   )
@@ -619,12 +644,6 @@ export class GesturesPage {
     await this.store.saveGesture({ ...g, enabled: (ev.target as HTMLInputElement).checked })
   }
 
-  async setSequenceOnly(g: StoredGesture, ev: Event): Promise<void> {
-    await this.store.saveGesture({
-      ...g,
-      sequenceOnly: (ev.target as HTMLInputElement).checked,
-    })
-  }
 
   async setHoldMode(g: StoredGesture, ev: Event): Promise<void> {
     const holdMode = (ev.target as HTMLSelectElement).value as HoldMode
