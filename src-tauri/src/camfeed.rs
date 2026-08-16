@@ -14,9 +14,8 @@
 //! Windows, qui la rend à un navigateur logé dans le même processus.
 //!
 //! ─── Ce que fait ce module ──────────────────────────────────────────────────
-//! Il réduit l'image à la seule définition dont la détection ait besoin — 640
-//! px de côté long — l'encode en JPEG, et la pousse sur le serveur local déjà
-//! présent. Streamlabs continue de recevoir sa caméra virtuelle en pleine
+//! Il réduit l'image à une définition modeste, l'encode en JPEG, et la pousse
+//! sur le serveur local déjà présent. Streamlabs continue de recevoir sa caméra virtuelle en pleine
 //! définition : les deux chemins sont indépendants.
 //!
 //! Six fois moins d'octets, aucune conversion imposée, et surtout plus aucune
@@ -24,9 +23,22 @@
 use std::sync::{Arc, OnceLock};
 use tokio::sync::broadcast;
 
-/// Côté long livré à la détection. Identique à DETECT_LONG_SIDE côté front :
-/// réduire ici évite de transporter des pixels que la webview jetterait.
-const LONG_SIDE: u32 = 640;
+/// Côté long livré à la webview.
+///
+/// La DÉTECTION n'a besoin que de 640 : MediaPipe redimensionne lui-même en
+/// interne autour de 200 px, et monter plus haut ne change pas un landmark.
+/// C'est l'APERÇU qui réclame davantage — depuis le court-circuit, il n'affiche
+/// plus le flux de la webcam mais cette image-là, et 640 le rendait mou.
+///
+/// 960 plutôt que 1280 : le coût d'encodage et de décodage suit le nombre de
+/// pixels, pas le côté. 960×540 fait 2,2 fois 640×360 ; 1280×720 en ferait 4.
+/// Sur une pompe qui tient 51 ms par image, ces millisecondes se paient en
+/// cadence, des deux côtés — Rust encode, la webview décode, et ce décodage-là
+/// tombe dans le budget de la détection.
+///
+/// Un cran plus haut reste possible en changeant ce seul nombre, si l'aperçu
+/// prime sur les images par seconde.
+const LONG_SIDE: u32 = 960;
 
 /// Qualité JPEG. 70 est le point où l'artefact devient invisible sur un visage
 /// à cette taille ; monter coûte des octets sans rien rendre aux landmarks.
