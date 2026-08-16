@@ -260,7 +260,7 @@ fn client() -> &'static reqwest::Client {
     C.get_or_init(|| {
         reqwest::Client::builder()
             .timeout(HTTP_TIMEOUT)
-            .user_agent("meme4me")
+            .user_agent("deck4me")
             .build()
             .expect("client http constructible")
     })
@@ -475,9 +475,9 @@ mod sys {
             Ok(())
         } else {
             // Cas classique : la fenêtre au premier plan tourne en administrateur
-            // et meme4me non. L'UIPI bloque alors l'injection, sans autre signe.
+            // et deck4me non. L'UIPI bloque alors l'injection, sans autre signe.
             Err("Windows a refusé l'envoi clavier — la fenêtre active tourne \
-                 probablement en administrateur, contrairement à meme4me"
+                 probablement en administrateur, contrairement à deck4me"
                 .into())
         }
     }

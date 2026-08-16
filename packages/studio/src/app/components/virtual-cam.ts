@@ -3,8 +3,8 @@ import { StoreService } from '../services/store.service'
 import { VcamService } from '../services/vcam.service'
 
 /**
- * Carte « Caméra virtuelle ». meme4me ouvre la webcam physique et republie
- * « meme4me Camera » : Streamlabs et la détection se partagent enfin la même
+ * Carte « Caméra virtuelle ». deck4me ouvre la webcam physique et republie
+ * « deck4me Camera » : Streamlabs et la détection se partagent enfin la même
  * source, sans conflit DirectShow exclusif.
  */
 @Component({
@@ -13,8 +13,8 @@ import { VcamService } from '../services/vcam.service'
     <div class="card">
       <h2>Caméra virtuelle — pour Streamlabs</h2>
       <p class="lbl">
-        Streamlabs prend la webcam en accès exclusif. Ici, meme4me l'ouvre seul et
-        republie le flux sous le nom « meme4me Camera » : dans Streamlabs, choisis
+        Streamlabs prend la webcam en accès exclusif. Ici, deck4me l'ouvre seul et
+        republie le flux sous le nom « deck4me Camera » : dans Streamlabs, choisis
         cette caméra au lieu de ta webcam.
       </p>
 
@@ -34,7 +34,7 @@ import { VcamService } from '../services/vcam.service'
             Installer le pilote
           </button>
           <p class="lbl hint">
-            Normalement posé pendant l'installation de meme4me — ce bouton n'est
+            Normalement posé pendant l'installation de deck4me — ce bouton n'est
             qu'un secours, et demande les droits administrateur.
           </p>
         } @else {
@@ -113,7 +113,7 @@ import { VcamService } from '../services/vcam.service'
         <span>
           Reprendre au lancement
           <span class="lbl">
-            meme4me rouvre cette caméra et redémarre la diffusion tout seul au
+            deck4me rouvre cette caméra et redémarre la diffusion tout seul au
             démarrage — plus rien à recliquer avant un stream.
           </span>
         </span>
@@ -133,10 +133,10 @@ import { VcamService } from '../services/vcam.service'
         </div>
         <p class="lbl">
           @if (vcam.switched()) {
-            La détection est passée sur meme4me Camera automatiquement.
+            La détection est passée sur deck4me Camera automatiquement.
           }
           Dans Streamlabs : ajoute une source « Périphérique de capture vidéo » et
-          choisis <b>meme4me Camera</b>. Laisse meme4me ouvert pendant le stream.
+          choisis <b>deck4me Camera</b>. Laisse deck4me ouvert pendant le stream.
         </p>
       }
     </div>

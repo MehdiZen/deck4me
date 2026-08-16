@@ -6,7 +6,7 @@ import {
   type GestureSnapshot,
   type MacroProgress,
   type RawFrame,
-} from '@meme4me/core'
+} from '@deck4me/core'
 import { DetectionService } from './detection.service'
 import { StoreService } from './store.service'
 import { TauriService } from './tauri.service'

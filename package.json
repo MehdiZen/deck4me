@@ -1,5 +1,5 @@
 {
-  "name": "meme4me",
+  "name": "deck4me",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -7,13 +7,13 @@
     "packages/overlay"
   ],
   "scripts": {
-    "test": "npm run test -w @meme4me/core",
+    "test": "npm run test -w @deck4me/core",
     "vendor": "node scripts/fetch-vendor.mjs",
     "icons": "node scripts/gen-icons.mjs",
     "softcam": "node scripts/build-softcam.mjs",
     "setup": "npm install && npm run vendor && npm run icons && npm run softcam",
     "postinstall": "node scripts/gen-icons.mjs",
-    "build:overlay": "npm run build -w @meme4me/overlay",
+    "build:overlay": "npm run build -w @deck4me/overlay",
     "build:studio": "npm --prefix packages/studio run build",
     "build:front": "npm run build:overlay && npm run build:studio",
     "dev:front": "npm run build:overlay && npm --prefix packages/studio start",

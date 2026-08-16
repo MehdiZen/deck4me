@@ -12,7 +12,7 @@ import {
   MACRO_MIN_STEPS,
   describeAction,
   type MacroDef,
-} from '@meme4me/core'
+} from '@deck4me/core'
 import { ActionList } from '../components/action-list'
 import { AssetPicker } from '../components/asset-picker'
 import { BindingEditor } from '../components/binding-editor'

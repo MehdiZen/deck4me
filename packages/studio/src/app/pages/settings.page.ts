@@ -51,7 +51,7 @@ import { StoreService } from '../services/store.service'
         <p class="lbl">
           Choisis la caméra qui te filme. En changer redémarre la détection si elle
           tourne. Si la caméra virtuelle ci-dessous est active, prends
-          « meme4me Camera » ici aussi : la webcam n'est alors ouverte qu'une fois.
+          « deck4me Camera » ici aussi : la webcam n'est alors ouverte qu'une fois.
         </p>
         <label class="opt">
           <span class="switch">
@@ -64,7 +64,7 @@ import { StoreService } from '../services/store.service'
           <span>
             Démarrer la détection au lancement
             <span class="lbl">
-              La caméra s'ouvre dès l'ouverture de meme4me. À laisser décoché si tu
+              La caméra s'ouvre dès l'ouverture de deck4me. À laisser décoché si tu
               veux garder la main sur le moment où la webcam s'allume.
             </span>
           </span>

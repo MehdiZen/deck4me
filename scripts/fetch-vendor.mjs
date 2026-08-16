@@ -31,7 +31,7 @@ const TARGETS = [
 const root = fileURLToPath(new URL('..', import.meta.url))
 
 async function main() {
-  const tmp = await mkdtemp(join(tmpdir(), 'meme4me-vendor-'))
+  const tmp = await mkdtemp(join(tmpdir(), 'deck4me-vendor-'))
   try {
     console.log(`Téléchargement de ${TASKS_VISION}…`)
     execFileSync('npm', ['pack', TASKS_VISION, '--silent'], { cwd: tmp, shell: true })

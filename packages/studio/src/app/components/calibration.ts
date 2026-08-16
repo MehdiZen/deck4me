@@ -1,5 +1,5 @@
 import { Component, OnDestroy, computed, inject, signal } from '@angular/core'
-import type { RawFrame } from '@meme4me/core'
+import type { RawFrame } from '@deck4me/core'
 import { DetectionService } from '../services/detection.service'
 import { StoreService } from '../services/store.service'
 import { CameraView } from './camera-view'

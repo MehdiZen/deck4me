@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "meme4me",
+  "productName": "deck4me",
   "version": "0.1.0",
-  "identifier": "dev.meme4me.app",
+  "identifier": "dev.deck4me.app",
   "build": {
     "frontendDist": "../packages/studio/dist/studio/browser",
     "devUrl": "http://localhost:4200",
@@ -13,7 +13,7 @@
     "withGlobalTauri": false,
     "windows": [
       {
-        "title": "meme4me Studio",
+        "title": "deck4me Studio",
         "width": 1440,
         "height": 900,
         "minWidth": 1120,

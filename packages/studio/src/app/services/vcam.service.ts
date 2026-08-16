@@ -153,7 +153,7 @@ export class VcamService {
    * s'ouvre qu'une fois.
    *   1. libérer la webcam physique tenue par la détection
    *   2. la caméra virtuelle la prend et republie
-   *   3. la détection repart sur « meme4me Camera »
+   *   3. la détection repart sur « deck4me Camera »
    */
   async start(): Promise<void> {
     this.busy.set(true)
@@ -177,7 +177,7 @@ export class VcamService {
   /** Bascule la détection sur la caméra virtuelle (elle seule reste lisible). */
   private async switchDetectionToVirtual(restart: boolean): Promise<void> {
     await this.detection.listCameras()
-    const virt = this.detection.cameras().find((c) => /meme4me/i.test(c.label))
+    const virt = this.detection.cameras().find((c) => /deck4me/i.test(c.label))
     if (virt) {
       await this.detection.selectCamera(virt.deviceId)
       this.switched.set(true)

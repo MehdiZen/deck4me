@@ -249,10 +249,14 @@ pub fn is_opaque(mime: &str) -> bool {
     mime == "image/jpeg"
 }
 
-/// Identifiants utilisés avant le renommage en meme4me. Les données vivent
+/// Identifiants utilisés avant le renommage en deck4me. Les données vivent
 /// dans un dossier nommé d'après l'identifiant de l'app : sans reprise, un
 /// renommage ferait « disparaître » gestures et calibration.
-const LEGACY_APP_IDS: &[&str] = &["dev.facememe.app"];
+///
+/// Ordre = ordre de préférence, du plus récent au plus ancien. Le premier
+/// dossier trouvé l'emporte : qui a traversé les deux renommages a deux
+/// dossiers sur son disque, et c'est son travail le plus récent qu'il veut.
+const LEGACY_APP_IDS: &[&str] = &["dev.meme4me.app", "dev.facememe.app"];
 
 fn copy_dir_all(from: &Path, to: &Path) -> std::io::Result<()> {
     fs::create_dir_all(to)?;
@@ -359,7 +363,7 @@ impl Store {
             return Ok(());
         }
         drop(db);
-        let meta = self.write_asset("test-meme4me.png", TEST_MEME)?;
+        let meta = self.write_asset("test-deck4me.png", TEST_MEME)?;
         let mut db = self.db.lock().unwrap();
         db.default_asset_id = Some(meta.id.clone());
         Ok(())

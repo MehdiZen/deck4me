@@ -52,10 +52,10 @@ function accelerator(ev: KeyboardEvent): string | null {
     <div class="card">
       <h2>Raccourcis globaux</h2>
       <p class="lbl">
-        Ils fonctionnent même quand meme4me n'a pas le focus — c'est tout
+        Ils fonctionnent même quand deck4me n'a pas le focus — c'est tout
         l'intérêt pendant un live. Clique sur un champ puis tape la combinaison.
         Windows accorde un raccourci au premier logiciel qui le demande : si OBS
-        l'a déjà, meme4me ne l'aura pas.
+        l'a déjà, deck4me ne l'aura pas.
       </p>
 
       @if (error()) {

@@ -5,7 +5,7 @@ import {
   HandLandmarker,
   type NormalizedLandmark,
 } from '@mediapipe/tasks-vision'
-import type { FaceAnchor, Handedness, Landmark, RawFrame } from '@meme4me/core'
+import type { FaceAnchor, Handedness, Landmark, RawFrame } from '@deck4me/core'
 
 export interface VizFrame {
   faceLandmarks: NormalizedLandmark[] | null
@@ -41,7 +41,7 @@ export class DetectionService {
 
   /** Caméras disponibles + sélection persistée (localStorage). */
   readonly cameras = signal<MediaDeviceInfo[]>([])
-  readonly selectedCameraId = signal<string>(localStorage.getItem('meme4me.cameraId') ?? '')
+  readonly selectedCameraId = signal<string>(localStorage.getItem('deck4me.cameraId') ?? '')
 
   /** MediaStream partagé avec les previews (un <video> par vue, même stream). */
   stream: MediaStream | null = null
@@ -93,7 +93,7 @@ export class DetectionService {
   /** Change de caméra, persiste, et redémarre la détection si elle tournait. */
   async selectCamera(deviceId: string): Promise<void> {
     this.selectedCameraId.set(deviceId)
-    localStorage.setItem('meme4me.cameraId', deviceId)
+    localStorage.setItem('deck4me.cameraId', deviceId)
     this.onCameraChange?.(deviceId)
     if (this.running()) {
       this.stop()
@@ -105,7 +105,7 @@ export class DetectionService {
   adoptSavedCamera(deviceId: string): void {
     if (deviceId && !this.selectedCameraId()) {
       this.selectedCameraId.set(deviceId)
-      localStorage.setItem('meme4me.cameraId', deviceId)
+      localStorage.setItem('deck4me.cameraId', deviceId)
     }
   }
 
@@ -139,7 +139,7 @@ export class DetectionService {
       } catch (e) {
         if (!wanted) throw e
         // caméra sauvegardée débranchée/indisponible → retombe sur la défaut
-        localStorage.removeItem('meme4me.cameraId')
+        localStorage.removeItem('deck4me.cameraId')
         this.selectedCameraId.set('')
         this.stream = await navigator.mediaDevices.getUserMedia({ video: base, audio: false })
       }

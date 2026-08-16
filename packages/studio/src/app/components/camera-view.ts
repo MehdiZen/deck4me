@@ -23,7 +23,7 @@ import { Icon } from './icon'
  * transiter par la base ajouterait une migration pour une préférence
  * d'affichage.
  */
-const HIDE_KEY = 'meme4me.hideVideo'
+const HIDE_KEY = 'deck4me.hideVideo'
 const hideVideo = signal(localStorage.getItem(HIDE_KEY) === '1')
 
 /** Squelette MediaPipe : paume puis les cinq doigts. Relier les points fait

@@ -9,7 +9,7 @@ import {
   inject,
   signal,
 } from '@angular/core'
-import { ENTER_FX, EXIT_FX } from '@meme4me/core'
+import { ENTER_FX, EXIT_FX } from '@deck4me/core'
 import { RangeFill } from '../range-fill'
 import {
   DEFAULT_RENDER,

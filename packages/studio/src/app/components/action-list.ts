@@ -10,7 +10,7 @@ import {
   validateAction,
   type ActionDef,
   type ActionKind,
-} from '@meme4me/core'
+} from '@deck4me/core'
 import { StoreService } from '../services/store.service'
 import { Icon } from './icon'
 

@@ -214,8 +214,8 @@ export class App {
     // Le raccourci « panic » est traité côté Rust (l'overlay est nettoyé même
     // si la webview rame) ; ici on ne fait que refléter l'état.
     effect(() => {
-      if (this.matcher.muted()) document.title = 'meme4me — COUPÉ'
-      else document.title = 'meme4me Studio'
+      if (this.matcher.muted()) document.title = 'deck4me — COUPÉ'
+      else document.title = 'deck4me Studio'
     })
   }
 
@@ -223,7 +223,7 @@ export class App {
     const s = this.store.settings()
     this.detection.adoptSavedCamera(s.detectionCamera)
     // La caméra virtuelle d'abord : elle prend la webcam physique et la
-    // détection bascule ensuite sur « meme4me Camera ». Dans l'autre ordre, la
+    // détection bascule ensuite sur « deck4me Camera ». Dans l'autre ordre, la
     // webcam serait déjà prise et la caméra virtuelle échouerait.
     await this.vcam.autoStartIfWanted()
     if (s.detectionAutoStart && !this.detection.running()) {

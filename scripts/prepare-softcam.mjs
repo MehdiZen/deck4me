@@ -26,7 +26,7 @@
 //
 // À n'exécuter QUE juste avant un build : il retire softcam.dll de
 // target/release en comptant sur Tauri pour le recopier dans la foulée. Lancé
-// seul, il laisse le meme4me.exe déjà présent sans sa DLL voisine — l'app
+// seul, il laisse le deck4me.exe déjà présent sans sa DLL voisine — l'app
 // démarre mais la caméra virtuelle est introuvable.
 import { existsSync, readdirSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
@@ -82,7 +82,7 @@ for (const dir of [join(root, 'src-tauri', 'target', 'release'), join(root, 'tar
     console.log(`softcam.dll verrouillé, écarté vers ${parked} (nettoyé au prochain build)`)
   } catch (e) {
     console.error(`softcam.dll verrouillé et impossible à écarter : ${e.message}`)
-    console.error('Fermer OBS et meme4me, puis relancer le build.')
+    console.error('Fermer OBS et deck4me, puis relancer le build.')
     process.exit(1)
   }
 }

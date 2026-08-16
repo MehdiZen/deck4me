@@ -22,7 +22,7 @@ import {
   type HoldMode,
   type RawFrame,
   type ThresholdVerdict,
-} from '@meme4me/core'
+} from '@deck4me/core'
 import { DetectionService } from '../services/detection.service'
 import { StoreService, type StoredGesture } from '../services/store.service'
 import { CameraView } from './camera-view'

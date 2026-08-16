@@ -23,16 +23,16 @@ static LOG_PATH: OnceLock<PathBuf> = OnceLock::new();
 static WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 pub fn init(dir: &Path) {
-    let path = dir.join("meme4me.log");
+    let path = dir.join("deck4me.log");
     // Rotation à l'ouverture plutôt qu'à chaque écriture : une seule
     // interrogation du système de fichiers par lancement.
     if let Ok(meta) = std::fs::metadata(&path) {
         if meta.len() > MAX_BYTES {
-            let _ = std::fs::rename(&path, dir.join("meme4me.log.1"));
+            let _ = std::fs::rename(&path, dir.join("deck4me.log.1"));
         }
     }
     let _ = LOG_PATH.set(path);
-    log("démarrage", &format!("meme4me {}", env!("CARGO_PKG_VERSION")));
+    log("démarrage", &format!("deck4me {}", env!("CARGO_PKG_VERSION")));
 
     std::panic::set_hook(Box::new(|info| {
         let where_ = info

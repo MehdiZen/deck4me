@@ -1,12 +1,12 @@
 [package]
-name = "meme4me"
+name = "deck4me"
 version = "0.1.0"
-description = "meme4me — gesture overlay pour stream"
+description = "deck4me — gesture overlay pour stream"
 authors = []
 edition = "2021"
 
 [lib]
-name = "meme4me_lib"
+name = "deck4me_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

@@ -8,7 +8,7 @@ import {
   inject,
   signal,
 } from '@angular/core'
-import { FACE_KEYS, FEATURIZER_VERSION, HYSTERESIS } from '@meme4me/core'
+import { FACE_KEYS, FEATURIZER_VERSION, HYSTERESIS } from '@deck4me/core'
 import { Icon } from '../components/icon'
 import { DetectionService } from '../services/detection.service'
 import { HISTORY_HZ, HISTORY_LEN, MatcherService } from '../services/matcher.service'
@@ -668,7 +668,7 @@ export class DebugPage implements AfterViewInit, OnDestroy {
   async copyReport(): Promise<void> {
     const s = this.stages()
     const lines = [
-      `meme4me ${this.store.version()} — rapport`,
+      `deck4me ${this.store.version()} — rapport`,
       `featurizer v${this.FEATURIZER_VERSION} · profil « ${this.store.activeProfile()?.name} »`,
       `caméra ${this.detection.running() ? `${this.detection.fps()} fps` : 'arrêtée'}` +
         (this.detection.sourceSize()

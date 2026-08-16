@@ -15,7 +15,7 @@
     "target": "ES2022",
     "module": "preserve",
     "paths": {
-      "@meme4me/core": ["../core/src/index.ts"]
+      "@deck4me/core": ["../core/src/index.ts"]
     }
   },
   "angularCompilerOptions": {

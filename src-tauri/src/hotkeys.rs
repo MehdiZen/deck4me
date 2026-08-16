@@ -1,6 +1,6 @@
 //! Raccourcis clavier globaux.
 //!
-//! Ce qui les justifie : pendant un live, meme4me n'a pas le focus — le jeu ou
+//! Ce qui les justifie : pendant un live, deck4me n'a pas le focus — le jeu ou
 //! OBS l'ont. Une commande qui exige de retrouver la fenêtre arrive toujours
 //! trop tard. Le panic en particulier ne passe PAS par le front : le Rust
 //! nettoie l'overlay lui-même, puis prévient le Studio. Si la webview est

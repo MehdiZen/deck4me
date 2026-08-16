@@ -50,7 +50,7 @@ async fn host_is_public(host: &str, port: u16) -> Result<(), String> {
         any = true;
         if is_private(&a.ip()) {
             return Err(
-                "ce lien pointe vers le réseau local — meme4me ne va chercher que sur Internet"
+                "ce lien pointe vers le réseau local — deck4me ne va chercher que sur Internet"
                     .into(),
             )
         }
@@ -131,7 +131,7 @@ pub async fn download(raw_url: &str) -> Result<(Vec<u8>, String), String> {
         // Une redirection peut ramener vers le réseau local après le contrôle :
         // on les refuse plutôt que de revalider à chaque saut.
         .redirect(reqwest::redirect::Policy::none())
-        .user_agent("meme4me")
+        .user_agent("deck4me")
         .build()
         .map_err(|e| e.to_string())?;
 

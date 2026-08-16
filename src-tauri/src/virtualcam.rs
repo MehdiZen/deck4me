@@ -1,9 +1,9 @@
-//! Caméra virtuelle « meme4me Camera ».
+//! Caméra virtuelle « deck4me Camera ».
 //!
-//! Principe : meme4me devient l'UNIQUE process qui ouvre la webcam physique
+//! Principe : deck4me devient l'UNIQUE process qui ouvre la webcam physique
 //! (capture Media Foundation, mode partagé), et republie le flux via le filtre
 //! DirectShow softcam (vendor/softcam, MIT, renommé). Streamlabs — et
-//! n'importe quelle app DirectShow — consomme « meme4me Camera » comme une
+//! n'importe quelle app DirectShow — consomme « deck4me Camera » comme une
 //! webcam normale. Plus de conflit d'accès exclusif.
 //!
 //! L'enregistrement du filtre (regsvr32) exige une élévation UAC : il est
@@ -92,7 +92,7 @@ impl VirtualCam {
                     _ => None,
                 })
                 // ne jamais proposer de se recapturer soi-même
-                .filter(|d| !d.name.contains("meme4me"))
+                .filter(|d| !d.name.contains("deck4me"))
                 .collect(),
             Err(_) => vec![],
         }

@@ -24,7 +24,7 @@ pub const DEFAULT_PORT: u16 = 47821;
 
 const OVERLAY_HTML: &str = include_str!("../../packages/overlay/dist/overlay.html");
 
-/// Contrat d'événement [FIGÉ] — miroir exact des types TS de @meme4me/core.
+/// Contrat d'événement [FIGÉ] — miroir exact des types TS de @deck4me/core.
 /// Le test `ws_contract_is_camel_case` verrouille l'isomorphisme.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

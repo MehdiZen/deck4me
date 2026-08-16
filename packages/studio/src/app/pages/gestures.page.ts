@@ -1,6 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core'
 import { RouterLink } from '@angular/router'
-import { type HoldMode } from '@meme4me/core'
+import { type HoldMode } from '@deck4me/core'
 import { AssetPicker } from '../components/asset-picker'
 import { BindingEditor } from '../components/binding-editor'
 import { Icon } from '../components/icon'

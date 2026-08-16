@@ -5,7 +5,7 @@
   Sans ça, la DLL importe MSVCP140.dll et VCRUNTIME140.dll, c'est-à-dire le
   redistribuable Visual C++. Sur une machine qui ne l'a pas, le regsvr32 de
   l'installeur échoue — et l'utilisateur voit « pilote absent » sans la moindre
-  indication, puis ne trouve jamais « meme4me Camera » dans Streamlabs. Le mode
+  indication, puis ne trouve jamais « deck4me Camera » dans Streamlabs. Le mode
   d'échec est silencieux et porte justement sur la fonctionnalité qui demande
   une élévation administrateur.
 

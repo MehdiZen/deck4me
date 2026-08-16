@@ -19,7 +19,7 @@ import {
   type MacroDef,
   type RenderParams,
   type SoundRef,
-} from '@meme4me/core'
+} from '@deck4me/core'
 import { TauriService } from './tauri.service'
 
 export interface AssetMeta {

@@ -9,7 +9,7 @@ import {
   inject,
   signal,
 } from '@angular/core'
-import { HYSTERESIS, type BlockDiag } from '@meme4me/core'
+import { HYSTERESIS, type BlockDiag } from '@deck4me/core'
 import { CameraView } from '../components/camera-view'
 import { Icon } from '../components/icon'
 import { DetectionService } from '../services/detection.service'

@@ -716,7 +716,7 @@ pub fn run() {
                 if let Err(e) = server::start(s2, DEFAULT_PORT).await {
                     let msg = format!(
                         "Le serveur local n'a pas pu démarrer sur le port {DEFAULT_PORT} ({e}). \
-                         Un autre logiciel l'occupe, ou une deuxième instance de meme4me tourne \
+                         Un autre logiciel l'occupe, ou une deuxième instance de deck4me tourne \
                          déjà. Tant que ce n'est pas réglé, l'overlay OBS ne recevra rien."
                     );
                     diag::log("serveur", &msg);

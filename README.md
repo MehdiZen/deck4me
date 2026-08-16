@@ -1,4 +1,4 @@
-# meme4me — Gesture Overlay pour stream
+# deck4me — Gesture Overlay pour stream
 
 App desktop (Tauri v2) : webcam → détection de poses visage/mains (MediaPipe) →
 déclenchement de memes sur un overlay OBS via serveur local axum (port 47821).
@@ -264,7 +264,7 @@ c'est une contrainte à tenir si on en ajoute un.
 Deux limites inhérentes à l'injection clavier, à connaître : elle part dans la
 fenêtre **active** (sauf raccourci global, que l'app destinataire reçoit sans
 focus), et Windows la bloque si la fenêtre au premier plan tourne en
-administrateur alors que meme4me non — l'erreur le dit explicitement.
+administrateur alors que deck4me non — l'erreur le dit explicitement.
 
 Implémentation : `packages/core/src/action.ts` (14 tests) et
 `src-tauri/src/actions.rs` (14 tests, dont la table des touches vérifiée contre
@@ -278,7 +278,7 @@ Un **profil** est un jeu de gestures armées : « Just Chatting » et « en jeu 
 veulent pas les mêmes poses. Seul le profil actif est chargé dans le matcher ;
 le sélecteur est dans le rail de gauche.
 
-Les **raccourcis globaux** (Réglages) fonctionnent sans que meme4me ait le focus.
+Les **raccourcis globaux** (Réglages) fonctionnent sans que deck4me ait le focus.
 Le panic est traité côté Rust : l'overlay est vidé même si la webview est occupée.
 Windows accorde un raccourci au premier demandeur — si OBS ou Discord l'ont déjà,
 l'échec est affiché plutôt qu'avalé.
@@ -288,23 +288,23 @@ l'échec est affiché plutôt qu'avalé.
 Streamlabs capture la webcam en DirectShow **exclusif** : deux applications ne
 peuvent pas l'ouvrir en même temps (test E de la phase 0, confirmé).
 
-**Solution intégrée — la caméra virtuelle meme4me.** meme4me devient le seul
+**Solution intégrée — la caméra virtuelle deck4me.** deck4me devient le seul
 process qui ouvre la webcam physique, et republie le flux sous le nom
-« meme4me Camera » :
+« deck4me Camera » :
 
 ```
-webcam physique → meme4me (détection) → « meme4me Camera » → Streamlabs
+webcam physique → deck4me (détection) → « deck4me Camera » → Streamlabs
 ```
 
 Dans **Réglages → Caméra virtuelle** :
 1. « Installer » (demande une élévation admin, une seule fois — enregistre le
    filtre DirectShow via `regsvr32`).
 2. Choisir la webcam physique, « Démarrer ».
-3. Dans Streamlabs : source « Périphérique de capture vidéo » → **meme4me Camera**.
-4. Dans Réglages → Caméra (détection), choisir **meme4me Camera** également.
+3. Dans Streamlabs : source « Périphérique de capture vidéo » → **deck4me Camera**.
+4. Dans Réglages → Caméra (détection), choisir **deck4me Camera** également.
 
 Le voyant « Streamlabs connecté » confirme qu'une application consomme le flux.
-Laisser meme4me ouvert pendant le stream.
+Laisser deck4me ouvert pendant le stream.
 
 Implémentation : `src-tauri/src/virtualcam.rs` — capture Media Foundation
 (nokhwa) côté Rust, republication via le filtre DirectShow
@@ -386,7 +386,7 @@ Points d'archi verrouillés (handoff + review 2026-08-15) :
 Sans ça la DLL réclame `MSVCP140.dll` et `VCRUNTIME140.dll`, c'est-à-dire le
 redistribuable Visual C++ : sur une machine qui ne l'a pas, le `regsvr32` de
 l'installeur échoue et l'utilisateur voit « pilote absent » sans la moindre
-indication, puis ne trouve jamais « meme4me Camera » dans Streamlabs. Le mode
+indication, puis ne trouve jamais « deck4me Camera » dans Streamlabs. Le mode
 d'échec est silencieux et porte justement sur la fonctionnalité qui demande une
 élévation administrateur.
 
@@ -397,7 +397,7 @@ verrait qu'au premier rapport d'utilisateur.
 ## Publier une version
 
 L'app embarque `tauri-plugin-updater`. Le manifeste est cherché à
-`https://github.com/MehdiZen/meme4me/releases/latest/download/latest.json` et sa
+`https://github.com/MehdiZen/deck4me/releases/latest/download/latest.json` et sa
 signature est vérifiée avec la clé publique inscrite dans `tauri.conf.json`.
 
 La **clé privée** vit hors du dépôt, dans `<dossier-des-cles>\` (voir le
@@ -407,7 +407,7 @@ existantes — il faudrait faire réinstaller tout le monde à la main.
 
 > ⚠️ Cette machine a un `TAURI_SIGNING_PRIVATE_KEY` **global**, hérité du projet
 > monitor4me. Il gagne sur `TAURI_SIGNING_PRIVATE_KEY_PATH` : sans l'écraser
-> explicitement, meme4me se signerait avec la clé de monitor4me et l'updater
+> explicitement, deck4me se signerait avec la clé de monitor4me et l'updater
 > rejetterait la mise à jour chez tous les utilisateurs. D'où le `$env:` ci-dessous.
 
 ```powershell

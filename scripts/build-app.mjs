@@ -40,9 +40,9 @@ if (!existsSync(keyFile)) {
 // quoi fermer. On préfère le dire nous-mêmes, et ne PAS tuer le processus : il
 // peut être en train de servir une session OBS.
 if (process.platform === 'win32') {
-  const t = spawnSync('tasklist', ['/fi', 'imagename eq meme4me.exe'], { encoding: 'utf8' })
-  if (t.stdout?.includes('meme4me.exe')) {
-    console.error('meme4me.exe tourne : il verrouille son propre binaire.')
+  const t = spawnSync('tasklist', ['/fi', 'imagename eq deck4me.exe'], { encoding: 'utf8' })
+  if (t.stdout?.includes('deck4me.exe')) {
+    console.error('deck4me.exe tourne : il verrouille son propre binaire.')
     console.error('Fermer l’app, puis relancer le build.')
     process.exit(1)
   }

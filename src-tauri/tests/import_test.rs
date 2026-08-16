@@ -1,6 +1,6 @@
 //! Reconnaissance des formats et garde-fous de l'import par URL.
 
-use meme4me_lib::store::{is_audio, is_opaque, sniff};
+use deck4me_lib::store::{is_audio, is_opaque, sniff};
 
 fn ftyp(brand: &[u8; 4]) -> Vec<u8> {
     let mut v = vec![0, 0, 0, 0x20];
@@ -56,7 +56,7 @@ fn classe_les_familles() {
 // ---- Garde-fous de l'import par URL --------------------------------------
 // Coller une URL ne doit pas revenir à faire sonder son réseau par l'app.
 
-use meme4me_lib::fetch::download;
+use deck4me_lib::fetch::download;
 
 async fn err(url: &str) -> String {
     download(url)

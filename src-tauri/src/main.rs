@@ -7,5 +7,5 @@ fn main() {
         "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
         "--disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --autoplay-policy=no-user-gesture-required",
     );
-    meme4me_lib::run()
+    deck4me_lib::run()
 }
