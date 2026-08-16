@@ -140,7 +140,7 @@ import { VcamService } from '../services/vcam.service'
         </div>
         <p class="lbl">
           @if (vcam.switched()) {
-            La détection est passée sur deck4me Camera automatiquement.
+            La détection reçoit les images directement, sans repasser par Windows.
           }
           Dans Streamlabs : ajoute une source « Périphérique de capture vidéo » et
           choisis <b>deck4me Camera</b>. Laisse deck4me ouvert pendant le stream.

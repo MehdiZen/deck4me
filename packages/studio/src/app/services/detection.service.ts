@@ -152,6 +152,21 @@ export class DetectionService {
     this.preferredCameraId.set(deviceId)
     localStorage.setItem('deck4me.cameraId', deviceId)
     this.onCameraChange?.(deviceId)
+    // Flux direct en cours : le choix est ENREGISTRÉ mais pas appliqué.
+    //
+    // Tant que la caméra virtuelle tourne, la source de la détection n'est plus
+    // une webcam mais le flux servi par Rust — plus rapide, et seul chemin
+    // possible puisque la webcam physique est prise par la pompe. Appliquer le
+    // choix ici couperait ce flux pour rebrancher l'ancien, trois fois plus
+    // lent ; et si l'utilisateur visait sa webcam, elle refuserait de s'ouvrir
+    // et il se retrouverait sans image, coincé. Vécu.
+    //
+    // Le choix reprend effet à l'arrêt de la caméra virtuelle, via
+    // `restorePreferred`.
+    if (this.feedActive()) {
+      this.selectedCameraId.set(deviceId)
+      return
+    }
     await this.useCamera(deviceId)
   }
 

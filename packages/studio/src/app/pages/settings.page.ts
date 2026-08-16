@@ -23,10 +23,15 @@ import { StoreService } from '../services/store.service'
       <div class="card">
         <h2>Caméra de détection</h2>
         <div class="row">
+          <!-- Verrouillé pendant le flux direct : voir le texte ci-dessous.
+               Laisser le choix ouvert menait droit dans un mur — on coupait le
+               flux rapide, et la webcam refusait de s'ouvrir puisque la pompe
+               la tient. Plus d'image, et aucun moyen de revenir. -->
           <select
             class="grow"
             [value]="detection.selectedCameraId()"
             (change)="select($event)"
+            [disabled]="detection.feedActive()"
             aria-label="Caméra utilisée pour la détection"
           >
             @if (!detection.cameras().length) {
@@ -48,11 +53,24 @@ import { StoreService } from '../services/store.service'
             <app-icon name="camera" [size]="15" /> Détecter
           </button>
         </div>
-        <p class="lbl">
-          Choisis la caméra qui te filme. En changer redémarre la détection si elle
-          tourne. Si la caméra virtuelle ci-dessous est active, prends
-          « deck4me Camera » ici aussi : la webcam n'est alors ouverte qu'une fois.
-        </p>
+        @if (detection.feedActive()) {
+          <p class="lbl">
+            <b>La caméra virtuelle tourne : la détection reçoit ses images
+            directement.</b>
+            Elles arrivent de deck4me lui-même, sans repasser par Windows — c'est
+            deux à trois fois plus rapide, et la webcam n'est ouverte qu'une seule
+            fois. Ce choix reprendra effet quand tu arrêteras la caméra virtuelle.
+            Pour changer de webcam maintenant, c'est le menu de la carte
+            ci-dessous.
+          </p>
+        } @else {
+          <p class="lbl">
+            Choisis la caméra qui te filme. En changer redémarre la détection si
+            elle tourne. Quand la caméra virtuelle ci-dessous est active, ce
+            réglage se met en pause : la détection est alimentée directement,
+            sans passer par une webcam.
+          </p>
+        }
         <label class="opt">
           <span class="switch">
             <input
