@@ -27,11 +27,11 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 
 /** La clé vit HORS du dépôt, à dessein : elle ne doit jamais partir dans un
  *  commit. Surchargeable pour construire depuis une autre machine. */
-const keyFile = process.env['MEME4ME_SIGNING_KEY'] ?? ''
+const keyFile = process.env['DECK4ME_SIGNING_KEY'] ?? ''
 
 if (!existsSync(keyFile)) {
   console.error(`Clé de signature introuvable : ${keyFile}`)
-  console.error('Définir MEME4ME_SIGNING_KEY, ou voir la documentation de signature')
+  console.error('Définir DECK4ME_SIGNING_KEY avec le chemin de la clé privée de signature.')
   process.exit(1)
 }
 

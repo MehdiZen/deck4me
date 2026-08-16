@@ -24,7 +24,7 @@ import { VcamService } from './services/vcam.service'
       <aside class="rail">
         <div class="brand">
           <span class="mark"></span>
-          <span class="word">meme<b>4</b>me</span>
+          <span class="word">deck<b>4</b>me</span>
         </div>
 
         <nav>
