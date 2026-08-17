@@ -95,6 +95,56 @@ const RING_LEN: usize = 16;
 /// (vk, scancode, drapeaux). Écrit par le rappel, lu par le fil de veille.
 static RING: [AtomicU32; RING_LEN] = [const { AtomicU32::new(0) }; RING_LEN];
 
+/// Pose le hook. À appeler depuis le fil qui le servira.
+fn install() -> bool {
+    let h =
+        unsafe { SetWindowsHookExW(WH_KEYBOARD_LL, hook_proc, GetModuleHandleW(std::ptr::null()), 0) };
+    if h == 0 {
+        return false;
+    }
+    // Remplacer un hook existant sans laisser le précédent derrière.
+    let old = HOOK.swap(h, Ordering::SeqCst);
+    if old != 0 {
+        unsafe { UnhookWindowsHookEx(old) };
+    }
+    true
+}
+
+/// Repose le hook pendant les silences.
+///
+/// ─── Pourquoi c'est nécessaire ──────────────────────────────────────────────
+/// Windows retire SILENCIEUSEMENT un hook bas niveau dont le rappel n'a pas
+/// répondu dans les 300 ms. Aucune notification, aucun code d'erreur : le hook
+/// cesse simplement d'exister, et l'application continue de croire qu'il vit.
+///
+/// Notre rappel ne coûte rien, mais il est servi par le fil principal, et ce
+/// fil monte deux webviews au démarrage. Une touche pressée pendant ce
+/// chargement suffit à faire jeter le hook — définitivement. Observé : quatre
+/// événements reçus lors d'une session où l'utilisateur avait attendu vingt-six
+/// secondes, zéro lors d'une session où il a tapé tout de suite.
+///
+/// ─── Pourquoi PENDANT LES SILENCES ──────────────────────────────────────────
+/// Reposer le hook au milieu d'une frappe perdrait la touche en cours. On ne le
+/// refait donc que lorsque le compteur n'a pas bougé depuis un tour — c'est-à-
+/// dire quand personne ne tape, ce qui est exactement le moment sûr. Un hook
+/// vivant et inutilisé est reposé pour rien, ce qui ne coûte que quelques
+/// microsecondes ; un hook mort est ressuscité en trois secondes.
+fn keepalive(app: AppHandle) {
+    std::thread::spawn(move || {
+        let mut last = SEEN.load(Ordering::Relaxed);
+        while running() {
+            std::thread::sleep(std::time::Duration::from_millis(3000));
+            let n = SEEN.load(Ordering::Relaxed);
+            if n == last && running() {
+                let _ = app.run_on_main_thread(|| {
+                    install();
+                });
+            }
+            last = n;
+        }
+    });
+}
+
 /// Fil de veille : dit périodiquement combien d'événements le rappel a vus.
 ///
 /// Il existe parce que le rappel ne peut RIEN écrire lui-même sans risquer le
@@ -176,16 +226,16 @@ pub fn start(app: &AppHandle, on_event: impl Fn(Event) + Send + 'static) {
             on_event(ev);
         }
     });
-    let _ = app.run_on_main_thread(|| unsafe {
-        let h = SetWindowsHookExW(WH_KEYBOARD_LL, hook_proc, GetModuleHandleW(std::ptr::null()), 0);
+    let a = app.clone();
+    let _ = app.run_on_main_thread(move || {
         STARTING.store(false, Ordering::SeqCst);
-        if h == 0 {
+        if install() {
+            crate::diag::log("deck", "hook clavier installé (fil principal)");
+            keepalive(a);
+            watchdog();
+        } else {
             crate::diag::log("deck", "hook clavier refusé par Windows");
-            return;
         }
-        HOOK.store(h, Ordering::SeqCst);
-        crate::diag::log("deck", "hook clavier installé (fil principal)");
-        watchdog();
     });
 }
 
