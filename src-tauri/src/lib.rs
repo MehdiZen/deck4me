@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use server::{OverlayStats, ServerState, Sound, TriggerEvent, WsMsg, DEFAULT_PORT};
 use std::sync::{Arc, Mutex};
 use store::{ActionRecord, AssetMeta, BindingRecord, GestureRecord, Profile, Settings, Store};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use virtualcam::{VcamDevice, VcamFormat, VcamStatus, VirtualCam};
 
 pub struct App {
@@ -515,6 +515,12 @@ fn deck_apply(handle: &tauri::AppHandle) {
 pub fn fire_deck_slot(handle: &tauri::AppHandle, owner: &str) {
     let app = handle.state::<App>();
     diag::log("deck", &format!("case {owner} déclenchée"));
+    // Le widget allume la case. C'est le SEUL retour visuel du chemin clavier :
+    // au clic on voit son propre doigt partir, à la touche on ne voit rien — et
+    // un accord qui n'aurait PAS pris ressemblerait exactement à un accord pris.
+    // Émis AVANT le déclenchement : une action peut être lente (une macro, un
+    // son), l'accusé de réception ne doit pas l'attendre.
+    let _ = handle.emit("deck-fired", owner);
     if let Err(e) = fire_owner(handle, &app, owner) {
         diag::log("deck", &format!("case {owner} : {e}"));
     }

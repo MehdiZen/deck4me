@@ -61,6 +61,7 @@ interface Cell {
           <div
             class="cell"
             [class.filled]="c.filled"
+            [class.fired]="c.slotId && c.slotId === fired()"
             [style.grid-column]="c.col + 1 + ' / span ' + c.w"
             [style.grid-row]="c.row + 1 + ' / span ' + c.h"
             (click)="press(c)"
@@ -130,12 +131,19 @@ interface Cell {
       font-weight: 600;
       letter-spacing: 0.02em;
     }
+    /* La couleur est RÉSERVÉE à ce qui se passe maintenant.
+       Avant, une case occupée était turquoise en permanence : sur douze cases
+       pleines, le widget devenait un aplat de couleur où plus rien ne
+       ressortait — et il ne restait aucune teinte disponible pour signaler un
+       déclenchement. L'occupation se dit maintenant en clarté (une case pleine
+       est plus lumineuse qu'une case vide), et le turquoise ne sert plus qu'à
+       deux choses : le point de l'en-tête, et l'éclair d'une case qui part. */
     .dot {
       width: 7px;
       height: 7px;
       border-radius: 50%;
       background: #5eead4;
-      box-shadow: 0 0 8px #5eead4a0;
+      opacity: 0.75;
     }
     .hint {
       margin-left: auto;
@@ -177,15 +185,58 @@ interface Cell {
       font-weight: 700;
       color: #64748b;
     }
+    /* Occupée = plus claire. Pas plus colorée. */
     .cell.filled {
-      border-color: #5eead45c;
-      background: linear-gradient(#5eead42b, #5eead414);
-      box-shadow:
-        inset 0 1px 0 #5eead43d,
-        0 0 14px #5eead41f;
+      border-color: #ffffff3d;
+      background: linear-gradient(#ffffff1c, #ffffff0e);
+      box-shadow: inset 0 1px 0 #ffffff30;
     }
     .cell.filled .key {
-      color: #5eead4;
+      color: #94a3b8;
+    }
+
+    /* L'éclair d'un déclenchement clavier.
+       Court, et surtout DÉCROISSANT : la case s'allume d'un coup puis retombe,
+       ce qui se lit du coin de l'œil sans demander qu'on regarde. Une montée
+       progressive donnerait l'impression d'un retard sur la touche. */
+    .cell.fired {
+      animation: eclair 320ms ease-out;
+    }
+    @keyframes eclair {
+      0% {
+        border-color: #5eead4;
+        background: #5eead457;
+        box-shadow:
+          inset 0 1px 0 #5eead46b,
+          0 0 18px #5eead44d;
+        transform: scale(1.05);
+      }
+      100% {
+        border-color: #ffffff3d;
+        background: #ffffff14;
+        box-shadow: inset 0 1px 0 #ffffff30;
+        transform: scale(1);
+      }
+    }
+    /* Quelqu'un qui a demandé moins d'animations reçoit quand même l'accusé de
+       réception : il perd le mouvement, pas l'information. */
+    @media (prefers-reduced-motion: reduce) {
+      .cell.fired {
+        animation: eclair-sobre 320ms ease-out;
+      }
+      .cell.filled:active {
+        transform: none;
+      }
+      @keyframes eclair-sobre {
+        0% {
+          border-color: #5eead4;
+          background: #5eead457;
+        }
+        100% {
+          border-color: #ffffff3d;
+          background: #ffffff14;
+        }
+      }
     }
     .cell img {
       max-width: 76%;
@@ -216,6 +267,10 @@ export class DeckHudPage {
    *  que Ctrl+Alt ferait, c'est tout l'intérêt de l'affichage. */
   protected page = signal<number>(0)
 
+  /** Case en train de s'allumer, s'il y en a une. */
+  protected fired = signal<string | null>(null)
+  private flashTimer?: ReturnType<typeof setTimeout>
+
   constructor() {
     // Cette fenêtre n'a ni décoration ni focus : sa console n'est ouvrable par
     // personne. Elle rend donc compte dans le journal du Rust, faute de quoi
@@ -227,6 +282,24 @@ export class DeckHudPage {
       .then(() => this.say(`base chargée — ${this.store.deckSlots().length} case(s)`))
       .catch((e) => this.say(`base illisible : ${e}`))
     void listen<number>('deck-page', (e) => this.page.set(e.payload))
+    void listen<string>('deck-fired', (e) => this.flash(e.payload))
+  }
+
+  /**
+   * Allume une case.
+   *
+   * Le passage par `null` puis une frame d'attente n'est pas décoratif : une
+   * animation CSS ne redémarre pas si la classe est déjà posée. Sans ça, marteler
+   * la même touche n'allumerait la case qu'une seule fois — exactement le cas où
+   * on a le plus besoin de voir que ça part.
+   */
+  private flash(slotId: string): void {
+    clearTimeout(this.flashTimer)
+    this.fired.set(null)
+    requestAnimationFrame(() => {
+      this.fired.set(slotId)
+      this.flashTimer = setTimeout(() => this.fired.set(null), 320)
+    })
   }
 
   protected modOf(page: number): string {
@@ -237,6 +310,11 @@ export class DeckHudPage {
    *  Rust ne distingue pas d'où vient l'ordre. */
   protected press(c: Cell): void {
     if (!c.slotId) return
+    // Allumée ici et non par le Rust : le clic passe par `gesture_fired`, qui
+    // sert aussi les gestures et n'a aucune raison d'émettre vers le widget.
+    // Une case qui s'allumerait à la touche mais pas au clic aurait l'air en
+    // panne.
+    this.flash(c.slotId)
     void this.tauri.invoke('gesture_fired', { gestureId: c.slotId }, null).catch(() => {})
   }
 
