@@ -163,7 +163,11 @@ fn bootstrap(app: tauri::State<App>) -> Value {
 fn reveal_log() -> Result<(), String> {
     let path = diag::path().ok_or("journal indisponible")?;
     let mut cmd = std::process::Command::new("explorer");
-    cmd.arg("/select,").arg(&path);
+    // Le chemin est COLLÉ à l'option, pas passé en second argument : explorer
+    // attend un seul mot « /select,C:\… ». Séparés, il recevait « /select, »
+    // tout seul, n'y comprenait rien, et le bouton ne faisait strictement rien
+    // — sans erreur, puisque le lancement, lui, réussissait.
+    cmd.arg(format!("/select,{path}"));
     // explorer.exe renvoie un code non nul même quand il a fait le travail :
     // on ne teste donc pas le statut, seulement le lancement.
     cmd.spawn().map_err(|e| e.to_string())?;
