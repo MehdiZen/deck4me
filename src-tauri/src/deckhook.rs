@@ -90,6 +90,8 @@ static SEEN: AtomicU32 = AtomicU32::new(0);
 /// `start` — et il y en a, au démarrage puis à chaque enregistrement de case —
 /// installaient deux hooks et deux puits concurrents.
 static STARTING: AtomicBool = AtomicBool::new(false);
+/// Nombre de reposes, pour n'en journaliser qu'une sur dix.
+static REPOSE: AtomicU32 = AtomicU32::new(0);
 const RING_LEN: usize = 16;
 /// Les seize dernières touches vues, chacune repliée en un entier
 /// (vk, scancode, drapeaux). Écrit par le rappel, lu par le fil de veille.
@@ -138,6 +140,11 @@ fn keepalive(app: AppHandle) {
             if n == last && running() {
                 let _ = app.run_on_main_thread(|| {
                     install();
+                    // Journalisé une fois sur dix : assez pour voir dans le
+                    // journal que la reprise tourne, trop peu pour le noyer.
+                    if REPOSE.fetch_add(1, Ordering::Relaxed) % 10 == 0 {
+                        crate::diag::log("deck", "hook clavier reposé (silence)");
+                    }
                 });
             }
             last = n;

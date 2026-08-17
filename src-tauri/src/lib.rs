@@ -550,6 +550,11 @@ fn deck_apply(handle: &tauri::AppHandle) {
             // Épinglée, elle ne se retire jamais — c'est la vue qui grise ses
             // cases, sinon le widget disparaîtrait sous le curseur de celui qui
             // s'apprête à cliquer dedans.
+            // Visé sur la fenêtre du widget, et non diffusé à la cantonade.
+            // Le journal est formel : le Rust émettait, et la vue — vivante,
+            // base chargée — n'a jamais rien reçu. Adresser explicitement
+            // supprime la question de savoir qui écoute quoi.
+            let _ = h.emit_to(deckwin::LABEL, "deck-page", p);
             let _ = h.emit("deck-page", p);
             let pinned = {
                 let app = h.state::<App>();

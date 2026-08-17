@@ -35,10 +35,14 @@ interface Cell {
 @Component({
   selector: 'app-deck-hud',
   template: `
-    <div class="hud" [class.idle]="page() === null">
-      <!-- Zone de préhension : c'est Windows qui déplace la fenêtre, pas du
-           JavaScript. Ne répond QUE si le widget est épinglé — sinon le curseur
-           le traverse, ce qui est bien tout l'intérêt le reste du temps. -->
+    <!-- Zone de préhension sur TOUT le panneau, et pas seulement l'en-tête :
+         Tauri n'attrape la fenêtre que si le clic tombe sur l'élément portant
+         l'attribut lui-même. Sur l'en-tête seul, le point et le titre
+         interceptaient le clic et il ne restait que quelques pixels de marge
+         réellement saisissables. Rien n'est cliquable ici de toute façon.
+         Ne répond QUE si le widget est épinglé — sinon le curseur le traverse,
+         ce qui est bien tout l'intérêt le reste du temps. -->
+    <div class="hud" data-tauri-drag-region [class.idle]="page() === null">
       <header data-tauri-drag-region>
         <span class="dot"></span>
         <span class="title">{{ pageName() }}</span>
@@ -47,10 +51,11 @@ interface Cell {
         }
       </header>
 
-      <div class="pad">
+      <div class="pad" data-tauri-drag-region>
         @for (c of cells(); track c.key) {
           <div
             class="cell"
+            data-tauri-drag-region
             [class.filled]="c.filled"
             [style.grid-column]="c.col + 1 + ' / span ' + c.w"
             [style.grid-row]="c.row + 1 + ' / span ' + c.h"
@@ -110,8 +115,14 @@ interface Cell {
     .hud.idle {
       opacity: 0.45;
     }
+    /* Les enfants laissent passer le clic jusqu'au panneau, sinon chacun
+       redevient un obstacle à la préhension. */
+    header > *, .cell > * {
+      pointer-events: none;
+    }
+    .hud, .cell { cursor: grab; }
+    .hud:active { cursor: grabbing; }
     header {
-      cursor: grab;
       display: flex;
       align-items: center;
       gap: 7px;
