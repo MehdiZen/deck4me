@@ -196,9 +196,16 @@ interface LinkDraft {
               </ul>
               @switch (v.verdict) {
                 @case ('collision') {
-                  <p class="badge err verdict">
-                    Trop proche de « {{ nameOf(v.collidesWith!) }} » — enregistrement refusé.
-                    Choisis une pose plus différenciée, ou réenregistre l'autre gesture.
+                  <!-- Avertissement, plus refus. Le détail de ce qui arrive
+                       vraiment vaut mieux qu'un mur : le matcher désigne la
+                       pose la plus proche, donc les deux ne partiront pas
+                       ensemble — c'est LAQUELLE des deux qui devient
+                       imprévisible. C'est un choix, pas une erreur. -->
+                  <p class="badge warn verdict">
+                    Trop proche de « {{ nameOf(v.collidesWith!) }} ». Les deux ne partiront pas
+                    en même temps — c'est laquelle des deux qui part qui devient une loterie.
+                    Différencie la pose, ou enregistre quand même et règle la sensibilité
+                    des deux ensuite.
                   </p>
                 }
                 @case ('false_positive_risk') {
@@ -227,16 +234,14 @@ interface LinkDraft {
             <p style="display:flex; gap:8px; justify-content:flex-end">
               <button (click)="retry()">Refaire les prises</button>
               <button (click)="cancel.emit()">Abandonner</button>
-              @if (verdict()?.verdict !== 'collision') {
-                @if (isChain && !lastLink()) {
-                  <button class="primary" (click)="nextLink()">
-                    Maillon {{ link() + 2 }}/{{ links() }} ›
-                  </button>
-                } @else {
-                  <button class="primary" (click)="save()">
-                    {{ saveLabel() }}
-                  </button>
-                }
+              @if (isChain && !lastLink()) {
+                <button class="primary" (click)="nextLink()">
+                  Maillon {{ link() + 2 }}/{{ links() }} ›
+                </button>
+              } @else {
+                <button class="primary" (click)="save()">
+                  {{ saveLabel() }}
+                </button>
               }
             </p>
           }
@@ -455,6 +460,10 @@ export class Wizard implements OnInit, OnDestroy {
   }
 
   saveLabel(): string {
+    // « Quand même » : le bouton dit ce qu'on fait, à savoir passer outre un
+    // avertissement qu'on vient de lire. Sans ça, un clic distrait ne se
+    // distingue plus d'un enregistrement propre.
+    if (this.verdict()?.verdict === 'collision') return 'Enregistrer quand même'
     if (this.isChain) return "Créer l'enchaînement"
     if (this.isLink) return 'Ajouter ce maillon'
     return this.replacing ? 'Remplacer la pose' : 'Enregistrer'
@@ -587,7 +596,24 @@ export class Wizard implements OnInit, OnDestroy {
 
   async save(): Promise<void> {
     const v = this.verdict()
-    if (!v || v.verdict === 'collision') return
+    // Une collision n'empêche plus d'enregistrer.
+    //
+    // Le refus était incohérent avec le reste du produit : la migration de
+    // featurizer, elle, GARDE une pose devenue trop proche d'une autre et se
+    // contente de le signaler. Le wizard interdisait donc de créer un état que
+    // l'application sait très bien porter.
+    //
+    // Il était aussi plus sévère que la réalité. Le matcher est en
+    // winner-take-all : sur une frame, seule la pose la plus proche reçoit sa
+    // distance, les autres reçoivent null. Deux poses proches ne partent pas
+    // ensemble ; c'est laquelle des deux qui part qui devient incertaine. Ça
+    // se dit, et ensuite ça se règle — le seuil de chaque pose est réglable à
+    // la main, et c'est à l'utilisateur d'en décider.
+    //
+    // Le seuil enregistré est `base` (dispersion intra-classe × marge), non
+    // raboté sur le voisin : exactement ce que garde la migration, pour que
+    // les deux chemins n'écrivent pas des seuils différents pour un même état.
+    if (!v) return
     if (this.isChain) return this.saveChain(v.threshold)
     const baseline = this.store.baseline()
     const old = this.replacing

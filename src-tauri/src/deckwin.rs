@@ -2,6 +2,12 @@
 //!
 //! Deux propriétés, et une renoncée.
 //!
+//! **Elle est transparente.** Le panneau a des coins arrondis ; sans
+//! transparence, Windows peint du blanc dessous et les quatre angles portent un
+//! liseré clair que rien, côté vue, ne peut effacer — il est derrière elle. La
+//! transparence sert aussi le rendu voulu : un fond légèrement translucide qui
+//! laisse deviner ce qu'il couvre.
+//!
 //! **Renoncée : ne jamais prendre le focus.** `WS_EX_NOACTIVATE` évitait qu'une
 //! fenêtre surgissant par-dessus un jeu ne le minimise. Mais une fenêtre qui ne
 //! peut jamais s'activer ne donne pas non plus le focus à sa webview, et une
@@ -60,13 +66,15 @@ pub fn ensure(app: &AppHandle) -> Result<(), String> {
     .inner_size(WIDTH, HEIGHT)
     .resizable(false)
     .decorations(false)
-    // OPAQUE, et non transparent.
+    // TRANSPARENTE, de nouveau.
     //
-    // La transparence coûtait cher pour ce qu'elle apportait : le panneau est
-    // de toute façon un rectangle plein aux coins arrondis, et une fenêtre
-    // transparente sans focus s'est révélée impossible à cliquer comme à
-    // déplacer. Le fond est peint par la vue, ce qui donne le même rendu sans
-    // la couche de composition — et sans le mystère.
+    // Elle avait été rendue opaque en soupçonnant la transparence d'empêcher
+    // les clics et le déplacement. C'était faux : le coupable était
+    // `WS_EX_NOACTIVATE`, qui privait la webview de focus. Sans transparence,
+    // Windows peignait du blanc sous les coins arrondis du panneau — un liseré
+    // clair sur les quatre angles, impossible à faire disparaître depuis la
+    // vue puisqu'il est PEINT DERRIÈRE elle.
+    .transparent(true)
     .always_on_top(true)
     .skip_taskbar(true)
     .shadow(false)

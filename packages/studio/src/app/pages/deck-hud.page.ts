@@ -90,10 +90,13 @@ interface Cell {
       user-select: none;
       -webkit-user-select: none;
     }
-    /* Le verre est PEINT, pas flouté : dégradé, liseré de lumière en haut, bord
-       clair. La fenêtre est opaque — une fenêtre transparente sans focus s'est
-       révélée impossible à cliquer comme à déplacer, pour un rendu qu'on
-       obtient très bien ici. */
+    /* Verre : fond translucide, liseré de lumière en haut, bord clair.
+       L'opacité tient autour de 0,86 — assez pour qu'on devine ce qu'il y a
+       dessous, pas assez pour que les vignettes deviennent illisibles sur un
+       fond clair. Le flou est un VRAI flou : WebView2 l'applique à ce que la
+       fenêtre recouvre, la transparence de la fenêtre le lui donnant à voir.
+       Les coins arrondis n'ont de sens que parce que la fenêtre est
+       transparente : sinon Windows peint du blanc derrière eux. */
     .hud {
       height: 100%;
       display: flex;
@@ -102,10 +105,12 @@ interface Cell {
       padding: 12px;
       border-radius: 16px;
       border: 1px solid #ffffff2b;
-      background: linear-gradient(160deg, #1b2430, #0a0e13);
+      background: linear-gradient(160deg, #1b2430db, #0a0e13e0);
+      backdrop-filter: blur(14px) saturate(1.15);
+      -webkit-backdrop-filter: blur(14px) saturate(1.15);
       box-shadow:
         inset 0 1px 0 #ffffff2e,
-        0 18px 50px #000000a6;
+        0 18px 50px #00000073;
     }
     /* Les enfants laissent passer le clic jusqu'au panneau, sinon chacun
        redevient un obstacle à la préhension. */

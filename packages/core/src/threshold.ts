@@ -16,6 +16,11 @@ export interface ThresholdVerdict {
   nearestOther: { gestureId: string; dist: number } | null
   /** Distance de la frame négative (parole normale) la plus proche. */
   nearestNegative: number | null
+  /**
+   * Ces trois valeurs sont des CONSTATS, pas des autorisations. Rien ici ne
+   * refuse un enregistrement : c'est l'UI qui décide quoi en dire, et
+   * l'utilisateur qui décide quoi en faire.
+   */
   verdict: 'ok' | 'collision' | 'false_positive_risk'
   /** Gesture en collision, à nommer dans l'UI (feature clé du produit). */
   collidesWith: string | null
@@ -66,7 +71,12 @@ export function filterOutliers(
  * distance ne se comparent pas).
  *   base  = max distance intra-classe × 1.3, plancher THRESHOLD_FLOOR
  *   cap   = distance au plus proche voisin × 0.6
- *   cap < base            → collision (on refuse, on nomme la gesture)
+ *   cap < base            → collision : on NOMME la gesture trop proche et on
+ *                           garde `base` tel quel, sans le raboter sur le
+ *                           voisin. Le rabotage ne réglait rien — le matcher
+ *                           est en winner-take-all, la pose la plus proche
+ *                           gagne — et rendait la pose plus dure à déclencher
+ *                           sans que personne ne sache pourquoi.
  *   négatif < seuil × 1.1 → risque de faux positif pendant la parole normale
  */
 export function computeThreshold(
