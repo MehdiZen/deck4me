@@ -131,7 +131,9 @@ import { StoreService } from '../services/store.service'
        du rapport d'image de la source), donc elle ne s'étire ni ne se comprime ;
        le journal prend tout le reste. */
     .top { display: flex; gap: 16px; align-items: stretch; }
-    .top .log-panel { flex: 1 1 auto; min-width: 0; }
+    /* Le journal prend ce qui reste, sans jamais descendre sous de quoi lire
+       une ligne entière — nom, état et heure sur la même ligne. */
+    .top .log-panel { flex: 1 1 auto; min-width: 280px; }
     @media (max-width: 1120px) { .top { flex-wrap: wrap; } .top > * { flex-basis: 100%; } }
     /* La vidéo occupe toute la carte : aucune marge ne vient la « décorer ».
        Calée à gauche et non centrée : sa largeur est bornée pour que tout tienne
@@ -230,10 +232,22 @@ export class LivePage implements AfterViewInit, OnDestroy {
    *  c'est le cas « fenêtre vraiment petite », et il est assumé. */
   private readonly CAM_MIN = 420
 
+  /** Part de la ligne visée par l'image. Le journal des triggers n'a besoin que
+   *  de six lignes courtes — un nom, un mot, une heure — donc d'environ 300 px.
+   *  Au-delà, la place lui est donnée pour rien.
+   *
+   *  Ce n'est qu'un PLAFOND, pas une garantie : c'est la hauteur de la fenêtre
+   *  qui commande vraiment, puisque tout doit y tenir. Sur une fenêtre large et
+   *  basse, l'image bute sur la hauteur bien avant d'atteindre cette part, et le
+   *  journal hérite du reste. Sur un écran haut, les deux coïncident. */
+  private readonly CAM_SHARE = 0.8
+
   protected camMax = computed(() => {
     const s = this.detection.sourceSize()
     const ratio = s ? s.w / s.h : 4 / 3
-    return `min(100%, max(${this.CAM_MIN}px, calc((100vh - ${this.CHROME}px) * ${ratio.toFixed(4)})))`
+    const byHeight = `calc((100vh - ${this.CHROME}px) * ${ratio.toFixed(4)})`
+    const byShare = `${(this.CAM_SHARE * 100).toFixed(0)}%`
+    return `min(${byShare}, max(${this.CAM_MIN}px, ${byHeight}))`
   })
 
   // ---- Réglage de la sensibilité À MÊME le graphe ----
