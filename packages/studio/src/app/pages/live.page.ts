@@ -146,11 +146,18 @@ import { StoreService } from '../services/store.service'
     /* La vidéo occupe toute la carte : aucune marge ne vient la « décorer ».
        Centrée, parce que sa largeur est plafonnée pour que les mesures restent
        visibles : sur un écran large elle ne remplit plus toute la ligne, et
-       collée à gauche elle donnerait l'air d'une mise en page ratée. */
+       collée à gauche elle donnerait l'air d'une mise en page ratée.
+
+       Centrée par align-self, et surtout PAS par une marge automatique : sur un
+       élément flex, une marge auto sur l'axe transverse annule l'étirement, et
+       la carte retombe alors sur la largeur de son CONTENU — les quelques
+       badges du bandeau. La largeur explicite est donc indispensable ici : sans
+       elle, align-self: center produirait exactement la même réduction. */
     .viewport {
       padding: 0;
       overflow: hidden;
-      margin-inline: auto;
+      width: 100%;
+      align-self: center;
       transition: box-shadow 200ms var(--ease), border-color 200ms var(--ease);
     }
     /* Un meme part à l'antenne : la carte s'allume une demi-seconde. C'est le
