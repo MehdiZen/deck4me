@@ -55,7 +55,7 @@ import { StoreService } from '../services/store.service'
          dessous, dans l'ordre où on les consulte : ce qui est en train de se
          passer à gauche, ce qui vient de se passer à droite. -->
     <div class="stack">
-      <div class="card viewport" [class.fired]="flash()">
+      <div class="card viewport" [class.fired]="flash()" [style.max-width]="camMax()">
         <app-camera-view />
         <!-- Bandeau d'instrument sur l'image : ce qui compte pendant un live
              se lit sans quitter la vidéo des yeux. -->
@@ -143,8 +143,16 @@ import { StoreService } from '../services/store.service'
        ses trois colonnes de texte : on empile. */
     @media (max-width: 1120px) { .row { grid-template-columns: minmax(0, 1fr); } }
 
-    /* La vidéo occupe toute la carte : aucune marge ne vient la « décorer ». */
-    .viewport { padding: 0; overflow: hidden; transition: box-shadow 200ms var(--ease), border-color 200ms var(--ease); }
+    /* La vidéo occupe toute la carte : aucune marge ne vient la « décorer ».
+       Centrée, parce que sa largeur est plafonnée pour que les mesures restent
+       visibles : sur un écran large elle ne remplit plus toute la ligne, et
+       collée à gauche elle donnerait l'air d'une mise en page ratée. */
+    .viewport {
+      padding: 0;
+      overflow: hidden;
+      margin-inline: auto;
+      transition: box-shadow 200ms var(--ease), border-color 200ms var(--ease);
+    }
     /* Un meme part à l'antenne : la carte s'allume une demi-seconde. C'est le
        seul retour visuel qu'on peut capter du coin de l'œil sans lâcher la
        caméra des yeux. */
@@ -197,6 +205,35 @@ export class LivePage implements AfterViewInit, OnDestroy {
   private raf = 0
 
   readonly armed = computed(() => this.store.gestures().filter((g) => g.enabled).length)
+
+  // ---- Tout doit tenir dans la fenêtre ----
+  //
+  // L'écran entier se lit d'un coup ou il ne sert à rien : une caméra qui pousse
+  // les mesures sous le pli oblige à faire défiler entre l'image qu'on ajuste et
+  // le chiffre qui dit si l'ajustement a servi.
+  //
+  // On borne la LARGEUR de la carte, pas sa hauteur. Le cadre de la vue caméra
+  // épouse exactement le rapport d'image de la source, et il doit le garder :
+  // le <video> est en `cover` (il recadre) tandis que la toile des landmarks est
+  // étirée sur toute la boîte. Dès que la boîte cesse d'être au bon rapport, les
+  // deux divergent et les points tombent à côté du visage. Plafonner la hauteur
+  // casserait précisément ce rapport ; plafonner la largeur le préserve, la
+  // hauteur suivant d'elle-même.
+
+  /** Ce qu'occupe tout ce qui n'est pas l'image : en-tête de page, bandeau
+   *  d'instruments, la ligne Distances/triggers dessous, et les écarts. La
+   *  ligne du bas a une hauteur bornée depuis qu'elle ne montre que trois
+   *  gestures — sans ça il n'y aurait aucune constante à écrire ici. */
+  private readonly CHROME = 500
+  /** En dessous, on laisse défiler plutôt que de réduire l'image à un timbre :
+   *  c'est le cas « fenêtre vraiment petite », et il est assumé. */
+  private readonly CAM_MIN = 420
+
+  protected camMax = computed(() => {
+    const s = this.detection.sourceSize()
+    const ratio = s ? s.w / s.h : 4 / 3
+    return `min(100%, max(${this.CAM_MIN}px, calc((100vh - ${this.CHROME}px) * ${ratio.toFixed(4)})))`
+  })
 
   // ---- Réglage de la sensibilité À MÊME le graphe ----
   //
