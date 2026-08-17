@@ -24,7 +24,7 @@
 //! boucle infinie à la vitesse du processeur.
 
 use crate::deck::{Config, Deck, Event, Verdict, E};
-use std::sync::atomic::{AtomicIsize, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, OnceLock};
 
@@ -92,6 +92,14 @@ fn sink() -> &'static Mutex<Option<Sender<Event>>> {
 
 static HOOK: AtomicIsize = AtomicIsize::new(0);
 static THREAD: AtomicU32 = AtomicU32::new(0);
+/// Le hook a-t-il déjà vu passer une touche ? Sert uniquement à la preuve de
+/// vie journalisée, une fois par session.
+static SEEN: AtomicBool = AtomicBool::new(false);
+/// Un démarrage est en cours. `HOOK` n'est posé que DANS le fil du hook, donc
+/// `running()` reste faux le temps qu'il démarre : deux appels rapprochés à
+/// `start` — et il y en a, au démarrage puis à chaque enregistrement de case —
+/// installaient deux hooks et deux puits concurrents.
+static STARTING: AtomicBool = AtomicBool::new(false);
 
 /// Remplace la configuration du deck. Sans effet sur le hook lui-même : on
 /// peut reconfigurer les cases pendant qu'il tourne.
@@ -114,7 +122,7 @@ pub fn running() -> bool {
 
 /// Installe le hook sur son propre fil. Idempotent.
 pub fn start(on_event: impl Fn(Event) + Send + 'static) {
-    if running() {
+    if running() || STARTING.swap(true, Ordering::SeqCst) {
         return;
     }
     let (tx, rx) = mpsc::channel::<Event>();
@@ -130,10 +138,12 @@ pub fn start(on_event: impl Fn(Event) + Send + 'static) {
         let h = SetWindowsHookExW(WH_KEYBOARD_LL, hook_proc, 0, 0);
         if h == 0 {
             crate::diag::log("deck", "hook clavier refusé par Windows");
+            STARTING.store(false, Ordering::SeqCst);
             return;
         }
         HOOK.store(h, Ordering::SeqCst);
         THREAD.store(GetCurrentThreadId(), Ordering::SeqCst);
+        crate::diag::log("deck", "hook clavier installé");
         // Un hook bas niveau n'existe que sur un fil qui pompe des messages :
         // c'est cette boucle que Windows utilise pour livrer les touches.
         let mut msg: Msg = std::mem::zeroed();
@@ -141,6 +151,8 @@ pub fn start(on_event: impl Fn(Event) + Send + 'static) {
         UnhookWindowsHookEx(h);
         HOOK.store(0, Ordering::SeqCst);
         THREAD.store(0, Ordering::SeqCst);
+        STARTING.store(false, Ordering::SeqCst);
+        crate::diag::log("deck", "hook clavier retiré");
     });
 }
 
@@ -187,6 +199,14 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: usize, lparam: isize) -> 
         return next(0);
     }
     let key = (info.scan_code & 0xFF) | if info.flags & LLKHF_EXTENDED != 0 { E } else { 0 };
+
+    // Preuve de vie, une seule fois. Sans elle, « le hook n'est pas installé »,
+    // « il est installé mais ne reçoit rien » et « il reçoit mais ne reconnaît
+    // aucune touche » sont trois pannes rigoureusement identiques vues de
+    // l'écran — et on les élimine une par une, à chaque fois par un build.
+    if !SEEN.swap(true, Ordering::Relaxed) {
+        crate::diag::log("deck", &format!("hook vivant, première touche 0x{key:04X}"));
+    }
 
     // `try_lock` et non `lock` : voir l'en-tête. Une touche perdue est un
     // désagrément, un clavier figé est une panne.

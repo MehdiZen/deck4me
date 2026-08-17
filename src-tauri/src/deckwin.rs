@@ -70,13 +70,34 @@ pub fn ensure(app: &AppHandle) -> Result<(), String> {
     .build()
     .map_err(|e| e.to_string())?;
 
-    if let Ok(Some(mon)) = win.primary_monitor() {
-        let size = mon.size().to_logical::<f64>(mon.scale_factor());
-        let _ = win.set_position(tauri::LogicalPosition::new(
-            size.width - WIDTH - MARGIN,
-            size.height - HEIGHT - MARGIN,
-        ));
+    // Position retenue si elle existe, sinon en bas à droite de l'écran
+    // principal — du côté du pavé numérique, pour que le regard ne traverse pas
+    // l'écran.
+    let state = app.state::<crate::App>();
+    let saved = state
+        .state
+        .store
+        .db
+        .lock()
+        .ok()
+        .and_then(|db| db.settings.deck_pos);
+    match saved {
+        Some((x, y)) => {
+            let _ = win.set_position(tauri::LogicalPosition::new(x, y));
+        }
+        None => {
+            if let Ok(Some(mon)) = win.primary_monitor() {
+                let size = mon.size().to_logical::<f64>(mon.scale_factor());
+                let _ = win.set_position(tauri::LogicalPosition::new(
+                    size.width - WIDTH - MARGIN,
+                    size.height - HEIGHT - MARGIN,
+                ));
+            }
+        }
     }
+    // `.visible(false)` au constructeur ne suffit pas toujours : on le redit
+    // une fois la fenêtre placée, sinon elle clignote à sa position par défaut.
+    let _ = win.hide();
     // Traversante par défaut : le widget qu'on regarde sans le toucher.
     let _ = win.set_ignore_cursor_events(true);
     harden(app);
@@ -149,6 +170,23 @@ pub fn set_pinned(app: &AppHandle, pinned: bool) {
     if pinned {
         let _ = win.show();
     }
+}
+
+/// Retient la position du widget dans les réglages.
+///
+/// Appelé au déplacement, mais N'ÉCRIT PAS à chaque pixel : la base fait plus
+/// d'un méga-octet, la réécrire soixante fois par seconde pendant qu'on traîne
+/// la fenêtre ferait ramer tout le reste. On garde la position en mémoire, et
+/// c'est la fermeture qui l'écrit.
+pub fn remember(app: &AppHandle, x: f64, y: f64) {
+    if let Ok(mut db) = app.state::<crate::App>().state.store.db.lock() {
+        db.settings.deck_pos = Some((x, y));
+    }
+}
+
+/// Écrit sur le disque ce que `remember` a gardé en mémoire.
+pub fn persist(app: &AppHandle) {
+    let _ = app.state::<crate::App>().state.store.save();
 }
 
 pub fn close(app: &AppHandle) {

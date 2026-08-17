@@ -35,7 +35,10 @@ interface Cell {
   selector: 'app-deck-hud',
   template: `
     <div class="hud" [class.idle]="page() === null">
-      <header>
+      <!-- Zone de préhension : c'est Windows qui déplace la fenêtre, pas du
+           JavaScript. Ne répond QUE si le widget est épinglé — sinon le curseur
+           le traverse, ce qui est bien tout l'intérêt le reste du temps. -->
+      <header data-tauri-drag-region>
         <span class="dot"></span>
         <span class="title">{{ pageName() }}</span>
         @if (page() === null) {
@@ -107,6 +110,7 @@ interface Cell {
       opacity: 0.45;
     }
     header {
+      cursor: grab;
       display: flex;
       align-items: center;
       gap: 7px;

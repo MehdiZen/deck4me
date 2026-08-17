@@ -67,6 +67,8 @@ export interface Settings {
   deckPageNames: string[]
   /** Widget affiché en permanence plutôt qu'au seul maintien. */
   deckPinned: boolean
+  /** Position retenue du widget. null = en bas à droite de l'écran principal. */
+  deckPos: [number, number] | null
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -84,6 +86,7 @@ export const DEFAULT_SETTINGS: Settings = {
   deckPages: [0x38, 0x3a, 0x29],
   deckPageNames: ['Page 1', 'Page 2', 'Page 3'],
   deckPinned: false,
+  deckPos: null,
 }
 
 /**

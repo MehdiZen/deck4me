@@ -163,11 +163,20 @@ fn bootstrap(app: tauri::State<App>) -> Value {
 fn reveal_log() -> Result<(), String> {
     let path = diag::path().ok_or("journal indisponible")?;
     let mut cmd = std::process::Command::new("explorer");
-    // Le chemin est COLLÉ à l'option, pas passé en second argument : explorer
-    // attend un seul mot « /select,C:\… ». Séparés, il recevait « /select, »
-    // tout seul, n'y comprenait rien, et le bouton ne faisait strictement rien
-    // — sans erreur, puisque le lancement, lui, réussissait.
-    cmd.arg(format!("/select,{path}"));
+    // `raw_arg` et non `arg` : explorer veut le mot « /select,"C:\…" » tel
+    // quel, alors que `arg` entoure TOUT l'argument de guillemets dès qu'il
+    // contient un espace — « "/select,C:\…" » — que explorer ne reconnaît pas.
+    //
+    // Deux formes fausses déjà essayées : le chemin en second argument (explorer
+    // recevait « /select, » seul), puis collé via `arg`. Dans les deux cas le
+    // processus se lançait, donc aucune erreur nulle part, et rien à l'écran.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.raw_arg(format!("/select,\"{path}\""));
+    }
+    #[cfg(not(windows))]
+    cmd.arg(&path);
     // explorer.exe renvoie un code non nul même quand il a fait le travail :
     // on ne teste donc pas le statut, seulement le lancement.
     cmd.spawn().map_err(|e| e.to_string())?;
@@ -506,6 +515,14 @@ fn deck_apply(handle: &tauri::AppHandle) {
         deckwin::close(handle);
         return;
     }
+    diag::log(
+        "deck",
+        &format!(
+            "armé — {} page(s), {} case(s) sur le profil actif",
+            cfg.pages.len(),
+            cfg.slots.len()
+        ),
+    );
     if let Err(e) = deckwin::ensure(handle) {
         diag::log("deck", &format!("widget impossible à créer : {e}"));
     }
@@ -516,6 +533,7 @@ fn deck_apply(handle: &tauri::AppHandle) {
     // ce puits. Les suivants ne font que reconfigurer, juste en dessous.
     deckhook::start(move |ev| match ev {
         deck::Event::Press(owner) => {
+            diag::log("deck", &format!("case {owner} pressée"));
             let app = h.state::<App>();
             if let Err(e) = fire_owner(&h, &app, &owner) {
                 diag::log("deck", &format!("case {owner} : {e}"));
@@ -527,6 +545,7 @@ fn deck_apply(handle: &tauri::AppHandle) {
             app.state.broadcast(&WsMsg::Release { binding_id });
         }
         deck::Event::Page(p) => {
+            diag::log("deck", &format!("page {p:?}"));
             // La vue apprend QUELLE page ; la fenêtre apprend SI elle se montre.
             // Épinglée, elle ne se retire jamais — c'est la vue qui grise ses
             // cases, sinon le widget disparaîtrait sous le curseur de celui qui
@@ -894,11 +913,21 @@ pub fn run() {
         // pas quitter est une application cassée, et celle-ci intercepte le
         // clavier de toute la session.
         .on_window_event(|window, event| {
-            if matches!(event, tauri::WindowEvent::CloseRequested { .. })
-                && window.label() != deckwin::LABEL
-            {
-                deckhook::stop();
-                window.app_handle().exit(0);
+            let app = window.app_handle();
+            match event {
+                tauri::WindowEvent::Moved(pos) if window.label() == deckwin::LABEL => {
+                    let s = window.scale_factor().unwrap_or(1.0);
+                    let p = pos.to_logical::<f64>(s);
+                    deckwin::remember(app, p.x, p.y);
+                }
+                tauri::WindowEvent::CloseRequested { .. }
+                    if window.label() != deckwin::LABEL =>
+                {
+                    deckhook::stop();
+                    deckwin::persist(app);
+                    app.exit(0);
+                }
+                _ => {}
             }
         })
         .setup(|app| {

@@ -187,6 +187,9 @@ pub struct Settings {
     /// Pas seulement un confort : le widget n'a jamais le focus et s'efface au
     /// relâchement, donc rien n'y est cliquable tant qu'il n'est pas épinglé.
     pub deck_pinned: bool,
+    /// Position retenue du widget, en coordonnées logiques. `None` = en bas à
+    /// droite de l'écran principal, du côté du pavé numérique.
+    pub deck_pos: Option<(f64, f64)>,
 }
 
 impl Default for Settings {
@@ -206,6 +209,7 @@ impl Default for Settings {
             deck_pages: crate::deck::DEFAULT_PAGES.to_vec(),
             deck_page_names: vec!["Page 1".into(), "Page 2".into(), "Page 3".into()],
             deck_pinned: false,
+            deck_pos: None,
         }
     }
 }
