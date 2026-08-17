@@ -24,6 +24,7 @@
 //! boucle infinie à la vitesse du processeur.
 
 use crate::deck::{Config, Deck, Event, Verdict, E};
+use tauri::AppHandle;
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Mutex, OnceLock};
@@ -41,7 +42,6 @@ const WM_KEYDOWN: usize = 0x0100;
 const WM_KEYUP: usize = 0x0101;
 const WM_SYSKEYDOWN: usize = 0x0104;
 const WM_SYSKEYUP: usize = 0x0105;
-const WM_QUIT: u32 = 0x0012;
 const LLKHF_EXTENDED: u32 = 0x01;
 #[repr(C)]
 struct KbdLlHook {
@@ -50,17 +50,6 @@ struct KbdLlHook {
     flags: u32,
     time: u32,
     extra: usize,
-}
-
-#[repr(C)]
-struct Msg {
-    hwnd: isize,
-    message: u32,
-    wparam: usize,
-    lparam: isize,
-    time: u32,
-    pt_x: i32,
-    pt_y: i32,
 }
 
 type HookProc = unsafe extern "system" fn(i32, usize, isize) -> isize;
@@ -75,9 +64,6 @@ extern "system" {
     fn SetWindowsHookExW(id: i32, f: HookProc, module: isize, thread: u32) -> isize;
     fn UnhookWindowsHookEx(h: isize) -> i32;
     fn CallNextHookEx(h: isize, code: i32, w: usize, l: isize) -> isize;
-    fn GetMessageW(msg: *mut Msg, hwnd: isize, min: u32, max: u32) -> i32;
-    fn PostThreadMessageW(thread: u32, msg: u32, w: usize, l: isize) -> i32;
-    fn GetCurrentThreadId() -> u32;
 }
 
 // ---- État global --------------------------------------------------------
@@ -95,7 +81,6 @@ fn sink() -> &'static Mutex<Option<Sender<Event>>> {
 }
 
 static HOOK: AtomicIsize = AtomicIsize::new(0);
-static THREAD: AtomicU32 = AtomicU32::new(0);
 /// Combien d'événements le rappel a-t-il vus ? Sert à ne tracer que les
 /// premiers : « le hook est installé » et « le hook reçoit » sont deux états
 /// distincts, et rien d'autre ne les sépare.
@@ -157,8 +142,24 @@ pub fn running() -> bool {
     HOOK.load(Ordering::Relaxed) != 0
 }
 
-/// Installe le hook sur son propre fil. Idempotent.
-pub fn start(on_event: impl Fn(Event) + Send + 'static) {
+/// Installe le hook SUR LE FIL PRINCIPAL. Idempotent.
+///
+/// ─── Pourquoi pas sur un fil à nous ─────────────────────────────────────────
+/// Un hook bas niveau n'est servi que par un fil qui pompe des messages, et la
+/// première version en créait donc un, avec sa propre boucle `GetMessageW`.
+/// Cette boucle fonctionnait — elle recevait bien l'ordre d'arrêt — mais le
+/// rappel n'a JAMAIS été appelé une seule fois : compteur atomique à zéro après
+/// vingt-six secondes, touches enfoncées. Le même code, dans un programme isolé,
+/// reçoit tout.
+///
+/// Tauri fait déjà tourner une boucle de messages sur le fil principal. On y
+/// pose le hook plutôt que d'en entretenir une seconde : moins de code, et une
+/// boucle dont on sait qu'elle est vivante puisque c'est elle qui fait vivre
+/// toute l'interface.
+///
+/// Le rappel n'y coûte rien — un incrément atomique et un envoi sur un canal —
+/// ce que la règle « ne jamais bloquer » imposait déjà de toute façon.
+pub fn start(app: &AppHandle, on_event: impl Fn(Event) + Send + 'static) {
     if running() || STARTING.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -171,69 +172,37 @@ pub fn start(on_event: impl Fn(Event) + Send + 'static) {
             on_event(ev);
         }
     });
-    std::thread::spawn(|| unsafe {
-        // Le module du processus, et non zéro. La documentation n'autorise
-        // NULL que pour un hook attaché à un fil précis ; celui-ci est global.
-        // Zéro renvoyait bien un handle valide — Windows ne s'en plaignait
-        // pas — mais aucune touche n'arrivait jamais.
+    let _ = app.run_on_main_thread(|| unsafe {
         let h = SetWindowsHookExW(WH_KEYBOARD_LL, hook_proc, GetModuleHandleW(std::ptr::null()), 0);
+        STARTING.store(false, Ordering::SeqCst);
         if h == 0 {
             crate::diag::log("deck", "hook clavier refusé par Windows");
-            STARTING.store(false, Ordering::SeqCst);
             return;
         }
         HOOK.store(h, Ordering::SeqCst);
-        THREAD.store(GetCurrentThreadId(), Ordering::SeqCst);
-        // Levé DÈS l'installation, et non à l'arrêt : ce garde ne couvre que
-        // l'intervalle entre `start` et le moment où ce fil pose `HOOK`.
-        // Passé là, c'est `running()` qui protège.
-        //
-        // Le lever à l'arrêt créait un interstice fatal : `stop` rend la main
-        // dès que `HOOK` tombe, donc un réarmement immédiat trouvait `STARTING`
-        // encore vrai et repartait sans rien installer. Observé dans le journal
-        // — « armé » sans « hook clavier installé » derrière.
-        STARTING.store(false, Ordering::SeqCst);
-        crate::diag::log("deck", "hook clavier installé");
+        crate::diag::log("deck", "hook clavier installé (fil principal)");
         watchdog();
-        // Un hook bas niveau n'existe que sur un fil qui pompe des messages :
-        // c'est cette boucle que Windows utilise pour livrer les touches.
-        let mut msg: Msg = std::mem::zeroed();
-        while GetMessageW(&mut msg, 0, 0, 0) > 0 {}
-        UnhookWindowsHookEx(h);
-        HOOK.store(0, Ordering::SeqCst);
-        THREAD.store(0, Ordering::SeqCst);
-        crate::diag::log(
-            "deck",
-            &format!("hook clavier retiré — {} événement(s) vus", SEEN.load(Ordering::Relaxed)),
-        );
     });
 }
 
-/// Désinstalle le hook, et ATTEND qu'il le soit vraiment.
+/// Désinstalle le hook.
 ///
-/// L'attente n'est pas une précaution : `PostThreadMessageW` ne fait que
-/// déposer un message, le fil du hook s'arrête un instant plus tard. Sans elle,
-/// désarmer puis réarmer le deck trouvait `running()` encore vrai, `start`
-/// repartait aussitôt sans rien installer, et le hook mourait juste après —
-/// deck armé dans l'interface, aucune touche vivante. Symptôme observé :
-/// « impossible à réactiver ».
-///
-/// Le plafond existe pour que rien ne puisse figer l'interface si le fil ne
-/// répond pas : mieux vaut un deck qui refuse de se réarmer qu'une application
-/// bloquée.
+/// `UnhookWindowsHookEx` s'appelle depuis n'importe quel fil, et c'est heureux :
+/// l'un des appelants est la fermeture de la fenêtre, d'où l'on ne peut plus
+/// compter sur la boucle principale pour exécuter quoi que ce soit.
 pub fn stop() {
-    let t = THREAD.load(Ordering::SeqCst);
-    if t == 0 {
+    let h = HOOK.swap(0, Ordering::SeqCst);
+    if h == 0 {
         return;
     }
-    unsafe { PostThreadMessageW(t, WM_QUIT, 0, 0) };
-    for _ in 0..100 {
-        if !running() {
-            return;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(5));
-    }
-    crate::diag::log("deck", "le hook clavier n'a pas rendu la main en 500 ms");
+    unsafe { UnhookWindowsHookEx(h) };
+    crate::diag::log(
+        "deck",
+        &format!(
+            "hook clavier retiré — {} événement(s) vus",
+            SEEN.load(Ordering::Relaxed)
+        ),
+    );
 }
 
 // ---- Le rappel ----------------------------------------------------------

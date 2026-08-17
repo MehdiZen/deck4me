@@ -531,7 +531,7 @@ fn deck_apply(handle: &tauri::AppHandle) {
     let h = handle.clone();
     // `start` est idempotent : seul le premier appel installe le hook et retient
     // ce puits. Les suivants ne font que reconfigurer, juste en dessous.
-    deckhook::start(move |ev| match ev {
+    deckhook::start(handle, move |ev| match ev {
         deck::Event::Press(owner) => {
             diag::log("deck", &format!("case {owner} pressée"));
             let app = h.state::<App>();
