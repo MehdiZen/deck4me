@@ -3,6 +3,7 @@ import {
   Matcher,
   SequenceMatcher,
   featurizeRaw,
+  type FeatureBlocks,
   type GestureSnapshot,
   type MacroProgress,
   type RawFrame,
@@ -47,6 +48,11 @@ export class MatcherService {
 
   /** Lu à 30 Hz par les toiles — volontairement PAS un signal. */
   lastSnapshots: GestureSnapshot[] = []
+  /** La dernière frame FEATURISÉE. Les snapshots ne portent que des distances ;
+   *  or dire « déplie ton index » demande de comparer les vecteurs eux-mêmes,
+   *  pas leur écart résumé en un nombre. Même règle que ci-dessus : lu à 30 Hz,
+   *  jamais un signal. */
+  lastBlocks: FeatureBlocks | null = null
 
   /** Historique des distances par gesture, le plus récent en fin de tableau.
    *  NaN = bloc requis manquant (main hors champ) : un trou, pas un zéro. */
@@ -121,6 +127,7 @@ export class MatcherService {
     const blocks = featurizeRaw(raw, this.store.baseline())
     const { events, snapshots } = this.matcher.step(blocks, ts)
     this.lastSnapshots = snapshots
+    this.lastBlocks = blocks
 
     this.matchAcc += performance.now() - t0
     if (++this.matchN >= 30) {

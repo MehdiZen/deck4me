@@ -9,7 +9,13 @@ import {
   inject,
   signal,
 } from '@angular/core'
-import type { BlockDiag } from '@deck4me/core'
+import {
+  advise,
+  frameDistance,
+  type Advice,
+  type BlockDiag,
+  type FeatureBlocks,
+} from '@deck4me/core'
 import { DetectionService } from '../services/detection.service'
 import { MatcherService } from '../services/matcher.service'
 import { StoreService, type StoredGesture } from '../services/store.service'
@@ -126,6 +132,26 @@ interface BlockStat {
                 <p class="badge warn verdict">{{ diagnosis() }}</p>
               }
 
+              <!-- Les consignes. C'est la seule partie de cet écran qui dise
+                   quoi FAIRE ; tout le reste dit où ça coince. -->
+              @if (advice().length) {
+                <div class="todo">
+                  <h3>Pour t'en rapprocher</h3>
+                  <ol>
+                    @for (a of advice(); track a.text) {
+                      <li>{{ a.text }}</li>
+                    }
+                  </ol>
+                  <!-- Dire ce qu'on ne saura JAMAIS conseiller évite d'aller
+                       corriger une chose qui n'entre pas dans le calcul. -->
+                  <p class="lbl note">
+                    Inutile de chercher du côté de l'angle de ta main ou de
+                    l'inclinaison de ta tête : ni l'un ni l'autre n'entre dans la
+                    comparaison.
+                  </p>
+                </div>
+              }
+
               <!-- Le voleur : la pose qui a gagné l'exclusivité à notre place.
                    C'est LE cas qu'on ne peut pas voir autrement. -->
               @if (thief(); as t) {
@@ -188,6 +214,18 @@ interface BlockStat {
       background: var(--void); margin: 16px 0 8px;
     }
     .track i { display: block; height: 100%; background: var(--st-armed); }
+    /* Les consignes sont l'aboutissement de l'écran : elles ont droit à leur
+       propre encadré, et pas à une pastille de plus perdue dans la liste. */
+    .todo {
+      margin: 14px 0;
+      padding: 12px 14px;
+      border-radius: 10px;
+      background: var(--panel-2);
+      border: 1px solid var(--line-soft);
+    }
+    .todo h3 { margin: 0 0 8px; font-size: 13px; }
+    .todo ol { margin: 0; padding-left: 20px; font-size: 13.5px; line-height: 1.75; }
+    .note { display: block; margin: 10px 0 0; text-transform: none; letter-spacing: 0; line-height: 1.5; }
     .blocks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
     .chip {
       display: inline-flex; align-items: center; gap: 6px;
@@ -221,6 +259,9 @@ export class PoseTester implements OnInit, OnDestroy {
   /** La gesture qui a raflé l'exclusivité à notre place, si elle l'a fait
    *  souvent. En dessous d'un tiers des frames, ce n'est pas elle le problème. */
   protected thief = signal<{ name: string; wins: number } | null>(null)
+  /** Ce qu'il faut CHANGER, en français. Le reste de cet écran dit où ça
+   *  coince ; ces phrases-là disent quoi faire du corps. */
+  protected advice = signal<Advice[]>([])
 
   protected rate = computed(() => (this.measured() ? this.fired() / this.measured() : 0))
 
@@ -253,6 +294,17 @@ export class PoseTester implements OnInit, OnDestroy {
     const wins = new Map<string, number>()
     const t0 = performance.now()
 
+    // La MEILLEURE tentative, gardée pour être racontée à la fin.
+    //
+    // Ni la première frame ni une moyenne : la moyenne de plusieurs instants
+    // d'un geste vivant n'est pas forcément une pose réalisable, et on
+    // enverrait corriger vers une cible qui n'existe pas. La frame la plus
+    // proche est, elle, un instant qui a vraiment eu lieu.
+    let bestFrame: FeatureBlocks | null = null
+    let bestSample: FeatureBlocks | null = null
+    const samples =
+      this.store.runtimeGestures().find((g) => g.id === this.gesture.id)?.samples ?? []
+
     const tick = () => {
       const dt = performance.now() - t0
       this.progress.set(Math.min(100, (dt / DURATION_MS) * 100))
@@ -266,7 +318,27 @@ export class PoseTester implements OnInit, OnDestroy {
         } else {
           measured++
           sum += mine.dist
-          if (mine.dist < best) best = mine.dist
+          if (mine.dist < best) {
+            best = mine.dist
+            // On retient le sample dont on s'est le plus approché : c'est LUI
+            // la cible à décrire, pas un sample moyen ni le premier venu.
+            const live = this.matcher.lastBlocks
+            if (live) {
+              let near: FeatureBlocks | null = null
+              let nd = Infinity
+              for (const s of samples) {
+                const d = frameDistance(s, live, this.gesture.source)
+                if (d !== null && d < nd) {
+                  nd = d
+                  near = s
+                }
+              }
+              if (near) {
+                bestFrame = live
+                bestSample = near
+              }
+            }
+          }
           if (mine.dist <= mine.threshold) fired++
           // L'état vient de la vraie machine à états : c'est la seule preuve
           // que la pose a franchi TOUT le chemin, exclusivité et frames
@@ -307,6 +379,9 @@ export class PoseTester implements OnInit, OnDestroy {
         this.triggered.set(triggered)
         this.blocks.set([...blocks.values()])
         this.thief.set(this.worstRival(wins, measured))
+        this.advice.set(
+          bestSample && bestFrame ? advise(bestSample, bestFrame, this.gesture.source) : [],
+        )
         this.step.set('done')
         return
       }
