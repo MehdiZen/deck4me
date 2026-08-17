@@ -45,10 +45,18 @@ fn build_trigger(app: &App, gesture_id: &str) -> Result<TriggerEvent, String> {
         .iter()
         .find(|g| g.id() == Some(gesture_id))
         .cloned();
-    let hold = gesture
-        .as_ref()
-        .map(|g| g.hold_mode() == "while_held")
-        .unwrap_or(false);
+    // Une case du deck porte son propre mode : sans ça elle retomberait sur le
+    // `false` prévu pour les macros, et son meme s'éteindrait sur un minuteur
+    // alors qu'on tient la touche.
+    let hold = match &gesture {
+        Some(g) => g.hold_mode() == "while_held",
+        None => db
+            .deck_slots
+            .iter()
+            .find(|s| s.id() == Some(gesture_id))
+            .map(|s| s.hold_mode() == "while_held")
+            .unwrap_or(false),
+    };
     let binding = db
         .bindings
         .iter()

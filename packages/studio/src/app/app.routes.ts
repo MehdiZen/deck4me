@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router'
 import { DebugPage } from './pages/debug.page'
+import { DeckPage } from './pages/deck.page'
 import { GesturesPage } from './pages/gestures.page'
 import { LivePage } from './pages/live.page'
 import { MacrosPage } from './pages/macros.page'
@@ -10,6 +11,7 @@ export const routes: Routes = [
   { path: 'gestures', component: GesturesPage },
   { path: 'live', component: LivePage },
   { path: 'macros', component: MacrosPage },
+  { path: 'deck', component: DeckPage },
   { path: 'debug', component: DebugPage },
   { path: 'reglages', component: SettingsPage },
 ]

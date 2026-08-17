@@ -93,6 +93,18 @@ impl SlotRecord {
     pub fn key(&self) -> Option<u32> {
         self.0.get("key").and_then(Value::as_u64).map(|k| k as u32)
     }
+    /// `while_held` : le meme reste tant que la touche du pavé est enfoncée.
+    ///
+    /// Une case est le seul déclencheur dont on connaisse le relâchement à
+    /// l'instant près — une pose se « détient » progressivement, une touche non.
+    /// C'est donc le maintien qui va de soi ici, et la durée fixe qui est le
+    /// cas particulier.
+    pub fn hold_mode(&self) -> &str {
+        self.0
+            .get("holdMode")
+            .and_then(Value::as_str)
+            .unwrap_or("while_held")
+    }
 }
 
 /// Action : ce qu'un déclencheur exécute sur la machine (ouvrir, lancer,

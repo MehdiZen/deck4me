@@ -1,6 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core'
 import { listen } from '@tauri-apps/api/event'
 import { StoreService } from '../services/store.service'
+import { DECK_LABELS, DECK_LAYOUT } from './deck-layout'
 
 /**
  * Le widget : la forme du pavé numérique, et sur chaque touche ce qu'elle fera.
@@ -17,50 +18,6 @@ import { StoreService } from '../services/store.service'
  * avant même de démarrer le routeur : un widget qui ferait tourner un moteur de
  * détection en arrière-plan serait une aberration.
  */
-
-/** Disposition physique du pavé, en (colonne, ligne, largeur, hauteur).
- *
- *  Recopiée depuis un vrai pavé et non inventée : `+` et `Entrée` font deux
- *  rangées de haut, `0` deux colonnes de large. Une grille régulière serait
- *  plus simple à écrire et méconnaissable à l'œil — or c'est justement la
- *  reconnaissance instantanée qui fait tout l'intérêt de la chose. */
-const LAYOUT: Record<number, [number, number, number, number]> = {
-  0xe035: [0, 0, 1, 1], // /
-  0x37: [1, 0, 1, 1], // *
-  0x4a: [2, 0, 1, 1], // -
-  0x47: [0, 1, 1, 1], // 7
-  0x48: [1, 1, 1, 1], // 8
-  0x49: [2, 1, 1, 1], // 9
-  0x4e: [3, 1, 1, 2], // +
-  0x4b: [0, 2, 1, 1], // 4
-  0x4c: [1, 2, 1, 1], // 5
-  0x4d: [2, 2, 1, 1], // 6
-  0x4f: [0, 3, 1, 1], // 1
-  0x50: [1, 3, 1, 1], // 2
-  0x51: [2, 3, 1, 1], // 3
-  0xe01c: [3, 3, 1, 2], // Entrée
-  0x52: [0, 4, 2, 1], // 0
-  0x53: [2, 4, 1, 1], // .
-}
-
-const LABELS: Record<number, string> = {
-  0xe035: '/',
-  0x37: '*',
-  0x4a: '−',
-  0x47: '7',
-  0x48: '8',
-  0x49: '9',
-  0x4e: '+',
-  0x4b: '4',
-  0x4c: '5',
-  0x4d: '6',
-  0x4f: '1',
-  0x50: '2',
-  0x51: '3',
-  0xe01c: '⏎',
-  0x52: '0',
-  0x53: '.',
-}
 
 interface Cell {
   key: number
@@ -243,12 +200,12 @@ export class DeckHudPage {
 
   protected cells = computed<Cell[]>(() => {
     const p = this.page()
-    return Object.entries(LAYOUT).map(([k, [col, row, w, h]]) => {
+    return Object.entries(DECK_LAYOUT).map(([k, [col, row, w, h]]) => {
       const key = Number(k)
       const slot = p === null ? null : this.store.slotAt(p, key)
       return {
         key,
-        label: LABELS[key] ?? '',
+        label: DECK_LABELS[key] ?? '',
         col,
         row,
         w,

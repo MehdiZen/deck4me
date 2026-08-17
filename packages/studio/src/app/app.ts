@@ -32,6 +32,7 @@ import { VcamService } from './services/vcam.service'
           <a routerLink="/live" routerLinkActive="on"><app-icon name="live" /> Live</a>
           <a routerLink="/gestures" routerLinkActive="on"><app-icon name="hand" /> Gestures</a>
           <a routerLink="/macros" routerLinkActive="on"><app-icon name="zap" /> Macros</a>
+          <a routerLink="/deck" routerLinkActive="on"><app-icon name="keyboard" /> Deck</a>
           <a routerLink="/debug" routerLinkActive="on"><app-icon name="pulse" /> Debug</a>
           <a routerLink="/reglages" routerLinkActive="on"><app-icon name="sliders" /> Réglages</a>
         </nav>

@@ -102,6 +102,13 @@ export interface DeckSlot {
   /** Code physique de la touche, drapeau étendu replié dedans. */
   key: number
   name: string
+  /** `while_held` : le meme reste tant que la touche est enfoncée.
+   *
+   *  Une case est le seul déclencheur dont le relâchement soit connu à
+   *  l'instant près — une pose se « détient » progressivement, une touche non.
+   *  C'est donc le maintien qui va de soi ici, et la durée fixe qui est le cas
+   *  particulier. */
+  holdMode: HoldMode
 }
 
 /** Gesture telle que persistée (samples en JSON, frames brutes incluses). */
