@@ -23,6 +23,10 @@ import { DECK_LABELS, DECK_LAYOUT } from './deck-layout'
 interface Cell {
   key: number
   label: string
+  /** Identifiant du déclencheur posé sur la touche, s'il y en a un. */
+  slotId: string | null
+  /** Le meme reste-t-il tant que la case est tenue ? */
+  held: boolean
   col: number
   row: number
   w: number
@@ -35,14 +39,14 @@ interface Cell {
 @Component({
   selector: 'app-deck-hud',
   template: `
-    <!-- Zone de préhension sur TOUT le panneau, et pas seulement l'en-tête :
+    <!-- La préhension est sur l'EN-TÊTE seul : les cases, elles, se cliquent.
          Tauri n'attrape la fenêtre que si le clic tombe sur l'élément portant
-         l'attribut lui-même. Sur l'en-tête seul, le point et le titre
-         interceptaient le clic et il ne restait que quelques pixels de marge
-         réellement saisissables. Rien n'est cliquable ici de toute façon.
-         Ne répond QUE si le widget est épinglé — sinon le curseur le traverse,
-         ce qui est bien tout l'intérêt le reste du temps. -->
-    <div class="hud" data-tauri-drag-region [class.idle]="page() === null">
+         l'attribut lui-même, d'où les enfants de l'en-tête rendus transparents
+         au clic — sans quoi le point et le titre le bloquaient et il ne restait
+         que quelques pixels de marge saisissables.
+         Ne répond QUE si le widget est épinglé : sinon le curseur traverse
+         toute la fenêtre, ce qui est bien tout l'intérêt le reste du temps. -->
+    <div class="hud" [class.idle]="page() === null">
       <header data-tauri-drag-region>
         <span class="dot"></span>
         <span class="title">{{ pageName() }}</span>
@@ -51,14 +55,19 @@ interface Cell {
         }
       </header>
 
-      <div class="pad" data-tauri-drag-region>
+      <div class="pad">
         @for (c of cells(); track c.key) {
+          <!-- Une case se déclenche à la souris comme à la touche. Ça rend le
+               deck utilisable sans toucher au clavier, et ça permet d'essayer
+               une case sans lâcher la souris pendant qu'on la règle. -->
           <div
             class="cell"
-            data-tauri-drag-region
             [class.filled]="c.filled"
             [style.grid-column]="c.col + 1 + ' / span ' + c.w"
             [style.grid-row]="c.row + 1 + ' / span ' + c.h"
+            (mousedown)="press(c)"
+            (mouseup)="release(c)"
+            (mouseleave)="release(c)"
           >
             <span class="key">{{ c.label }}</span>
             @if (c.filled) {
@@ -120,8 +129,10 @@ interface Cell {
     header > *, .cell > * {
       pointer-events: none;
     }
-    .hud, .cell { cursor: grab; }
-    .hud:active { cursor: grabbing; }
+    header { cursor: grab; }
+    header:active { cursor: grabbing; }
+    .cell.filled { cursor: pointer; }
+    .cell.filled:active { transform: scale(0.96); }
     header {
       display: flex;
       align-items: center;
@@ -237,18 +248,35 @@ export class DeckHudPage {
     })
   }
 
+  /** Même chemin que la touche : une case est un déclencheur, le Rust ne
+   *  distingue pas d'où vient l'ordre. */
+  protected press(c: Cell): void {
+    if (!c.slotId) return
+    void this.tauri.invoke('gesture_fired', { gestureId: c.slotId }, null).catch(() => {})
+  }
+
+  protected release(c: Cell): void {
+    if (!c.slotId || !c.held) return
+    void this.tauri.invoke('gesture_released', { gestureId: c.slotId }, null).catch(() => {})
+  }
+
   private say(msg: string): void {
     void this.tauri.invoke('journal', { msg: `deck-hud — ${msg}` }, null).catch(() => {})
   }
 
   protected pageName = computed(() => {
-    const p = this.page()
+    const p = this.shown()
     if (p === null) return 'Deck'
     return this.store.settings().deckPageNames[p] ?? `Page ${p + 1}`
   })
 
+  /** Page à MONTRER. Épinglé et sans touche tenue, on retombe sur la première
+   *  plutôt que sur du vide : un widget épinglé sert à cliquer, et des cases
+   *  vides ne se cliquent pas. */
+  protected shown = computed(() => this.page() ?? (this.store.settings().deckPinned ? 0 : null))
+
   protected cells = computed<Cell[]>(() => {
-    const p = this.page()
+    const p = this.shown()
     return Object.entries(DECK_LAYOUT).map(([k, [col, row, w, h]]) => {
       const key = Number(k)
       const slot = p === null ? null : this.store.slotAt(p, key)
@@ -259,6 +287,8 @@ export class DeckHudPage {
         row,
         w,
         h,
+        slotId: slot?.id ?? null,
+        held: slot?.holdMode === 'while_held',
         name: slot?.name ?? '',
         filled: !!slot,
         thumb: slot ? this.thumb(slot.id) : null,
