@@ -4,6 +4,7 @@ import { type HoldMode } from '@deck4me/core'
 import { AssetPicker } from '../components/asset-picker'
 import { BindingEditor } from '../components/binding-editor'
 import { Icon } from '../components/icon'
+import { PoseTester } from '../components/pose-tester'
 import { Wizard, type WizardMode } from '../components/wizard'
 import { ConfirmService } from '../services/confirm.service'
 import { MatcherService } from '../services/matcher.service'
@@ -23,7 +24,7 @@ import {
  */
 @Component({
   selector: 'app-gestures-page',
-  imports: [Wizard, RouterLink, Icon, BindingEditor, AssetPicker],
+  imports: [Wizard, RouterLink, Icon, BindingEditor, AssetPicker, PoseTester],
   template: `
     <div class="head">
       <div>
@@ -204,6 +205,16 @@ import {
               }
             </div>
 
+            <!-- Éprouver la RECONNAISSANCE, à ne pas confondre avec le bouton
+                 « Tester » des memes, qui affiche l'image dans OBS. Ici on
+                 mesure si la pose est vue. -->
+            <button
+              class="ghost sm"
+              (click)="testing.set(g)"
+              title="Tenir la pose et mesurer si elle est reconnue"
+            >
+              <app-icon name="target" [size]="15" />
+            </button>
             <button
               class="ghost sm"
               (click)="rerecord(g)"
@@ -328,6 +339,16 @@ import {
             >
               <app-icon name="zap" [size]="14" /> Tester
             </button>
+            <!-- Deux « tests » voisins et volontairement distincts : celui-ci
+                 éprouve la POSE, l'autre le rendu. Le libellé le dit, parce que
+                 confondre les deux ferait chercher une panne du mauvais côté. -->
+            <button
+              class="sm"
+              (click)="testing.set(g)"
+              title="Tenir la pose et mesurer si elle est reconnue"
+            >
+              <app-icon name="target" [size]="14" /> Pose
+            </button>
             <button
               class="ghost sm"
               (click)="rerecord(g)"
@@ -361,6 +382,9 @@ import {
       }
     </div>
 
+    @if (testing(); as g) {
+      <app-pose-tester [gesture]="g" (close)="testing.set(null)" />
+    }
     @if (wizardOpen()) {
       <app-wizard
         [replacing]="rerecording()"
@@ -552,6 +576,8 @@ export class GesturesPage {
   protected matcher = inject(MatcherService)
   private confirm = inject(ConfirmService)
   wizardOpen = signal(false)
+  /** Pose en cours d'épreuve, s'il y en a une. */
+  testing = signal<StoredGesture | null>(null)
   /** Gesture dont on refait la pose ; null = création. */
   rerecording = signal<StoredGesture | null>(null)
   editing = signal<{ gesture: StoredGesture; binding: StoredBinding } | null>(null)
