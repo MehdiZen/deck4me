@@ -21,8 +21,8 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 pub const LABEL: &str = "deck-hud";
 
-const WIDTH: f64 = 340.0;
-const HEIGHT: f64 = 420.0;
+const WIDTH: f64 = 272.0;
+const HEIGHT: f64 = 450.0;
 /// Marge au bord de l'écran. Le widget se pose en bas à droite, du côté où se
 /// trouve le pavé numérique — le regard n'a pas à traverser l'écran.
 const MARGIN: f64 = 24.0;
@@ -47,14 +47,14 @@ pub fn ensure(app: &AppHandle) -> Result<(), String> {
     if app.get_webview_window(LABEL).is_some() {
         return Ok(());
     }
-    let win = WebviewWindowBuilder::new(
-        app,
-        LABEL,
-        // Pas une route du routeur : le widget n'est pas un écran du Studio, et
-        // il n'a rien à faire de son rail, de ses services ni de sa caméra. La
-        // requête suffit à l'aiguiller dès le composant racine.
-        WebviewUrl::App("index.html?window=deck".into()),
-    )
+    // La MÊME page que le Studio, aiguillée par l'étiquette de la fenêtre.
+    //
+    // Une requête (`index.html?window=deck`) a été essayée et retirée : Tauri
+    // traite cet argument comme un chemin de fichier, le `?` s'échappe, la page
+    // ne se charge pas — et une fenêtre transparente qui ne charge rien est
+    // rigoureusement invisible, sans la moindre erreur nulle part. L'étiquette
+    // ne dépend d'aucune URL et ne peut pas se faire échapper.
+    let win = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html".into()))
     .title("deck4me")
     .inner_size(WIDTH, HEIGHT)
     .resizable(false)
@@ -80,6 +80,10 @@ pub fn ensure(app: &AppHandle) -> Result<(), String> {
     // Traversante par défaut : le widget qu'on regarde sans le toucher.
     let _ = win.set_ignore_cursor_events(true);
     harden(app);
+    // Journalisé parce que la panne de cette fenêtre est SILENCIEUSE : elle est
+    // transparente et sans bordure, donc « pas créée », « page non chargée » et
+    // « fonctionne mais vide » se ressemblent tous les trois à l'écran.
+    crate::diag::log("deck", "widget créé");
     Ok(())
 }
 

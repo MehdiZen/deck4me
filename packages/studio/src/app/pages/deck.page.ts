@@ -201,7 +201,7 @@ import { DECK_LABELS, DECK_LAYOUT } from './deck-layout'
     .n { font-size: 10.5px; opacity: .8; }
 
     .cols { display: grid; grid-template-columns: minmax(320px, 420px) 1fr; gap: 22px; align-items: start; }
-    .pad { display: grid; grid-template-columns: repeat(4, 1fr); grid-template-rows: repeat(5, 82px); gap: 8px; }
+    .pad { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(5, 82px); gap: 8px; }
     .cell {
       position: relative; overflow: hidden;
       border-radius: 11px; border: 1px solid var(--line);

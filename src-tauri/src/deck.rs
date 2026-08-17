@@ -21,9 +21,9 @@
 //!     Le code physique, lui, ne bouge pas.
 //!   • `²` n'existe qu'en AZERTY. Sa position physique, sous Échap, existe sur
 //!     tous les claviers.
-//! Les deux touches étendues du pavé (`/` et Entrée) partagent leur scancode
-//! avec une touche du clavier principal : le drapeau étendu est replié dans le
-//! haut de l'identifiant, d'où le `| E`.
+//! La touche `/` du pavé partage son scancode avec une touche du clavier
+//! principal, et ne s'en distingue que par le drapeau « étendu » : celui-ci est
+//! replié dans le haut de l'identifiant, d'où le `| E`.
 
 use std::collections::{HashMap, HashSet};
 
@@ -32,9 +32,15 @@ pub const E: u32 = 0xE000;
 
 /// Les cases du deck, dans l'ordre de lecture du pavé.
 ///
-/// Verr.Num (0x45) est délibérément absent : c'est la seule touche du pavé qui
-/// ait encore une fonction, et la confisquer priverait l'utilisateur du moyen
-/// de la récupérer.
+/// Trois touches en sont délibérément absentes.
+///
+/// Verr.Num (0x45) parce que c'est la seule touche du pavé qui ait encore une
+/// fonction, et la confisquer priverait l'utilisateur du moyen de la récupérer.
+///
+/// `+` et `Entrée` parce qu'elles font deux rangées de haut : elles imposaient
+/// une quatrième colonne à toute la grille pour deux cases, et le pavé y
+/// perdait sa forme carrée — celle qu'on reconnaît d'un coup d'œil, et qui est
+/// tout l'intérêt du widget.
 pub const PAD_KEYS: &[(u32, &str)] = &[
     (0x35 | E, "/"),
     (0x37, "*"),
@@ -42,14 +48,12 @@ pub const PAD_KEYS: &[(u32, &str)] = &[
     (0x47, "7"),
     (0x48, "8"),
     (0x49, "9"),
-    (0x4E, "+"),
     (0x4B, "4"),
     (0x4C, "5"),
     (0x4D, "6"),
     (0x4F, "1"),
     (0x50, "2"),
     (0x51, "3"),
-    (0x1C | E, "Entrée"),
     (0x52, "0"),
     (0x53, "."),
 ];
@@ -380,9 +384,13 @@ mod tests {
     }
 
     #[test]
-    fn pas_de_verr_num_dans_les_cases() {
+    fn touches_ecartees_du_pave() {
         // Confisquer Verr.Num priverait l'utilisateur du moyen de le rallumer.
         assert!(!is_pad_key(0x45));
-        assert_eq!(PAD_KEYS.len(), 16);
+        // `+` et `Entrée` : deux rangées de haut, une colonne entière pour deux
+        // cases. La grille reste carrée sans elles.
+        assert!(!is_pad_key(0x4E));
+        assert!(!is_pad_key(0x1C | E));
+        assert_eq!(PAD_KEYS.len(), 14);
     }
 }

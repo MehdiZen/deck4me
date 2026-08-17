@@ -2,6 +2,7 @@ import { bootstrapApplication } from '@angular/platform-browser';
 import { appConfig } from './app/app.config';
 import { App } from './app/app';
 import { DeckHudPage } from './app/pages/deck-hud.page';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 /**
  * Reprise des préférences locales d'avant le renommage en deck4me.
@@ -30,9 +31,14 @@ for (const key of ['cameraId', 'hideVideo']) {
  * L'aiguillage se fait ici, avant le démarrage, et non par une route : passer
  * par le routeur ferait construire le composant racine, qui réveille la
  * détection. Un widget qui ferait tourner un second moteur MediaPipe en fond
- * coûterait exactement les images par seconde qu'on vient de récupérer.
+ * coûterait les images par seconde qu'on vient tout juste de récupérer.
+ *
+ * Reconnu à l'ÉTIQUETTE de la fenêtre et non à une requête d'URL : Tauri traite
+ * l'URL d'une fenêtre comme un chemin de fichier, un `?` s'y fait échapper et la
+ * page ne se charge plus. Une fenêtre transparente qui ne charge rien est
+ * rigoureusement invisible, et sans la moindre erreur nulle part.
  */
-const isDeck = new URLSearchParams(location.search).get('window') === 'deck';
+const isDeck = '__TAURI_INTERNALS__' in window && getCurrentWindow().label === 'deck-hud';
 
 bootstrapApplication(isDeck ? DeckHudPage : App, appConfig)
   .catch((err) => console.error(err));
