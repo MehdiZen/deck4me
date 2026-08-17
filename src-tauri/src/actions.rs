@@ -330,7 +330,7 @@ async fn http(a: &Action) -> Result<(), String> {
 // ---- Système ------------------------------------------------------------
 
 #[cfg(windows)]
-mod sys {
+pub(crate) mod sys {
     use std::ffi::c_void;
     use std::os::windows::ffi::OsStrExt;
     use std::os::windows::process::CommandExt;
@@ -445,6 +445,7 @@ mod sys {
     const KEYEVENTF_EXTENDEDKEY: u32 = 0x0001;
     const KEYEVENTF_KEYUP: u32 = 0x0002;
     const KEYEVENTF_UNICODE: u32 = 0x0004;
+    const KEYEVENTF_SCANCODE: u32 = 0x0008;
 
     #[link(name = "user32")]
     extern "system" {
@@ -513,6 +514,29 @@ mod sys {
         send(&batch)
     }
 
+    /// Envoie une touche par son code PHYSIQUE, appui et relâchement séparés.
+    ///
+    /// Sert au rejeu du deck : une touche de page relâchée sans avoir servi doit
+    /// retrouver sa fonction d'origine. `KEYEVENTF_SCANCODE` court-circuite la
+    /// disposition — rejouer `²` produit `²` en AZERTY et la touche équivalente
+    /// ailleurs, sans que le deck ait à savoir laquelle est active.
+    ///
+    /// Le drapeau étendu vient de l'appelant et non de `is_extended` : celle-ci
+    /// raisonne en code virtuel, le deck en code physique.
+    ///
+    /// L'échec est muet, et c'est voulu : ce chemin part du rappel du hook
+    /// clavier, où il n'y a personne à prévenir et rien à interrompre.
+    pub fn send_scan(scan: u16, extended: bool, down: bool) {
+        let mut flags = KEYEVENTF_SCANCODE;
+        if extended {
+            flags |= KEYEVENTF_EXTENDEDKEY;
+        }
+        if !down {
+            flags |= KEYEVENTF_KEYUP;
+        }
+        let _ = send(&[key_event(0, scan, flags)]);
+    }
+
     /// Frappe littérale, en UTF-16 : Windows accepte n'importe quel caractère
     /// par KEYEVENTF_UNICODE, sans dépendre de la disposition du clavier. Une
     /// simulation par codes de touches taperait « qzerty » sur un clavier AZERTY.
@@ -534,7 +558,7 @@ mod sys {
 }
 
 #[cfg(not(windows))]
-mod sys {
+pub(crate) mod sys {
     const NOPE: &str = "action disponible sur Windows uniquement";
     pub fn open(_t: &str) -> Result<(), String> {
         Err(NOPE.into())
@@ -548,6 +572,7 @@ mod sys {
     pub fn send_text(_t: &str) -> Result<(), String> {
         Err(NOPE.into())
     }
+    pub fn send_scan(_s: u16, _e: bool, _d: bool) {}
 }
 
 // ---- Table des touches --------------------------------------------------

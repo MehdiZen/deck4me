@@ -1,5 +1,7 @@
 pub mod actions;
 mod camfeed;
+pub mod deck;
+pub mod deckhook;
 pub mod diag;
 pub mod fetch;
 pub mod hotkeys;
