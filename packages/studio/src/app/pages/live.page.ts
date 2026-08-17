@@ -49,13 +49,15 @@ import { StoreService } from '../services/store.service'
       }
     </div>
 
-    <!-- La caméra d'abord, sur toute la largeur : c'est l'image qui sert à se
-         cadrer et à s'éclairer, et ces deux réglages-là pèsent plus lourd sur
-         la qualité de détection que n'importe quel seuil. Les mesures viennent
-         dessous, dans l'ordre où on les consulte : ce qui est en train de se
-         passer à gauche, ce qui vient de se passer à droite. -->
+    <!-- Deux étages. En haut l'image et ce qui vient de partir, côte à côte :
+         quand un meme sort au mauvais moment, on regarde l'un et l'autre dans
+         le même mouvement. En bas les distances, sur toute la largeur — c'est
+         la seule chose ici qu'on manipule au pixel près, elle prend la place.
+         La caméra garde son rapport d'image et reste calée à gauche : centrée,
+         elle laissait un vide qui n'avait pas d'explication. -->
     <div class="stack">
-      <div class="card viewport" [class.fired]="flash()" [style.max-width]="camMax()">
+      <div class="top">
+      <div class="card viewport" [class.fired]="flash()" [style.width]="camMax()">
         <app-camera-view />
         <!-- Bandeau d'instrument sur l'image : ce qui compte pendant un live
              se lit sans quitter la vidéo des yeux. -->
@@ -77,37 +79,13 @@ import { StoreService } from '../services/store.service'
         </div>
       </div>
 
-      <div class="row">
-        <div class="card">
-          <div class="cardhead">
-            <h2>Distances</h2>
-            <span class="lbl legend">
-              glisse le trait pour régler · double-clic = auto · pointillé =
-              relâche (×{{ HYSTERESIS }})
-            </span>
-          </div>
-          <!-- mouseup et mouseleave sur la fenêtre : relâcher hors de la toile
-               doit terminer le geste, sinon le glissement reste collé au
-               curseur après coup. -->
-          <canvas
-            #bars
-            [class.grabbing]="!!drag()"
-            [class.grab]="!drag() && !!hover()"
-            (mousedown)="onBarsDown($event)"
-            (mousemove)="onBarsMove($event)"
-            (mouseleave)="hover.set(null)"
-            (dblclick)="onBarsDbl($event)"
-            (window:mouseup)="onBarsUp()"
-          ></canvas>
-        </div>
-
         <div class="card log-panel">
           <h2>Derniers triggers</h2>
-          @if (!matcher.triggerLog().length) {
+          @if (!recent().length) {
             <p class="empty">Rien encore. Prends une pose enregistrée.</p>
           }
           <ul class="log">
-            @for (t of matcher.triggerLog(); track t.ts) {
+            @for (t of recent(); track t.ts) {
               <li class="rise" [class.failed]="t.kind === 'error'" [title]="t.detail ?? ''">
                 <i class="led" [class.on]="t.kind === 'fire'" [class.bad]="t.kind === 'error'"></i>
                 <span class="nm">{{ t.name }}</span>
@@ -118,6 +96,29 @@ import { StoreService } from '../services/store.service'
           </ul>
         </div>
       </div>
+
+      <div class="card">
+        <div class="cardhead">
+          <h2>Distances</h2>
+          <span class="lbl legend">
+            glisse le trait pour régler · double-clic = auto · pointillé =
+            relâche (×{{ HYSTERESIS }})
+          </span>
+        </div>
+        <!-- mouseup et mouseleave sur la fenêtre : relâcher hors de la toile
+             doit terminer le geste, sinon le glissement reste collé au
+             curseur après coup. -->
+        <canvas
+          #bars
+          [class.grabbing]="!!drag()"
+          [class.grab]="!drag() && !!hover()"
+          (mousedown)="onBarsDown($event)"
+          (mousemove)="onBarsMove($event)"
+          (mouseleave)="hover.set(null)"
+          (dblclick)="onBarsDbl($event)"
+          (window:mouseup)="onBarsUp()"
+        ></canvas>
+      </div>
     </div>
   `,
   styles: `
@@ -126,38 +127,23 @@ import { StoreService } from '../services/store.service'
     .sub { margin: 0; text-transform: none; letter-spacing: 0; }
 
     .stack { display: flex; flex-direction: column; gap: 16px; }
-    /* 2/3 – 1/3. En grille et non en flex : les deux cartes reçoivent leur part
-       de la largeur sans que leur CONTENU ne la négocie — un nom de trigger
-       long élargirait sa colonne en flex, et la toile perdrait la place au
-       pixel près sous le curseur qui règle un seuil.
-       Le minmax(0, …) est là parce qu'une piste de grille refuse par défaut de
-       passer sous la largeur intrinsèque de son contenu : sans lui, la toile ne
-       peut plus jamais rétrécir une fois qu'elle s'est élargie. */
-    .row {
-      display: grid;
-      grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-      gap: 16px;
-      align-items: start;
-    }
-    /* Sous cette largeur, deux colonnes rendraient le journal trop étroit pour
-       ses trois colonnes de texte : on empile. */
-    @media (max-width: 1120px) { .row { grid-template-columns: minmax(0, 1fr); } }
-
+    /* Étage du haut. La caméra porte sa largeur en style en ligne (elle dépend
+       du rapport d'image de la source), donc elle ne s'étire ni ne se comprime ;
+       le journal prend tout le reste. */
+    .top { display: flex; gap: 16px; align-items: stretch; }
+    .top .log-panel { flex: 1 1 auto; min-width: 0; }
+    @media (max-width: 1120px) { .top { flex-wrap: wrap; } .top > * { flex-basis: 100%; } }
     /* La vidéo occupe toute la carte : aucune marge ne vient la « décorer ».
-       Centrée, parce que sa largeur est plafonnée pour que les mesures restent
-       visibles : sur un écran large elle ne remplit plus toute la ligne, et
-       collée à gauche elle donnerait l'air d'une mise en page ratée.
-
-       Centrée par align-self, et surtout PAS par une marge automatique : sur un
-       élément flex, une marge auto sur l'axe transverse annule l'étirement, et
-       la carte retombe alors sur la largeur de son CONTENU — les quelques
-       badges du bandeau. La largeur explicite est donc indispensable ici : sans
-       elle, align-self: center produirait exactement la même réduction. */
+       Calée à gauche et non centrée : sa largeur est bornée pour que tout tienne
+       dans la fenêtre, et une carte centrée laissait de part et d'autre un vide
+       que rien n'expliquait.
+       flex-shrink à 0 : sa largeur en ligne vaut pour le rapport d'image, la
+       comprimer déformerait le cadre et décalerait les points du maillage, qui
+       sont dessinés sur toute la boîte pendant que la vidéo, elle, recadre. */
     .viewport {
       padding: 0;
       overflow: hidden;
-      width: 100%;
-      align-self: center;
+      flex: 0 0 auto;
       transition: box-shadow 200ms var(--ease), border-color 200ms var(--ease);
     }
     /* Un meme part à l'antenne : la carte s'allume une demi-seconde. C'est le
@@ -187,6 +173,10 @@ import { StoreService } from '../services/store.service'
     .empty { color: var(--ink-3); font-size: 13px; }
 
     .log-panel { max-height: 320px; display: flex; flex-direction: column; }
+    /* Dans l'étage du haut, le journal s'aligne sur la hauteur de l'image
+       plutôt que sur la sienne : deux cartes côte à côte de hauteurs
+       différentes se lisent comme une erreur de mise en page. */
+    .top .log-panel { max-height: none; }
     .log { list-style: none; margin: 0; padding: 0; overflow-y: auto; }
     .log li {
       display: flex; align-items: center; gap: 10px;
@@ -213,6 +203,10 @@ export class LivePage implements AfterViewInit, OnDestroy {
 
   readonly armed = computed(() => this.store.gestures().filter((g) => g.enabled).length)
 
+  /** Ce qui vient de partir. Six lignes : au-delà, on ne relit plus, on fait
+   *  défiler — et l'historique complet est déjà dans l'écran Debug. */
+  protected recent = computed(() => this.matcher.triggerLog().slice(0, 6))
+
   // ---- Tout doit tenir dans la fenêtre ----
   //
   // L'écran entier se lit d'un coup ou il ne sert à rien : une caméra qui pousse
@@ -229,9 +223,9 @@ export class LivePage implements AfterViewInit, OnDestroy {
 
   /** Ce qu'occupe tout ce qui n'est pas l'image : en-tête de page, bandeau
    *  d'instruments, la ligne Distances/triggers dessous, et les écarts. La
-   *  ligne du bas a une hauteur bornée depuis qu'elle ne montre que trois
+   *  carte du bas a une hauteur bornée depuis qu'elle ne montre que trois
    *  gestures — sans ça il n'y aurait aucune constante à écrire ici. */
-  private readonly CHROME = 500
+  private readonly CHROME = 520
   /** En dessous, on laisse défiler plutôt que de réduire l'image à un timbre :
    *  c'est le cas « fenêtre vraiment petite », et il est assumé. */
   private readonly CAM_MIN = 420
