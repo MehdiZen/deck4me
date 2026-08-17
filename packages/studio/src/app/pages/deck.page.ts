@@ -11,7 +11,7 @@ import {
   type StoredGesture,
   StoreService,
 } from '../services/store.service'
-import { DECK_LABELS, DECK_LAYOUT } from './deck-layout'
+import { DECK_LABELS, DECK_LAYOUT, deckAccel } from './deck-layout'
 
 /**
  * L'écran d'édition du deck : le même pavé que le widget, mais cliquable.
@@ -29,9 +29,9 @@ import { DECK_LABELS, DECK_LAYOUT } from './deck-layout'
       <div>
         <h1>Deck clavier</h1>
         <p class="sub">
-          Tiens une touche de page, appuie sur une touche du pavé. Le widget
-          montre ce que chaque touche fera — c'est lui qui remplace les
-          étiquettes d'un boîtier.
+          Chaque case répond à un accord : le modificateur de sa page, puis sa
+          touche du pavé numérique. Le widget montre ce que chaque touche fera —
+          c'est lui qui remplace les étiquettes d'un boîtier.
         </p>
       </div>
       <div class="switches">
@@ -97,6 +97,9 @@ import { DECK_LABELS, DECK_LAYOUT } from './deck-layout'
       <aside class="side">
         @if (selected(); as sel) {
           @if (sel.slot; as slot) {
+            @if (accelOf(); as a) {
+              <p class="accord">Se déclenche par <b>{{ a }}</b></p>
+            }
             <div class="hd">
               <input
                 class="nm"
@@ -139,10 +142,13 @@ import { DECK_LABELS, DECK_LAYOUT } from './deck-layout'
               <p>
                 Touche <b>{{ sel.label }}</b> libre sur cette page.
               </p>
+              @if (accelOf(); as a) {
+                <p class="lbl">Elle répondrait à <b>{{ a }}</b>.</p>
+              }
               <p class="lbl">
-                Une touche libre laisse passer la frappe : tes codes ANSI
-                (Alt&nbsp;+&nbsp;0233 pour « é ») continuent de fonctionner tant
-                que la case est vide.
+                Rien n'est confisqué : seule la combinaison complète est
+                réservée, donc Alt&nbsp;+&nbsp;0233 continue d'écrire « é » et
+                Alt+Tab n'est pas touché.
               </p>
               <button class="sm on" (click)="create(sel.key)">
                 <app-icon name="plus" [size]="13" /> Occuper cette touche
@@ -228,6 +234,12 @@ import { DECK_LABELS, DECK_LAYOUT } from './deck-layout'
       padding: 7px 10px; border-radius: 8px;
       border: 1px solid var(--line); background: var(--surface); color: var(--ink);
     }
+    .accord {
+      margin: 0; padding: 8px 11px; border-radius: 8px;
+      border: 1px solid #5eead43d; background: #5eead414;
+      font-size: 12.5px; color: #5eead4;
+    }
+    .accord b { font-weight: 700; letter-spacing: .02em; }
     .row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-2); }
     .row input { accent-color: #5eead4; }
     .meme { display: flex; align-items: center; gap: 10px; }
@@ -258,13 +270,22 @@ export class DeckPage {
   protected pinned = computed(() => this.store.settings().deckPinned)
 
   protected pages = computed(() =>
-    this.store.settings().deckPages.map((sc, index) => ({
+    this.store.settings().deckPageMods.map((mod, index) => ({
       index,
       name: this.store.settings().deckPageNames[index] ?? `Page ${index + 1}`,
-      keyName: PAGE_KEY_NAMES[sc] ?? `0x${sc.toString(16)}`,
+      keyName: mod,
       count: this.store.deckSlots().filter((s) => s.page === index).length,
     })),
   )
+
+  /** L'accord réellement enregistré pour la case sélectionnée. C'est ce que
+   *  l'utilisateur devra taper, donc c'est ce qu'on lui montre — pas une
+   *  description approximative. */
+  protected accelOf = computed(() => {
+    const k = this.selectedKey()
+    if (k === null) return null
+    return deckAccel(this.store.settings().deckPageMods, this.page(), k)
+  })
 
   protected cells = computed(() => {
     const p = this.page()
@@ -378,12 +399,4 @@ export class DeckPage {
   }
 }
 
-/** Noms lisibles des touches de page, par code physique. */
-const PAGE_KEY_NAMES: Record<number, string> = {
-  0x38: 'Alt',
-  0x3a: 'Verr.Maj',
-  0x29: '²',
-  0x1d: 'Ctrl',
-  0x2a: 'Maj',
-  0x56: '< >',
-}
+

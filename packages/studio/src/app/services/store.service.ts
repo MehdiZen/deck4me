@@ -61,8 +61,9 @@ export interface Settings {
   detectionCamera: string
   /** Deck clavier armé. À false, aucun hook clavier n'est installé. */
   deckEnabled: boolean
-  /** Codes PHYSIQUES des touches de page, l'index valant le numéro de page. */
-  deckPages: number[]
+  /** Modificateurs de chaque page — « Alt », « Ctrl+Alt »… L'index vaut le
+   *  numéro de page. Une page sans modificateur est inerte. */
+  deckPageMods: string[]
   /** Nom de chaque page, même indexation que `deckPages`. */
   deckPageNames: string[]
   /** Widget affiché en permanence plutôt qu'au seul maintien. */
@@ -80,10 +81,10 @@ export const DEFAULT_SETTINGS: Settings = {
   detectionAutoStart: false,
   detectionCamera: '',
   deckEnabled: false,
-  // Alt gauche, Verr.Maj, ². Trois touches du bord gauche, atteignables sans
-  // déplacer la main pendant que la droite est sur le pavé, et dont le MAINTIEN
-  // ne signifie rien ailleurs — c'est ce critère-là qui écarte Ctrl et Windows.
-  deckPages: [0x38, 0x3a, 0x29],
+  // Trois accords qu'aucun logiciel courant ne revendique sur le pavé, et que
+  // la main gauche tient sans se déplacer. RegisterHotKey ne réserve que la
+  // combinaison COMPLÈTE : Alt+0233 continue donc d'écrire « é ».
+  deckPageMods: ['Alt', 'Ctrl+Alt', 'Shift+Alt'],
   deckPageNames: ['Page 1', 'Page 2', 'Page 3'],
   deckPinned: false,
   deckPos: null,

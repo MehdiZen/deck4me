@@ -29,6 +29,32 @@ fn fire(app: &AppHandle, action: &str) {
     let _ = app.emit("hotkey", action);
 }
 
+/// Accords des cases du deck, pour le profil actif.
+///
+/// Les cases suivent le profil, comme les gestures et les macros : un profil
+/// « stream » et un profil « boulot » n'ont aucune raison de partager leur
+/// pavé. Une case dont l'accord ne se forme pas est ignorée en silence ici —
+/// `deck::accel` a déjà refusé de fabriquer un raccourci bancal.
+fn deck_slots(db: &crate::store::Db) -> Vec<(String, String)> {
+    if !db.settings.deck_enabled {
+        return vec![];
+    }
+    let active = db
+        .profiles
+        .iter()
+        .find(|p| p.is_active)
+        .map(|p| p.id.as_str())
+        .unwrap_or("default");
+    db.deck_slots
+        .iter()
+        .filter(|s| s.profile_id() == Some(active))
+        .filter_map(|s| {
+            let accel = crate::deck::accel(&db.settings.deck_page_mods, s.page()?, s.key()?)?;
+            Some((accel, s.id()?.to_string()))
+        })
+        .collect()
+}
+
 /// Réenregistre tous les raccourcis d'après les réglages persistés.
 /// Idempotent : on repart d'une table vide à chaque appel, ce qui évite de
 /// tenir un état de plus (« qui était enregistré avant ? »).
@@ -36,13 +62,30 @@ pub fn apply(app: &AppHandle) -> Result<(), String> {
     let gs = app.global_shortcut();
     gs.unregister_all().map_err(|e| e.to_string())?;
 
-    let assigned = {
+    let (assigned, slots) = {
         let state = app.state::<App>();
         let db = state.state.store.db.lock().unwrap();
-        db.settings.hotkeys.clone()
+        (db.settings.hotkeys.clone(), deck_slots(&db))
     };
 
     let mut refused: Vec<String> = Vec::new();
+
+    // Les cases du deck passent par le MÊME chemin que les raccourcis nommés :
+    // un accord global, enregistré ici, qui déclenche un propriétaire. Le hook
+    // clavier qui devait porter les pages au maintien ne recevait rien dans ce
+    // processus (voir l'en-tête de `deck`), et ce mécanisme-ci n'a jamais
+    // échoué depuis qu'il existe.
+    for (accel, owner) in slots {
+        let id = owner.clone();
+        let registered = gs.on_shortcut(accel.as_str(), move |app, _s, event| {
+            if event.state == ShortcutState::Pressed {
+                crate::fire_deck_slot(app, &id);
+            }
+        });
+        if registered.is_err() {
+            refused.push(format!("{accel} (case du deck)"));
+        }
+    }
     for (action, accel) in assigned {
         if accel.trim().is_empty() {
             continue

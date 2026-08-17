@@ -1,8 +1,6 @@
 pub mod actions;
 mod camfeed;
 pub mod deck;
-pub mod deckhook;
-pub mod deckprobe;
 pub mod deckwin;
 pub mod diag;
 pub mod fetch;
@@ -16,7 +14,7 @@ use serde_json::{json, Value};
 use server::{OverlayStats, ServerState, Sound, TriggerEvent, WsMsg, DEFAULT_PORT};
 use std::sync::{Arc, Mutex};
 use store::{ActionRecord, AssetMeta, BindingRecord, GestureRecord, Profile, Settings, Store};
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 use virtualcam::{VcamDevice, VcamFormat, VcamStatus, VirtualCam};
 
 pub struct App {
@@ -477,106 +475,46 @@ fn gesture_released(app: tauri::State<App>, gesture_id: String) {
 
 // ---- Deck clavier -------------------------------------------------------
 
-/// Reconstruit la configuration du hook d'après la base, et l'installe ou le
-/// désinstalle. Idempotent : appelé au démarrage, à chaque changement de case,
-/// de réglage et de profil actif.
+/// Laisse la webview écrire dans le journal du Rust.
+///
+/// La fenêtre du widget n'a ni décoration ni focus : sa console n'est ouvrable
+/// par personne. Sans ce canal, « le Rust a émis » et « la vue a reçu » sont
+/// indiscernables — on les a déjà confondus une fois ici, au prix de plusieurs
+/// allers-retours.
+#[tauri::command]
+fn journal(msg: String) {
+    diag::log("vue", &msg);
+}
+
+/// Applique l'état du deck : fenêtre du widget, et rien de plus.
+///
+/// Les accords, eux, sont enregistrés par `hotkeys::apply`, qui les traite
+/// exactement comme les raccourcis nommés. Un seul endroit sait parler à
+/// Windows du clavier — c'est ce qui manquait à la version précédente, où deux
+/// mécanismes concurrents visaient le même pavé.
 fn deck_apply(handle: &tauri::AppHandle) {
     let app = handle.state::<App>();
-    let (enabled, pinned, cfg) = {
+    let (enabled, pinned) = {
         let db = app.state.store.db.lock().unwrap();
-        // Les cases suivent le profil actif, comme les gestures et les macros :
-        // un profil « stream » et un profil « boulot » n'ont aucune raison de
-        // partager leur pavé.
-        let active = db
-            .profiles
-            .iter()
-            .find(|p| p.is_active)
-            .map(|p| p.id.as_str())
-            .unwrap_or("default");
-        let mut slots = std::collections::HashMap::new();
-        for s in &db.deck_slots {
-            if s.profile_id() != Some(active) {
-                continue;
-            }
-            if let (Some(page), Some(key), Some(id)) = (s.page(), s.key(), s.id()) {
-                slots.insert((page, key), id.to_string());
-            }
-        }
-        (
-            db.settings.deck_enabled,
-            db.settings.deck_pinned,
-            deck::Config {
-                pages: db.settings.deck_pages.clone(),
-                slots,
-            },
-        )
+        (db.settings.deck_enabled, db.settings.deck_pinned)
     };
     if !enabled {
-        deckhook::stop();
         deckwin::close(handle);
         return;
     }
-    diag::log(
-        "deck",
-        &format!(
-            "armé — {} page(s), {} case(s) sur le profil actif",
-            cfg.pages.len(),
-            cfg.slots.len()
-        ),
-    );
     if let Err(e) = deckwin::ensure(handle) {
         diag::log("deck", &format!("widget impossible à créer : {e}"));
     }
     deckwin::set_pinned(handle, pinned);
-
-    let h = handle.clone();
-    // `start` est idempotent : seul le premier appel installe le hook et retient
-    // ce puits. Les suivants ne font que reconfigurer, juste en dessous.
-    deckhook::start(handle, move |ev| match ev {
-        deck::Event::Press(owner) => {
-            diag::log("deck", &format!("case {owner} pressée"));
-            let app = h.state::<App>();
-            if let Err(e) = fire_owner(&h, &app, &owner) {
-                diag::log("deck", &format!("case {owner} : {e}"));
-            }
-        }
-        deck::Event::Release(owner) => {
-            let app = h.state::<App>();
-            let binding_id = binding_id_for(&app, &owner);
-            app.state.broadcast(&WsMsg::Release { binding_id });
-        }
-        deck::Event::Page(p) => {
-            diag::log("deck", &format!("page {p:?}"));
-            // La vue apprend QUELLE page ; la fenêtre apprend SI elle se montre.
-            // Épinglée, elle ne se retire jamais — c'est la vue qui grise ses
-            // cases, sinon le widget disparaîtrait sous le curseur de celui qui
-            // s'apprête à cliquer dedans.
-            // Visé sur la fenêtre du widget, et non diffusé à la cantonade.
-            // Le journal est formel : le Rust émettait, et la vue — vivante,
-            // base chargée — n'a jamais rien reçu. Adresser explicitement
-            // supprime la question de savoir qui écoute quoi.
-            let _ = h.emit_to(deckwin::LABEL, "deck-page", p);
-            let _ = h.emit("deck-page", p);
-            let pinned = {
-                let app = h.state::<App>();
-                let db = app.state.store.db.lock().unwrap();
-                db.settings.deck_pinned
-            };
-            deckwin::show(&h, p.is_some() || pinned);
-        }
-    });
-    deckhook::configure(cfg);
 }
 
-/// Laisse la webview écrire dans le journal du Rust.
-///
-/// Sans ça, une panne côté front est muette : la console d'une fenêtre sans
-/// décoration et sans focus n'est ouvrable par personne, et « le Rust a émis »
-/// ne dit rien de « la vue a reçu ». Deux affirmations qu'on a déjà confondues
-/// une fois dans ce module, au prix de plusieurs allers-retours.
-#[tauri::command]
-fn journal(msg: String) {
-    diag::log("vue", &msg);
+/// Déclenche une case du deck. Appelé depuis l'enregistrement des accords.
+pub fn fire_deck_slot(handle: &tauri::AppHandle, owner: &str) {
+    let app = handle.state::<App>();
+    diag::log("deck", &format!("case {owner} déclenchée"));
+    if let Err(e) = fire_owner(handle, &app, owner) {
+        diag::log("deck", &format!("case {owner} : {e}"));
+    }
 }
 
 #[tauri::command]
@@ -598,6 +536,8 @@ fn save_deck_slot(
     }
     store.save().map_err(|e| e.to_string())?;
     deck_apply(&app_handle);
+    // Une case ajoutée ou déplacée change la table des accords.
+    let _ = hotkeys::apply(&app_handle);
     Ok(())
 }
 
@@ -618,6 +558,7 @@ fn delete_deck_slot(
     }
     store.save().map_err(|e| e.to_string())?;
     deck_apply(&app_handle);
+    let _ = hotkeys::apply(&app_handle);
     app.state.broadcast(&WsMsg::Clear {
         binding_id: Some(id),
     });
@@ -628,7 +569,7 @@ fn delete_deck_slot(
 /// Deux tables de codes physiques qui divergent, ça ne se voit qu'au moment où
 /// une touche ne déclenche rien.
 #[tauri::command]
-fn deck_keys() -> Vec<(u32, &'static str)> {
+fn deck_keys() -> Vec<(u32, &'static str, &'static str)> {
     deck::PAD_KEYS.to_vec()
 }
 
@@ -940,7 +881,6 @@ pub fn run() {
                 tauri::WindowEvent::CloseRequested { .. }
                     if window.label() != deckwin::LABEL =>
                 {
-                    deckhook::stop();
                     deckwin::persist(app);
                     app.exit(0);
                 }
@@ -996,9 +936,6 @@ pub fn run() {
             // Le deck n'installe son hook clavier que s'il est armé ET qu'une
             // touche de page est configurée : voir `deck_apply`.
             deck_apply(app.handle());
-            // Sonde temporaire : voir deckprobe.rs. À retirer une fois tranché
-            // si c'est le code ou le processus qui ne reçoit rien.
-            deckprobe::start();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -52,3 +52,30 @@ export const DECK_LABELS: Record<number, string> = {
   0x52: '0',
   0x53: '.',
 }
+
+/** Nom attendu par RegisterHotKey, par code physique. Le Rust a la même table
+ *  dans `deck::PAD_KEYS` ; les deux doivent rester d'accord, faute de quoi une
+ *  case s'affiche ici sans jamais se déclencher là-bas. */
+export const DECK_ACCEL: Record<number, string> = {
+  0xe035: 'NumpadDivide',
+  0x37: 'NumpadMultiply',
+  0x4a: 'NumpadSubtract',
+  0x47: 'Numpad7',
+  0x48: 'Numpad8',
+  0x49: 'Numpad9',
+  0x4b: 'Numpad4',
+  0x4c: 'Numpad5',
+  0x4d: 'Numpad6',
+  0x4f: 'Numpad1',
+  0x50: 'Numpad2',
+  0x51: 'Numpad3',
+  0x52: 'Numpad0',
+  0x53: 'NumpadDecimal',
+}
+
+/** L'accord complet d'une case, tel qu'il sera enregistré. */
+export function deckAccel(mods: string[], page: number, key: number): string | null {
+  const m = mods[page]?.trim()
+  const k = DECK_ACCEL[key]
+  return m && k ? `${m}+${k}` : null
+}

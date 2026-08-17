@@ -1,5 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core'
-import { listen } from '@tauri-apps/api/event'
+import { Component, computed, effect, inject, signal } from '@angular/core'
 import { StoreService } from '../services/store.service'
 import { TauriService } from '../services/tauri.service'
 import { DECK_LABELS, DECK_LAYOUT } from './deck-layout'
@@ -19,6 +18,8 @@ import { DECK_LABELS, DECK_LAYOUT } from './deck-layout'
  * la fenêtre, avant même de démarrer le routeur : un widget qui ferait tourner
  * un moteur de détection en arrière-plan serait une aberration.
  */
+
+const PAGE_KEY = 'deck4me.hudPage'
 
 interface Cell {
   key: number
@@ -46,14 +47,23 @@ interface Cell {
          que quelques pixels de marge saisissables.
          Ne répond QUE si le widget est épinglé : sinon le curseur traverse
          toute la fenêtre, ce qui est bien tout l'intérêt le reste du temps. -->
-    <div class="hud" [class.idle]="page() === null">
+    <div class="hud">
       <header data-tauri-drag-region>
         <span class="dot"></span>
         <span class="title">{{ pageName() }}</span>
-        @if (page() === null) {
-          <span class="hint">maintiens une touche de page</span>
-        }
+        <span class="hint">{{ modOf(page()) }}</span>
       </header>
+
+      <!-- Les pages se choisissent au clic. Elles suivaient le modificateur
+           tenu ; ce n'est plus possible depuis que les cases partent sur un
+           accord complet, et c'est aussi bien : l'onglet reste où on l'a mis. -->
+      <nav class="tabs">
+        @for (t of tabs(); track t.index) {
+          <button [class.on]="page() === t.index" (click)="page.set(t.index)">
+            {{ t.name }}
+          </button>
+        }
+      </nav>
 
       <div class="pad">
         @for (c of cells(); track c.key) {
@@ -119,10 +129,25 @@ interface Cell {
         0 18px 50px #000000a6;
       transition: opacity 0.12s ease;
     }
-    /* Aucune page tenue : le widget ne s'affiche que si l'utilisateur l'a
-       épinglé. Il s'efface alors pour dire qu'il n'attend rien. */
-    .hud.idle {
-      opacity: 0.45;
+    .tabs {
+      display: flex;
+      gap: 5px;
+    }
+    .tabs button {
+      flex: 1;
+      padding: 5px 0;
+      border-radius: 7px;
+      border: 1px solid #ffffff1f;
+      background: #ffffff0d;
+      color: #94a3b8;
+      font-size: 10.5px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .tabs button.on {
+      border-color: #5eead45c;
+      background: #5eead41f;
+      color: #5eead4;
     }
     /* Les enfants laissent passer le clic jusqu'au panneau, sinon chacun
        redevient un obstacle à la préhension. */
@@ -227,8 +252,9 @@ export class DeckHudPage {
   private store = inject(StoreService)
   private tauri = inject(TauriService)
 
-  /** Page tenue en ce moment. `null` = aucune. */
-  protected page = signal<number | null>(null)
+  /** Page affichée. Choisie au clic, retenue d'une ouverture à l'autre : une
+   *  page qu'on doit resélectionner à chaque lancement ne sert à rien. */
+  protected page = signal<number>(Number(localStorage.getItem(PAGE_KEY) ?? 0))
 
   constructor() {
     // Cette fenêtre n'a ni décoration ni focus : sa console n'est ouvrable par
@@ -240,12 +266,18 @@ export class DeckHudPage {
       .load()
       .then(() => this.say(`base chargée — ${this.store.deckSlots().length} case(s)`))
       .catch((e) => this.say(`base illisible : ${e}`))
-    // Le Rust est seul à savoir quelle touche est enfoncée : il n'existe aucun
-    // moyen pour une webview sans focus de l'apprendre autrement.
-    void listen<number | null>('deck-page', (e) => {
-      this.say(`page reçue : ${e.payload}`)
-      this.page.set(e.payload)
-    })
+    effect(() => localStorage.setItem(PAGE_KEY, String(this.page())))
+  }
+
+  protected tabs = computed(() =>
+    this.store.settings().deckPageMods.map((_, index) => ({
+      index,
+      name: this.store.settings().deckPageNames[index] ?? `Page ${index + 1}`,
+    })),
+  )
+
+  protected modOf(page: number): string {
+    return this.store.settings().deckPageMods[page] ?? ''
   }
 
   /** Même chemin que la touche : une case est un déclencheur, le Rust ne
@@ -264,22 +296,15 @@ export class DeckHudPage {
     void this.tauri.invoke('journal', { msg: `deck-hud — ${msg}` }, null).catch(() => {})
   }
 
-  protected pageName = computed(() => {
-    const p = this.shown()
-    if (p === null) return 'Deck'
-    return this.store.settings().deckPageNames[p] ?? `Page ${p + 1}`
-  })
-
-  /** Page à MONTRER. Épinglé et sans touche tenue, on retombe sur la première
-   *  plutôt que sur du vide : un widget épinglé sert à cliquer, et des cases
-   *  vides ne se cliquent pas. */
-  protected shown = computed(() => this.page() ?? (this.store.settings().deckPinned ? 0 : null))
+  protected pageName = computed(
+    () => this.store.settings().deckPageNames[this.page()] ?? `Page ${this.page() + 1}`,
+  )
 
   protected cells = computed<Cell[]>(() => {
-    const p = this.shown()
+    const p = this.page()
     return Object.entries(DECK_LAYOUT).map(([k, [col, row, w, h]]) => {
       const key = Number(k)
-      const slot = p === null ? null : this.store.slotAt(p, key)
+      const slot = this.store.slotAt(p, key)
       return {
         key,
         label: DECK_LABELS[key] ?? '',

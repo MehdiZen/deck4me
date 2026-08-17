@@ -176,9 +176,10 @@ pub struct Settings {
     /// meilleur moyen de ne pas gêner le clavier de quelqu'un, c'est de ne pas
     /// y être.
     pub deck_enabled: bool,
-    /// Codes PHYSIQUES des touches de page, l'index valant le numéro de page.
-    /// Vide = deck inerte. Voir `deck::DEFAULT_PAGES` pour le choix du trio.
-    pub deck_pages: Vec<u32>,
+    /// Modificateurs de chaque page, l'index valant le numéro de page —
+    /// « Alt », « Ctrl+Alt »… Une page sans modificateur est inerte : voir
+    /// `deck::accel`, qui refuse de fabriquer un accord bancal.
+    pub deck_page_mods: Vec<String>,
     /// Nom de chaque page, même indexation que `deck_pages`. Une page nommée se
     /// reconnaît d'un coup d'œil ; « page 2 » ne se reconnaît jamais.
     pub deck_page_names: Vec<String>,
@@ -206,7 +207,10 @@ impl Default for Settings {
             // quelqu'un qui n'a rien demandé serait indéfendable, et les cases
             // sont vides de toute façon.
             deck_enabled: false,
-            deck_pages: crate::deck::DEFAULT_PAGES.to_vec(),
+            deck_page_mods: crate::deck::DEFAULT_PAGE_MODS
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
             deck_page_names: vec!["Page 1".into(), "Page 2".into(), "Page 3".into()],
             deck_pinned: false,
             deck_pos: None,

@@ -59,7 +59,13 @@ pub fn ensure(app: &AppHandle) -> Result<(), String> {
     .inner_size(WIDTH, HEIGHT)
     .resizable(false)
     .decorations(false)
-    .transparent(true)
+    // OPAQUE, et non transparent.
+    //
+    // La transparence coûtait cher pour ce qu'elle apportait : le panneau est
+    // de toute façon un rectangle plein aux coins arrondis, et une fenêtre
+    // transparente sans focus s'est révélée impossible à cliquer comme à
+    // déplacer. Le fond est peint par la vue, ce qui donne le même rendu sans
+    // la couche de composition — et sans le mystère.
     .always_on_top(true)
     .skip_taskbar(true)
     .shadow(false)
@@ -98,8 +104,6 @@ pub fn ensure(app: &AppHandle) -> Result<(), String> {
     // `.visible(false)` au constructeur ne suffit pas toujours : on le redit
     // une fois la fenêtre placée, sinon elle clignote à sa position par défaut.
     let _ = win.hide();
-    // Traversante par défaut : le widget qu'on regarde sans le toucher.
-    let _ = win.set_ignore_cursor_events(true);
     harden(app, false);
     // Journalisé parce que la panne de cette fenêtre est SILENCIEUSE : elle est
     // transparente et sans bordure, donc « pas créée », « page non chargée » et
@@ -110,14 +114,18 @@ pub fn ensure(app: &AppHandle) -> Result<(), String> {
 
 /// Applique les propriétés qui ne passent pas par l'API Tauri.
 ///
-/// `WS_EX_NOACTIVATE` n'est posé que si le widget n'est PAS épinglé.
+/// `WS_EX_NOACTIVATE` est ABANDONNÉ.
 ///
-/// Il empêche la fenêtre de prendre le focus, ce qui est indispensable au
-/// survol : une fenêtre qui s'active en apparaissant minimise un jeu en plein
-/// écran fenêtré. Mais une fenêtre qui ne peut jamais s'activer ne donne pas
-/// non plus le focus à sa webview — et une webview sans focus ne traite ni les
-/// clics ni le déplacement, qui passe par un clic dans la page. Épinglé, on
-/// veut justement pouvoir cliquer et déplacer ; le compromis s'inverse donc.
+/// Il empêchait la fenêtre de prendre le focus — souhaitable quand elle
+/// apparaissait par-dessus un jeu. Mais une fenêtre qui ne peut jamais
+/// s'activer ne donne pas non plus le focus à sa webview, et une webview sans
+/// focus ne traite ni les clics ni le déplacement, lequel passe par un clic
+/// dans la page. Le widget était donc intouchable, et c'était de ce côté-là,
+/// pas du clavier.
+///
+/// Reste `WS_EX_TOOLWINDOW`, qui le retire d'Alt+Tab et de la barre des tâches
+/// sans rien coûter, et l'exclusion de capture, qui est la vraie raison d'être
+/// de cette fonction.
 #[cfg(windows)]
 fn harden(app: &AppHandle, pinned: bool) {
     let Some(win) = app.get_webview_window(LABEL) else {
@@ -130,11 +138,8 @@ fn harden(app: &AppHandle, pinned: bool) {
     let hwnd = hwnd.0 as isize;
     unsafe {
         let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        let ex = if pinned {
-            (ex | WS_EX_TOOLWINDOW) & !WS_EX_NOACTIVATE
-        } else {
-            ex | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
-        };
+        let _ = pinned;
+        let ex = (ex | WS_EX_TOOLWINDOW) & !WS_EX_NOACTIVATE;
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
         crate::diag::log(
             "deck",
@@ -156,11 +161,7 @@ fn harden(app: &AppHandle, pinned: bool) {
 #[cfg(not(windows))]
 fn harden(_app: &AppHandle, _pinned: bool) {}
 
-/// Montre le widget sur une page donnée, ou le retire.
-///
-/// Le contenu est décidé côté webview, à partir de l'événement `deck-page` :
-/// ici on ne fait que la visibilité. Épinglé, la fenêtre reste et c'est la vue
-/// qui grise ses cases.
+/// Montre ou retire le widget.
 pub fn show(app: &AppHandle, visible: bool) {
     let Some(win) = app.get_webview_window(LABEL) else {
         return;
@@ -175,22 +176,21 @@ pub fn show(app: &AppHandle, visible: bool) {
     }
 }
 
-/// Épinglé, le widget accepte les clics ; sinon le curseur le traverse.
+/// Affiche ou masque le widget.
 ///
-/// Ce n'est pas un réglage de confort : le widget n'a jamais le focus et
-/// s'efface au relâchement de la touche de page, donc rien n'y est atteignable
-/// tant qu'il n'est pas épinglé.
+/// « Épinglé » ne veut plus dire « cliquable » mais simplement « visible ».
+/// Depuis que les cases se déclenchent par accord et non plus au maintien
+/// d'une touche, le widget n'a plus de raison d'apparaître et de disparaître :
+/// il est là, ou il n'est pas là. Et tant qu'il est là, il se clique et se
+/// déplace — c'est-à-dire qu'il ne traverse plus jamais les clics, ce qui était
+/// précisément ce qui le rendait inutilisable.
 pub fn set_pinned(app: &AppHandle, pinned: bool) {
     let Some(win) = app.get_webview_window(LABEL) else {
         return;
     };
-    let _ = win.set_ignore_cursor_events(!pinned);
-    crate::diag::log("deck", &format!("widget : curseur ignoré = {}", !pinned));
-    // Le style d'activation suit l'épinglage : voir `harden`.
-    harden(app, pinned);
-    if pinned {
-        let _ = win.show();
-    }
+    let _ = win.set_ignore_cursor_events(false);
+    harden(app, true);
+    let _ = if pinned { win.show() } else { win.hide() };
 }
 
 /// Retient la position du widget dans les réglages.
