@@ -43,7 +43,6 @@ const WM_SYSKEYDOWN: usize = 0x0104;
 const WM_SYSKEYUP: usize = 0x0105;
 const WM_QUIT: u32 = 0x0012;
 const LLKHF_EXTENDED: u32 = 0x01;
-const LLKHF_INJECTED: u32 = 0x10;
 #[repr(C)]
 struct KbdLlHook {
     vk_code: u32,
@@ -65,6 +64,11 @@ struct Msg {
 }
 
 type HookProc = unsafe extern "system" fn(i32, usize, isize) -> isize;
+
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetModuleHandleW(name: *const u16) -> isize;
+}
 
 #[link(name = "user32")]
 extern "system" {
@@ -92,9 +96,10 @@ fn sink() -> &'static Mutex<Option<Sender<Event>>> {
 
 static HOOK: AtomicIsize = AtomicIsize::new(0);
 static THREAD: AtomicU32 = AtomicU32::new(0);
-/// Le hook a-t-il déjà vu passer une touche ? Sert uniquement à la preuve de
-/// vie journalisée, une fois par session.
-static SEEN: AtomicBool = AtomicBool::new(false);
+/// Combien d'événements le rappel a-t-il vus ? Sert à ne tracer que les
+/// premiers : « le hook est installé » et « le hook reçoit » sont deux états
+/// distincts, et rien d'autre ne les sépare.
+static SEEN: AtomicU32 = AtomicU32::new(0);
 /// Un démarrage est en cours. `HOOK` n'est posé que DANS le fil du hook, donc
 /// `running()` reste faux le temps qu'il démarre : deux appels rapprochés à
 /// `start` — et il y en a, au démarrage puis à chaque enregistrement de case —
@@ -135,7 +140,11 @@ pub fn start(on_event: impl Fn(Event) + Send + 'static) {
         }
     });
     std::thread::spawn(|| unsafe {
-        let h = SetWindowsHookExW(WH_KEYBOARD_LL, hook_proc, 0, 0);
+        // Le module du processus, et non zéro. La documentation n'autorise
+        // NULL que pour un hook attaché à un fil précis ; celui-ci est global.
+        // Zéro renvoyait bien un handle valide — Windows ne s'en plaignait
+        // pas — mais aucune touche n'arrivait jamais.
+        let h = SetWindowsHookExW(WH_KEYBOARD_LL, hook_proc, GetModuleHandleW(std::ptr::null()), 0);
         if h == 0 {
             crate::diag::log("deck", "hook clavier refusé par Windows");
             STARTING.store(false, Ordering::SeqCst);
@@ -191,7 +200,28 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: usize, lparam: isize) -> 
         return next(0);
     }
     let info = &*(lparam as *const KbdLlHook);
-    if info.flags & LLKHF_INJECTED != 0 {
+
+    // Trace des premiers événements, en TÊTE du rappel : c'est le seul endroit
+    // d'où l'on puisse affirmer « Windows nous parle ». Plus bas, chaque filtre
+    // devient un suspect de plus.
+    let n = SEEN.fetch_add(1, Ordering::Relaxed);
+    if n < 3 {
+        crate::diag::log(
+            "deck",
+            &format!(
+                "touche vue — vk 0x{:02X} scan 0x{:02X} flags 0x{:02X} msg 0x{:03X}",
+                info.vk_code, info.scan_code, info.flags, wparam
+            ),
+        );
+    }
+
+    // On n'ignore QUE ce que nous avons envoyé nous-mêmes, reconnu à sa marque.
+    //
+    // Le filtre précédent portait sur le drapeau « injecté » de Windows, ce qui
+    // était trop large : les logiciels de clavier des fabricants (iCUE, Synapse,
+    // G HUB) réinjectent chaque frappe, et sur une machine équipée de l'un
+    // d'eux le deck ignorait la totalité du clavier.
+    if info.extra == crate::actions::sys::TAG {
         return next(0);
     }
     let down = wparam == WM_KEYDOWN || wparam == WM_SYSKEYDOWN;
@@ -199,14 +229,6 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: usize, lparam: isize) -> 
         return next(0);
     }
     let key = (info.scan_code & 0xFF) | if info.flags & LLKHF_EXTENDED != 0 { E } else { 0 };
-
-    // Preuve de vie, une seule fois. Sans elle, « le hook n'est pas installé »,
-    // « il est installé mais ne reçoit rien » et « il reçoit mais ne reconnaît
-    // aucune touche » sont trois pannes rigoureusement identiques vues de
-    // l'écran — et on les élimine une par une, à chaque fois par un build.
-    if !SEEN.swap(true, Ordering::Relaxed) {
-        crate::diag::log("deck", &format!("hook vivant, première touche 0x{key:04X}"));
-    }
 
     // `try_lock` et non `lock` : voir l'en-tête. Une touche perdue est un
     // désagrément, un clavier figé est une panne.
