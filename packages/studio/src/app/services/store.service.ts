@@ -59,6 +59,14 @@ export interface Settings {
   vcamAutoStart: boolean
   detectionAutoStart: boolean
   detectionCamera: string
+  /** Deck clavier armé. À false, aucun hook clavier n'est installé. */
+  deckEnabled: boolean
+  /** Codes PHYSIQUES des touches de page, l'index valant le numéro de page. */
+  deckPages: number[]
+  /** Nom de chaque page, même indexation que `deckPages`. */
+  deckPageNames: string[]
+  /** Widget affiché en permanence plutôt qu'au seul maintien. */
+  deckPinned: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -69,6 +77,31 @@ export const DEFAULT_SETTINGS: Settings = {
   vcamAutoStart: false,
   detectionAutoStart: false,
   detectionCamera: '',
+  deckEnabled: false,
+  // Alt gauche, Verr.Maj, ². Trois touches du bord gauche, atteignables sans
+  // déplacer la main pendant que la droite est sur le pavé, et dont le MAINTIEN
+  // ne signifie rien ailleurs — c'est ce critère-là qui écarte Ctrl et Windows.
+  deckPages: [0x38, 0x3a, 0x29],
+  deckPageNames: ['Page 1', 'Page 2', 'Page 3'],
+  deckPinned: false,
+}
+
+/**
+ * Case du deck : une touche du pavé, sur une page donnée.
+ *
+ * C'est un DÉCLENCHEUR, pas un type d'action. Son `id` sert de `gestureId` à
+ * son binding et de `ownerId` à ses actions — exactement comme une macro. Elle
+ * hérite donc du meme, du son et de la chaîne d'actions sans un cas
+ * particulier de plus nulle part.
+ */
+export interface DeckSlot {
+  id: string
+  profileId: string
+  /** Index dans `deckPages`. */
+  page: number
+  /** Code physique de la touche, drapeau étendu replié dedans. */
+  key: number
+  name: string
 }
 
 /** Gesture telle que persistée (samples en JSON, frames brutes incluses). */
@@ -121,6 +154,7 @@ interface Bootstrap {
   bindings: StoredBinding[]
   macros: MacroDef[]
   actions: ActionDef[]
+  deckSlots: DeckSlot[]
   assets: AssetMeta[]
   defaultAssetId: string | null
   settings: Settings
@@ -145,6 +179,7 @@ export class StoreService {
   /** Actions de TOUS les profils : leur propriétaire est une gesture ou une
    *  macro, et c'est lui qui porte le profil. Elles n'en ont pas besoin. */
   readonly actions = signal<ActionDef[]>([])
+  readonly allDeckSlots = signal<DeckSlot[]>([])
   readonly assets = signal<AssetMeta[]>([])
   readonly settings = signal<Settings>({ ...DEFAULT_SETTINGS })
   readonly overlayUrl = signal('')
@@ -264,6 +299,7 @@ export class StoreService {
       bindings: [],
       macros: [],
       actions: [],
+      deckSlots: [],
       assets: [],
       defaultAssetId: null,
       settings: { ...DEFAULT_SETTINGS },
@@ -279,6 +315,7 @@ export class StoreService {
     this.bindings.set(boot.bindings)
     this.allMacros.set(boot.macros ?? [])
     this.actions.set((boot.actions ?? []).map(normalizeAction))
+    this.allDeckSlots.set(boot.deckSlots ?? [])
     this.assets.set(boot.assets)
     this.settings.set({ ...DEFAULT_SETTINGS, ...boot.settings })
     this.overlayUrl.set(boot.overlayUrl)
@@ -564,6 +601,38 @@ export class StoreService {
   //
   // Une macro réutilise tout le chemin des bindings : son binding a pour
   // `gestureId` l'identifiant de la macro. Aucun cas particulier nulle part.
+
+  // ---- Deck clavier ----
+  //
+  // Une case est un déclencheur au même titre qu'une gesture ou une macro : son
+  // identifiant est le `gestureId` de son binding et le `ownerId` de ses
+  // actions. Les méthodes de binding et d'action existantes marchent donc sur
+  // une case sans une ligne de plus.
+
+  readonly deckSlots = computed(() => {
+    const active = this.activeProfile()?.id ?? 'default'
+    return this.allDeckSlots().filter((s) => (s.profileId || 'default') === active)
+  })
+
+  /** La case posée sur une touche donnée d'une page, s'il y en a une. */
+  slotAt(page: number, key: number): DeckSlot | null {
+    return this.deckSlots().find((s) => s.page === page && s.key === key) ?? null
+  }
+
+  async saveDeckSlot(s: DeckSlot): Promise<void> {
+    await this.tauri.invoke('save_deck_slot', { slot: s })
+    this.allDeckSlots.update((all) => [...all.filter((x) => x.id !== s.id), s])
+  }
+
+  async deleteDeckSlot(id: string): Promise<void> {
+    await this.tauri.invoke('delete_deck_slot', { id })
+    this.allDeckSlots.update((all) => all.filter((x) => x.id !== id))
+    // Le Rust a supprimé le binding et les actions de la case ; le miroir local
+    // doit suivre, sinon l'interface continue d'afficher un meme qui n'existe
+    // plus jusqu'au prochain démarrage.
+    this.bindings.update((all) => all.filter((b) => b.gestureId !== id))
+    this.actions.update((all) => all.filter((a) => a.ownerId !== id))
+  }
 
   async saveMacro(m: MacroDef): Promise<void> {
     await this.tauri.invoke('save_macro', { macroDef: m })

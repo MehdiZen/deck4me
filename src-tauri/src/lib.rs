@@ -2,6 +2,7 @@ pub mod actions;
 mod camfeed;
 pub mod deck;
 pub mod deckhook;
+pub mod deckwin;
 pub mod diag;
 pub mod fetch;
 pub mod hotkeys;
@@ -459,7 +460,7 @@ fn gesture_released(app: tauri::State<App>, gesture_id: String) {
 /// de réglage et de profil actif.
 fn deck_apply(handle: &tauri::AppHandle) {
     let app = handle.state::<App>();
-    let (enabled, cfg) = {
+    let (enabled, pinned, cfg) = {
         let db = app.state.store.db.lock().unwrap();
         // Les cases suivent le profil actif, comme les gestures et les macros :
         // un profil « stream » et un profil « boulot » n'ont aucune raison de
@@ -481,6 +482,7 @@ fn deck_apply(handle: &tauri::AppHandle) {
         }
         (
             db.settings.deck_enabled,
+            db.settings.deck_pinned,
             deck::Config {
                 pages: db.settings.deck_pages.clone(),
                 slots,
@@ -489,8 +491,14 @@ fn deck_apply(handle: &tauri::AppHandle) {
     };
     if !enabled {
         deckhook::stop();
+        deckwin::close(handle);
         return;
     }
+    if let Err(e) = deckwin::ensure(handle) {
+        diag::log("deck", &format!("widget impossible à créer : {e}"));
+    }
+    deckwin::set_pinned(handle, pinned);
+
     let h = handle.clone();
     // `start` est idempotent : seul le premier appel installe le hook et retient
     // ce puits. Les suivants ne font que reconfigurer, juste en dessous.
@@ -506,9 +514,18 @@ fn deck_apply(handle: &tauri::AppHandle) {
             let binding_id = binding_id_for(&app, &owner);
             app.state.broadcast(&WsMsg::Release { binding_id });
         }
-        // Le widget vit de cet événement, et de lui seul.
         deck::Event::Page(p) => {
+            // La vue apprend QUELLE page ; la fenêtre apprend SI elle se montre.
+            // Épinglée, elle ne se retire jamais — c'est la vue qui grise ses
+            // cases, sinon le widget disparaîtrait sous le curseur de celui qui
+            // s'apprête à cliquer dedans.
             let _ = h.emit("deck-page", p);
+            let pinned = {
+                let app = h.state::<App>();
+                let db = app.state.store.db.lock().unwrap();
+                db.settings.deck_pinned
+            };
+            deckwin::show(&h, p.is_some() || pinned);
         }
     });
     deckhook::configure(cfg);
