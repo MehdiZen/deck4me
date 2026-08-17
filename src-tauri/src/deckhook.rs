@@ -105,6 +105,38 @@ static SEEN: AtomicU32 = AtomicU32::new(0);
 /// `start` — et il y en a, au démarrage puis à chaque enregistrement de case —
 /// installaient deux hooks et deux puits concurrents.
 static STARTING: AtomicBool = AtomicBool::new(false);
+/// Dernier événement vu, replié en un seul entier (vk, scancode, drapeaux).
+/// Lu par le fil de veille, jamais par le rappel.
+static LAST: AtomicU32 = AtomicU32::new(0);
+
+/// Fil de veille : dit périodiquement combien d'événements le rappel a vus.
+///
+/// Il existe parce que le rappel ne peut RIEN écrire lui-même sans risquer le
+/// délai de 300 ms au-delà duquel Windows retire le hook en silence. Séparer
+/// « compter » de « raconter » est la seule façon d'observer ce chemin sans le
+/// casser en l'observant.
+fn watchdog() {
+    std::thread::spawn(|| {
+        let mut last = u32::MAX;
+        while running() {
+            let n = SEEN.load(Ordering::Relaxed);
+            if n != last {
+                last = n;
+                let d = LAST.load(Ordering::Relaxed);
+                crate::diag::log(
+                    "deck",
+                    &format!(
+                        "{n} événement(s) — dernier : vk 0x{:02X} scan 0x{:02X} flags 0x{:02X}",
+                        (d >> 16) & 0xFF,
+                        (d >> 8) & 0xFF,
+                        d & 0xFF
+                    ),
+                );
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2000));
+        }
+    });
+}
 
 /// Remplace la configuration du deck. Sans effet sur le hook lui-même : on
 /// peut reconfigurer les cases pendant qu'il tourne.
@@ -153,6 +185,7 @@ pub fn start(on_event: impl Fn(Event) + Send + 'static) {
         HOOK.store(h, Ordering::SeqCst);
         THREAD.store(GetCurrentThreadId(), Ordering::SeqCst);
         crate::diag::log("deck", "hook clavier installé");
+        watchdog();
         // Un hook bas niveau n'existe que sur un fil qui pompe des messages :
         // c'est cette boucle que Windows utilise pour livrer les touches.
         let mut msg: Msg = std::mem::zeroed();
@@ -161,7 +194,10 @@ pub fn start(on_event: impl Fn(Event) + Send + 'static) {
         HOOK.store(0, Ordering::SeqCst);
         THREAD.store(0, Ordering::SeqCst);
         STARTING.store(false, Ordering::SeqCst);
-        crate::diag::log("deck", "hook clavier retiré");
+        crate::diag::log(
+            "deck",
+            &format!("hook clavier retiré — {} événement(s) vus", SEEN.load(Ordering::Relaxed)),
+        );
     });
 }
 
@@ -201,19 +237,20 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: usize, lparam: isize) -> 
     }
     let info = &*(lparam as *const KbdLlHook);
 
-    // Trace des premiers événements, en TÊTE du rappel : c'est le seul endroit
-    // d'où l'on puisse affirmer « Windows nous parle ». Plus bas, chaque filtre
-    // devient un suspect de plus.
-    let n = SEEN.fetch_add(1, Ordering::Relaxed);
-    if n < 3 {
-        crate::diag::log(
-            "deck",
-            &format!(
-                "touche vue — vk 0x{:02X} scan 0x{:02X} flags 0x{:02X} msg 0x{:03X}",
-                info.vk_code, info.scan_code, info.flags, wparam
-            ),
-        );
-    }
+    // Compteur atomique, et RIEN d'autre : pas d'allocation, pas de fichier, pas
+    // de verrou. La trace précédente écrivait dans le journal depuis ici, et son
+    // absence a été lue comme « le rappel n'est jamais appelé » — alors qu'elle
+    // prouvait seulement que la ligne ne s'écrivait pas. Deux affirmations très
+    // différentes, et j'ai perdu deux builds à confondre les deux.
+    //
+    // Un incrément atomique ne peut pas échouer, ne peut pas bloquer, et ne peut
+    // pas dépasser le budget de 300 ms au-delà duquel Windows retire un hook
+    // sans prévenir. Le fil de veille, lui, a tout loisir d'écrire.
+    SEEN.fetch_add(1, Ordering::Relaxed);
+    LAST.store(
+        ((info.vk_code & 0xFF) << 16) | ((info.scan_code & 0xFF) << 8) | (info.flags & 0xFF),
+        Ordering::Relaxed,
+    );
 
     // On n'ignore QUE ce que nous avons envoyé nous-mêmes, reconnu à sa marque.
     //
