@@ -100,7 +100,7 @@ pub fn ensure(app: &AppHandle) -> Result<(), String> {
     let _ = win.hide();
     // Traversante par défaut : le widget qu'on regarde sans le toucher.
     let _ = win.set_ignore_cursor_events(true);
-    harden(app);
+    harden(app, false);
     // Journalisé parce que la panne de cette fenêtre est SILENCIEUSE : elle est
     // transparente et sans bordure, donc « pas créée », « page non chargée » et
     // « fonctionne mais vide » se ressemblent tous les trois à l'écran.
@@ -109,8 +109,17 @@ pub fn ensure(app: &AppHandle) -> Result<(), String> {
 }
 
 /// Applique les propriétés qui ne passent pas par l'API Tauri.
+///
+/// `WS_EX_NOACTIVATE` n'est posé que si le widget n'est PAS épinglé.
+///
+/// Il empêche la fenêtre de prendre le focus, ce qui est indispensable au
+/// survol : une fenêtre qui s'active en apparaissant minimise un jeu en plein
+/// écran fenêtré. Mais une fenêtre qui ne peut jamais s'activer ne donne pas
+/// non plus le focus à sa webview — et une webview sans focus ne traite ni les
+/// clics ni le déplacement, qui passe par un clic dans la page. Épinglé, on
+/// veut justement pouvoir cliquer et déplacer ; le compromis s'inverse donc.
 #[cfg(windows)]
-fn harden(app: &AppHandle) {
+fn harden(app: &AppHandle, pinned: bool) {
     let Some(win) = app.get_webview_window(LABEL) else {
         return;
     };
@@ -121,7 +130,12 @@ fn harden(app: &AppHandle) {
     let hwnd = hwnd.0 as isize;
     unsafe {
         let ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW);
+        let ex = if pinned {
+            (ex | WS_EX_TOOLWINDOW) & !WS_EX_NOACTIVATE
+        } else {
+            ex | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
+        };
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
         if SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE) == 0 {
             // Windows antérieur à la 2004. Le widget marchera, mais il sera
             // visible en capture d'écran entier : mieux vaut que ce soit écrit
@@ -136,7 +150,7 @@ fn harden(app: &AppHandle) {
 }
 
 #[cfg(not(windows))]
-fn harden(_app: &AppHandle) {}
+fn harden(_app: &AppHandle, _pinned: bool) {}
 
 /// Montre le widget sur une page donnée, ou le retire.
 ///
@@ -167,6 +181,8 @@ pub fn set_pinned(app: &AppHandle, pinned: bool) {
         return;
     };
     let _ = win.set_ignore_cursor_events(!pinned);
+    // Le style d'activation suit l'épinglage : voir `harden`.
+    harden(app, pinned);
     if pinned {
         let _ = win.show();
     }

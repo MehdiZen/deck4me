@@ -2,6 +2,7 @@ pub mod actions;
 mod camfeed;
 pub mod deck;
 pub mod deckhook;
+pub mod deckprobe;
 pub mod deckwin;
 pub mod diag;
 pub mod fetch;
@@ -995,6 +996,9 @@ pub fn run() {
             // Le deck n'installe son hook clavier que s'il est armé ET qu'une
             // touche de page est configurée : voir `deck_apply`.
             deck_apply(app.handle());
+            // Sonde temporaire : voir deckprobe.rs. À retirer une fois tranché
+            // si c'est le code ou le processus qui ne reçoit rien.
+            deckprobe::start();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
