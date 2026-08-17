@@ -881,6 +881,22 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        // Fermer le Studio ferme l'application, widget compris.
+        //
+        // Sans ça : le widget est une SECONDE fenêtre, invisible, et Tauri ne
+        // quitte que lorsqu'il n'en reste aucune. Fermer le Studio laissait donc
+        // le processus vivant — hook clavier installé, binaire verrouillé, et
+        // rien à l'écran pour le faire soupçonner. Une application qu'on ne peut
+        // pas quitter est une application cassée, et celle-ci intercepte le
+        // clavier de toute la session.
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::CloseRequested { .. })
+                && window.label() != deckwin::LABEL
+            {
+                deckhook::stop();
+                window.app_handle().exit(0);
+            }
+        })
         .setup(|app| {
             let dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dir)?;
