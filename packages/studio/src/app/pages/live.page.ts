@@ -9,7 +9,7 @@ import {
   inject,
   signal,
 } from '@angular/core'
-import { HYSTERESIS, type BlockDiag } from '@deck4me/core'
+import { HYSTERESIS, type BlockDiag, type GestureSnapshot } from '@deck4me/core'
 import { CameraView } from '../components/camera-view'
 import { Icon } from '../components/icon'
 import { DetectionService } from '../services/detection.service'
@@ -202,6 +202,107 @@ export class LivePage implements AfterViewInit, OnDestroy {
   protected hover = signal<string | null>(null)
   protected drag = signal<{ gestureId: string; auto: number } | null>(null)
 
+  // ---- Ne montrer que les gestures les plus proches de ce qu'on fait ----
+  //
+  // Au-delà de trois ou quatre poses, la toile devenait une liste à parcourir
+  // pour y chercher la sienne à chaque essai. Une gesture très loin du seuil
+  // n'apprend rien : sa barre est un trait au ras de zéro.
+  //
+  // Le classement se fait sur `distance / seuil`, PAS sur la distance brute.
+  // Chaque gesture a son propre seuil (auto × sensibilité) : une pose à 0,22
+  // dont le seuil vaut 0,20 est bien plus près de partir qu'une pose à 0,12
+  // dont le seuil vaut 0,08. Classer sur les distances reviendrait à les
+  // comparer sur une échelle qui n'existe pas.
+
+  /** Lignes affichées simultanément. */
+  private readonly SHOWN = 3
+  /** Lissage du classement. À 30 Hz, un classement instantané réordonne la
+   *  liste à chaque frame dès que deux poses se tiennent de près : les noms
+   *  sautent et plus rien ne se lit. */
+  private readonly EMA = 0.15
+  /** Ce qu'une prétendante doit gagner sur une affichée pour la déloger. Sans
+   *  cette marge, deux poses à égalité se relaieraient sans fin. */
+  private readonly OUST = 0.85
+  /** Durée minimale d'une place, en ms — le temps de lire une ligne. */
+  private readonly DWELL = 600
+
+  /** Proximité lissée par gesture. Absente = distance indisponible (bloc requis
+   *  manquant, main hors champ) : un trou, pas une valeur lointaine. */
+  private prox = new Map<string, number>()
+  /** Occupants des places, dans l'ordre d'affichage. Une gesture GARDE sa place
+   *  tant qu'elle n'est pas délogée : sans ça les lignes se réordonneraient
+   *  sous le curseur pendant qu'on vise une poignée. */
+  private slots: string[] = []
+  private slotAt = 0
+
+  /**
+   * Les gestures à dessiner, au plus `SHOWN`.
+   *
+   * Trois règles, chacune pour une panne qu'on verrait à l'écran :
+   *  · une gesture ACTIVE reste affichée quoi qu'il arrive — c'est précisément
+   *    le moment où on la regarde ;
+   *  · rien ne bouge pendant un glissement, sinon la ligne dont on règle le
+   *    seuil peut disparaître sous la souris en plein réglage ;
+   *  · une place ne change qu'après `DWELL`, et seulement pour nettement mieux.
+   */
+  private pickShown(snaps: GestureSnapshot[]): GestureSnapshot[] {
+    const by = new Map(snaps.map((s) => [s.gestureId, s]))
+    for (const s of snaps) {
+      if (s.dist === null || !s.threshold) {
+        this.prox.delete(s.gestureId)
+        continue
+      }
+      const cur = s.dist / s.threshold
+      const prev = this.prox.get(s.gestureId)
+      this.prox.set(s.gestureId, prev === undefined ? cur : prev + (cur - prev) * this.EMA)
+    }
+    // Une gesture supprimée ne garde ni sa place ni sa moyenne.
+    for (const id of [...this.prox.keys()]) if (!by.has(id)) this.prox.delete(id)
+    this.slots = this.slots.filter((id) => by.has(id))
+
+    if (snaps.length <= this.SHOWN) {
+      this.slots = snaps.map((s) => s.gestureId)
+      return snaps
+    }
+
+    if (!this.drag()) {
+      const active = snaps.filter((s) => s.state === 'ACTIVE').map((s) => s.gestureId)
+      const ranked = [...this.prox.entries()].sort((a, b) => a[1] - b[1]).map(([id]) => id)
+      const wanted = [...new Set([...active, ...ranked])].slice(0, this.SHOWN)
+
+      // Remplir une place libre ne coûte rien : il n'y a personne à déloger.
+      for (const id of wanted) {
+        if (this.slots.length >= this.SHOWN) break
+        if (!this.slots.includes(id)) this.slots.push(id)
+      }
+      if (performance.now() - this.slotAt >= this.DWELL) {
+        for (const id of wanted) {
+          if (this.slots.includes(id)) continue
+          // Déloger la moins bonne des affichées, et seulement si l'arrivante
+          // fait nettement mieux. Une affichée sans distance (main sortie du
+          // champ) cède sa place sans discuter — sa proximité vaut l'infini.
+          let worst = -1
+          let worstProx = -Infinity
+          this.slots.forEach((sid, i) => {
+            if (by.get(sid)?.state === 'ACTIVE') return
+            const p = this.prox.get(sid) ?? Infinity
+            if (p > worstProx) {
+              worstProx = p
+              worst = i
+            }
+          })
+          const gain = this.prox.get(id) ?? Infinity
+          if (worst >= 0 && gain < worstProx * this.OUST) {
+            this.slots[worst] = id
+            this.slotAt = performance.now()
+            break // une seule permutation par palier : la liste reste lisible
+          }
+        }
+      }
+    }
+    return this.slots.map((id) => by.get(id)!).filter(Boolean)
+  }
+
   private rowAt(ev: MouseEvent): { gestureId: string; auto: number; x: number; near: boolean } | null {
     const canvas = this.barsRef?.nativeElement
     if (!canvas) return null
@@ -332,11 +433,19 @@ export class LivePage implements AfterViewInit, OnDestroy {
   private drawBars(): void {
     const canvas = this.barsRef?.nativeElement
     if (!canvas) return
-    const snaps = this.matcher.lastSnapshots
+    const all = this.matcher.lastSnapshots
+    // `pickShown` est appelée à CHAQUE tracé, y compris quand il n'y a rien à
+    // dessiner : c'est elle qui entretient les moyennes glissantes. La sauter
+    // quand la liste est vide ferait repartir le classement de zéro à chaque
+    // main sortie du champ.
+    const snaps = this.pickShown(all)
+    const hidden = all.length - snaps.length
     const ROW = this.ROW // une seule source : le tracé et la préhension doivent
     const BAR_H = 12 //     s'accorder au pixel près, sinon on clique à côté
     const cssW = canvas.clientWidth || 480
-    const cssH = Math.max(1, snaps.length) * ROW + 10
+    // La hauteur suit le nombre de lignes RETENUES : la carte se règle sur ce
+    // qu'elle montre, elle ne garde pas la place des gestures écartées.
+    const cssH = Math.max(1, snaps.length) * ROW + (hidden > 0 ? 26 : 10)
     const dpr = window.devicePixelRatio || 1
     const pxW = Math.round(cssW * dpr)
     const pxH = Math.round(cssH * dpr)
@@ -359,13 +468,18 @@ export class LivePage implements AfterViewInit, OnDestroy {
     const uiFont = '12.5px "Segoe UI Variable Display", "Segoe UI", system-ui'
     const dataFont = '12px "Cascadia Mono", ui-monospace, Consolas, monospace'
 
-    if (!snaps.length) {
+    if (!all.length || !snaps.length) {
       ctx.font = uiFont
       ctx.fillStyle = ink3
+      // Trois silences différents, trois phrases différentes. « Aucune ligne »
+      // ne veut pas dire la même chose selon qu'il n'y a pas de gesture, que le
+      // Panic les a coupées, ou que rien n'est mesurable à cet instant.
       ctx.fillText(
         this.matcher.muted()
           ? 'Gestures coupées par le bouton Panic.'
-          : 'Rien à mesurer : démarre la caméra et active au moins une gesture.',
+          : !all.length
+            ? 'Rien à mesurer : démarre la caméra et active au moins une gesture.'
+            : 'Aucune mesure : visage ou main hors du champ.',
         0,
         20,
       )
@@ -513,5 +627,17 @@ export class LivePage implements AfterViewInit, OnDestroy {
         x += w + 5 // écart de surface entre pastilles
       }
     })
+
+    // Dire ce qui n'est pas montré. Sans cette ligne, quelqu'un qui a douze
+    // poses et n'en voit que trois croit en avoir perdu neuf.
+    if (hidden > 0) {
+      ctx.font = uiFont
+      ctx.fillStyle = ink3
+      ctx.fillText(
+        `+${hidden} gesture(s) plus loin du seuil, masquée(s)`,
+        0,
+        snaps.length * ROW + 18,
+      )
+    }
   }
 }
