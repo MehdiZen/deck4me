@@ -49,49 +49,35 @@ import { StoreService } from '../services/store.service'
       }
     </div>
 
-    <div class="cols">
-      <div class="left">
-        <div class="card viewport" [class.fired]="flash()">
-          <app-camera-view />
-          <!-- Bandeau d'instrument sur l'image : ce qui compte pendant un live
-               se lit sans quitter la vidéo des yeux. -->
-          <div class="hud">
-            <span class="badge" [class.ok]="detection.running()">
-              <i class="led" [class.on]="detection.running()"></i>
-              {{ detection.running() ? 'détection' : 'arrêt' }}
-            </span>
-            @if (detection.running()) {
-              <span class="badge"><b class="num">{{ detection.fps() }}</b> fps</span>
-              @if (detection.sourceSize(); as s) {
-                <span class="badge"><span class="num">{{ s.w }}×{{ s.h }}</span></span>
-              }
+    <!-- La caméra d'abord, sur toute la largeur : c'est l'image qui sert à se
+         cadrer et à s'éclairer, et ces deux réglages-là pèsent plus lourd sur
+         la qualité de détection que n'importe quel seuil. Les mesures viennent
+         dessous, dans l'ordre où on les consulte : ce qui est en train de se
+         passer à gauche, ce qui vient de se passer à droite. -->
+    <div class="stack">
+      <div class="card viewport" [class.fired]="flash()">
+        <app-camera-view />
+        <!-- Bandeau d'instrument sur l'image : ce qui compte pendant un live
+             se lit sans quitter la vidéo des yeux. -->
+        <div class="hud">
+          <span class="badge" [class.ok]="detection.running()">
+            <i class="led" [class.on]="detection.running()"></i>
+            {{ detection.running() ? 'détection' : 'arrêt' }}
+          </span>
+          @if (detection.running()) {
+            <span class="badge"><b class="num">{{ detection.fps() }}</b> fps</span>
+            @if (detection.sourceSize(); as s) {
+              <span class="badge"><span class="num">{{ s.w }}×{{ s.h }}</span></span>
             }
-            <span class="spacer"></span>
-            @if (armed(); as n) {
-              <span class="badge ok"><span class="num">{{ n }}</span> armée(s)</span>
-            }
-          </div>
-        </div>
-
-        <div class="card log-panel">
-          <h2>Derniers triggers</h2>
-          @if (!matcher.triggerLog().length) {
-            <p class="empty">Rien encore. Prends une pose enregistrée.</p>
           }
-          <ul class="log">
-            @for (t of matcher.triggerLog(); track t.ts) {
-              <li class="rise" [class.failed]="t.kind === 'error'" [title]="t.detail ?? ''">
-                <i class="led" [class.on]="t.kind === 'fire'" [class.bad]="t.kind === 'error'"></i>
-                <span class="nm">{{ t.name }}</span>
-                <span class="kind lbl">{{ label(t.kind) }}</span>
-                <span class="at num">{{ t.at }}</span>
-              </li>
-            }
-          </ul>
+          <span class="spacer"></span>
+          @if (armed(); as n) {
+            <span class="badge ok"><span class="num">{{ n }}</span> armée(s)</span>
+          }
         </div>
       </div>
 
-      <div class="right">
+      <div class="row">
         <div class="card">
           <div class="cardhead">
             <h2>Distances</h2>
@@ -115,6 +101,22 @@ import { StoreService } from '../services/store.service'
           ></canvas>
         </div>
 
+        <div class="card log-panel">
+          <h2>Derniers triggers</h2>
+          @if (!matcher.triggerLog().length) {
+            <p class="empty">Rien encore. Prends une pose enregistrée.</p>
+          }
+          <ul class="log">
+            @for (t of matcher.triggerLog(); track t.ts) {
+              <li class="rise" [class.failed]="t.kind === 'error'" [title]="t.detail ?? ''">
+                <i class="led" [class.on]="t.kind === 'fire'" [class.bad]="t.kind === 'error'"></i>
+                <span class="nm">{{ t.name }}</span>
+                <span class="kind lbl">{{ label(t.kind) }}</span>
+                <span class="at num">{{ t.at }}</span>
+              </li>
+            }
+          </ul>
+        </div>
       </div>
     </div>
   `,
@@ -123,10 +125,23 @@ import { StoreService } from '../services/store.service'
     .head h1 { margin: 0 0 4px; }
     .sub { margin: 0; text-transform: none; letter-spacing: 0; }
 
-    .cols { display: flex; gap: 16px; align-items: flex-start; }
-    .left { flex: 0 1 500px; min-width: 340px; display: flex; flex-direction: column; gap: 16px; }
-    .right { flex: 1 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
-    @media (max-width: 1120px) { .cols { flex-wrap: wrap; } .left, .right { flex-basis: 100%; } }
+    .stack { display: flex; flex-direction: column; gap: 16px; }
+    /* 2/3 – 1/3. En grille et non en flex : les deux cartes reçoivent leur part
+       de la largeur sans que leur CONTENU ne la négocie — un nom de trigger
+       long élargirait sa colonne en flex, et la toile perdrait la place au
+       pixel près sous le curseur qui règle un seuil.
+       Le minmax(0, …) est là parce qu'une piste de grille refuse par défaut de
+       passer sous la largeur intrinsèque de son contenu : sans lui, la toile ne
+       peut plus jamais rétrécir une fois qu'elle s'est élargie. */
+    .row {
+      display: grid;
+      grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+    /* Sous cette largeur, deux colonnes rendraient le journal trop étroit pour
+       ses trois colonnes de texte : on empile. */
+    @media (max-width: 1120px) { .row { grid-template-columns: minmax(0, 1fr); } }
 
     /* La vidéo occupe toute la carte : aucune marge ne vient la « décorer ». */
     .viewport { padding: 0; overflow: hidden; transition: box-shadow 200ms var(--ease), border-color 200ms var(--ease); }
