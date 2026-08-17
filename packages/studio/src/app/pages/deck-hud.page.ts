@@ -1,6 +1,7 @@
 import { Component, computed, inject, signal } from '@angular/core'
 import { listen } from '@tauri-apps/api/event'
 import { StoreService } from '../services/store.service'
+import { TauriService } from '../services/tauri.service'
 import { DECK_LABELS, DECK_LAYOUT } from './deck-layout'
 
 /**
@@ -202,15 +203,31 @@ interface Cell {
 })
 export class DeckHudPage {
   private store = inject(StoreService)
+  private tauri = inject(TauriService)
 
   /** Page tenue en ce moment. `null` = aucune. */
   protected page = signal<number | null>(null)
 
   constructor() {
-    void this.store.load()
+    // Cette fenêtre n'a ni décoration ni focus : sa console n'est ouvrable par
+    // personne. Elle rend donc compte dans le journal du Rust, faute de quoi
+    // « le Rust a émis » et « la vue a reçu » restent indiscernables — on les a
+    // déjà confondus une fois, au prix de plusieurs allers-retours.
+    this.say('widget démarré')
+    void this.store
+      .load()
+      .then(() => this.say(`base chargée — ${this.store.deckSlots().length} case(s)`))
+      .catch((e) => this.say(`base illisible : ${e}`))
     // Le Rust est seul à savoir quelle touche est enfoncée : il n'existe aucun
     // moyen pour une webview sans focus de l'apprendre autrement.
-    void listen<number | null>('deck-page', (e) => this.page.set(e.payload))
+    void listen<number | null>('deck-page', (e) => {
+      this.say(`page reçue : ${e.payload}`)
+      this.page.set(e.payload)
+    })
+  }
+
+  private say(msg: string): void {
+    void this.tauri.invoke('journal', { msg: `deck-hud — ${msg}` }, null).catch(() => {})
   }
 
   protected pageName = computed(() => {

@@ -90,9 +90,10 @@ static SEEN: AtomicU32 = AtomicU32::new(0);
 /// `start` — et il y en a, au démarrage puis à chaque enregistrement de case —
 /// installaient deux hooks et deux puits concurrents.
 static STARTING: AtomicBool = AtomicBool::new(false);
-/// Dernier événement vu, replié en un seul entier (vk, scancode, drapeaux).
-/// Lu par le fil de veille, jamais par le rappel.
-static LAST: AtomicU32 = AtomicU32::new(0);
+const RING_LEN: usize = 16;
+/// Les seize dernières touches vues, chacune repliée en un entier
+/// (vk, scancode, drapeaux). Écrit par le rappel, lu par le fil de veille.
+static RING: [AtomicU32; RING_LEN] = [const { AtomicU32::new(0) }; RING_LEN];
 
 /// Fil de veille : dit périodiquement combien d'événements le rappel a vus.
 ///
@@ -106,17 +107,20 @@ fn watchdog() {
         while running() {
             let n = SEEN.load(Ordering::Relaxed);
             if n != last {
-                last = n;
-                let d = LAST.load(Ordering::Relaxed);
-                crate::diag::log(
-                    "deck",
-                    &format!(
-                        "{n} événement(s) — dernier : vk 0x{:02X} scan 0x{:02X} flags 0x{:02X}",
+                let first = last.min(n).max(n.saturating_sub(RING_LEN as u32));
+                let mut trace = String::new();
+                for i in first..n {
+                    let d = RING[(i as usize) % RING_LEN].load(Ordering::Relaxed);
+                    // « ↓ » appui, « ↑ » relâchement : le drapeau 0x80 le porte.
+                    let sens = if d & 0x80 != 0 { '↑' } else { '↓' };
+                    trace.push_str(&format!(
+                        " {sens}vk{:02X}/sc{:02X}",
                         (d >> 16) & 0xFF,
-                        (d >> 8) & 0xFF,
-                        d & 0xFF
-                    ),
-                );
+                        (d >> 8) & 0xFF
+                    ));
+                }
+                last = n;
+                crate::diag::log("deck", &format!("{n} événement(s) —{trace}"));
             }
             std::thread::sleep(std::time::Duration::from_millis(2000));
         }
@@ -223,8 +227,12 @@ unsafe extern "system" fn hook_proc(code: i32, wparam: usize, lparam: isize) -> 
     // Un incrément atomique ne peut pas échouer, ne peut pas bloquer, et ne peut
     // pas dépasser le budget de 300 ms au-delà duquel Windows retire un hook
     // sans prévenir. Le fil de veille, lui, a tout loisir d'écrire.
-    SEEN.fetch_add(1, Ordering::Relaxed);
-    LAST.store(
+    let n = SEEN.fetch_add(1, Ordering::Relaxed);
+    // Journal circulaire des dernières touches vues, replié un entier par
+    // case. Le simple « dernier événement » ne suffisait pas : il faut savoir
+    // quels codes physiques envoie RÉELLEMENT ce pavé numérique, et la dernière
+    // touche d'une séquence est justement celle qui n'apprend rien.
+    RING[(n as usize) % RING_LEN].store(
         ((info.vk_code & 0xFF) << 16) | ((info.scan_code & 0xFF) << 8) | (info.flags & 0xFF),
         Ordering::Relaxed,
     );

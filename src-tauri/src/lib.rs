@@ -562,6 +562,17 @@ fn deck_apply(handle: &tauri::AppHandle) {
     deckhook::configure(cfg);
 }
 
+/// Laisse la webview écrire dans le journal du Rust.
+///
+/// Sans ça, une panne côté front est muette : la console d'une fenêtre sans
+/// décoration et sans focus n'est ouvrable par personne, et « le Rust a émis »
+/// ne dit rien de « la vue a reçu ». Deux affirmations qu'on a déjà confondues
+/// une fois dans ce module, au prix de plusieurs allers-retours.
+#[tauri::command]
+fn journal(msg: String) {
+    diag::log("vue", &msg);
+}
+
 #[tauri::command]
 fn save_deck_slot(
     app_handle: tauri::AppHandle,
@@ -1000,6 +1011,7 @@ pub fn run() {
             save_calibration,
             gesture_fired,
             gesture_released,
+            journal,
             save_deck_slot,
             delete_deck_slot,
             deck_keys,
