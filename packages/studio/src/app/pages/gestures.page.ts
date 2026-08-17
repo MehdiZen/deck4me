@@ -205,22 +205,22 @@ import {
               }
             </div>
 
-            <!-- Éprouver la RECONNAISSANCE, à ne pas confondre avec le bouton
-                 « Tester » des memes, qui affiche l'image dans OBS. Ici on
-                 mesure si la pose est vue. -->
+            <!-- Les deux actions qu'on vient vraiment chercher ici portent leur
+                 nom. Restent en icône seule celles dont le geste est sans
+                 retour possible ou purement structurel. -->
             <button
-              class="ghost sm"
+              class="sm"
               (click)="testing.set(g)"
-              title="Tenir la pose et mesurer si elle est reconnue"
+              title="Tenir la pose devant la caméra et mesurer si elle est reconnue"
             >
-              <app-icon name="target" [size]="15" />
+              <app-icon name="target" [size]="14" /> Tester la pose
             </button>
             <button
               class="ghost sm"
               (click)="rerecord(g)"
-              title="Refaire la pose en gardant sa place dans les macros"
+              title="Refaire les prises en gardant sa place dans les macros"
             >
-              <app-icon name="hand" [size]="15" />
+              <app-icon name="hand" [size]="15" /> Refaire
             </button>
             <button
               class="ghost sm"
@@ -332,29 +332,30 @@ import {
                 <app-icon name="sliders" [size]="14" /> Régler
               </button>
             }
+            <!-- Deux actions voisines, et deux libellés qui disent ce qu'ils
+                 FONT plutôt que « tester ». « Tester » ne disait pas quoi : on
+                 pouvait aussi bien croire qu'il éprouvait la reconnaissance,
+                 et chercher ensuite la panne du mauvais côté. -->
             <button
               class="sm"
               (click)="matcher.testTrigger(g.id)"
-              title="Affiche le meme dans OBS"
+              title="Envoie le meme dans OBS, sans toucher à la pose"
             >
-              <app-icon name="zap" [size]="14" /> Tester
+              <app-icon name="zap" [size]="14" /> Aperçu
             </button>
-            <!-- Deux « tests » voisins et volontairement distincts : celui-ci
-                 éprouve la POSE, l'autre le rendu. Le libellé le dit, parce que
-                 confondre les deux ferait chercher une panne du mauvais côté. -->
             <button
               class="sm"
               (click)="testing.set(g)"
-              title="Tenir la pose et mesurer si elle est reconnue"
+              title="Tenir la pose devant la caméra et mesurer si elle est reconnue"
             >
-              <app-icon name="target" [size]="14" /> Pose
+              <app-icon name="target" [size]="14" /> Tester la pose
             </button>
             <button
               class="ghost sm"
               (click)="rerecord(g)"
-              title="Refaire la pose en gardant le meme, le cadrage et le son"
+              title="Refaire les prises en gardant le meme, le cadrage et le son"
             >
-              <app-icon name="hand" [size]="15" />
+              <app-icon name="hand" [size]="15" /> Refaire
             </button>
             <!-- Symétrique du bouton « rendre autonome » des maillons. Sans
                  lui, le passage Maillon → Meme était sans retour dès que la
@@ -451,10 +452,12 @@ import {
     /* Maillons : une ligne chacun. Pas de cadre OBS — ils n'afficheront
        jamais rien — donc pas de raison d'occuper la surface d'une tuile. */
     .links { display: flex; flex-direction: column; gap: 8px; }
+    /* Passe à la ligne plutôt que de laisser un bouton sortir de la carte. */
     .link {
-      display: flex; align-items: center; gap: 13px;
+      display: flex; flex-wrap: wrap; align-items: center; gap: 13px;
       padding: 11px 14px;
     }
+    .link button { flex: 0 0 auto; }
     .link.off { opacity: 0.55; }
     .lmeta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
     .lmeta .nm {
@@ -566,7 +569,13 @@ import {
     .ctrl { padding: 11px 15px 0; }
     .ctrl select { width: 100%; font-size: 12.5px; padding: 7px 28px 7px 10px; }
 
-    .acts { display: flex; align-items: center; gap: 6px; padding: 11px 13px 13px; }
+    /* La rangée PASSE À LA LIGNE. Sans ça, la corbeille sortait de la carte dès
+       que la tuile était un peu étroite : un bouton hors du cadre n'est pas
+       « discret », il est introuvable. */
+    .acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 11px 13px 13px; }
+    /* L'espaceur ne pousse que s'il reste de la place sur la ligne. Une fois le
+       retour à la ligne fait, il ne doit pas créer une ligne vide. */
+    .acts .spacer { flex: 1 1 0; min-width: 0; }
 
     .drop { margin: 0 13px 13px; }
   `,
