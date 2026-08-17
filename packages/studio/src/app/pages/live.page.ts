@@ -54,12 +54,12 @@ import { StoreService } from '../services/store.service'
          la qualité de détection que n'importe quel seuil. Les mesures viennent
          dessous, dans l'ordre où on les consulte : ce qui est en train de se
          passer à gauche, ce qui vient de se passer à droite. -->
-    <div class="stack">
-      <div class="card viewport" [class.fired]="flash()" [style.max-width]="camMax()">
+    <div class="stack" #stack>
+      <div class="card viewport" [class.fired]="flash()" [style.width.px]="camPx()">
         <app-camera-view />
         <!-- Bandeau d'instrument sur l'image : ce qui compte pendant un live
              se lit sans quitter la vidéo des yeux. -->
-        <div class="hud">
+        <div class="hud" #hud>
           <span class="badge" [class.ok]="detection.running()">
             <i class="led" [class.on]="detection.running()"></i>
             {{ detection.running() ? 'détection' : 'arrêt' }}
@@ -77,7 +77,7 @@ import { StoreService } from '../services/store.service'
         </div>
       </div>
 
-      <div class="row">
+      <div class="row" #row>
         <div class="card">
           <div class="cardhead">
             <h2>Distances</h2>
@@ -121,11 +121,23 @@ import { StoreService } from '../services/store.service'
     </div>
   `,
   styles: `
-    .head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 20px; }
+    /* La page prend la hauteur qu'on lui donne : c'est ce qui rend la place
+       libre MESURABLE. Sans ça, la colonne se règle sur son contenu, et
+       demander « combien reste-t-il ? » n'a plus de sens — la réponse est
+       toujours zéro. */
+    :host { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+    .head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 20px; flex: 0 0 auto; }
     .head h1 { margin: 0 0 4px; }
     .sub { margin: 0; text-transform: none; letter-spacing: 0; }
 
-    .stack { display: flex; flex-direction: column; gap: 16px; }
+    .stack { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 16px; }
+    /* Les deux étages gardent leur hauteur propre : l'image la reçoit en style
+       en ligne, la ligne du bas la tient de son contenu. Rien ne s'étire pour
+       remplir — c'est le calcul qui décide, pas le flex. */
+    .stack > * { flex: 0 0 auto; }
+    /* Trop étroit pour la mise en page : la hauteur cesse d'être la contrainte
+       qui mord, la page défile, et c'est très bien. */
+    @media (max-width: 1120px) { :host { height: auto; } }
     /* 2/3 – 1/3. En grille et non en flex : les deux cartes reçoivent leur part
        de la largeur sans que leur CONTENU ne la négocie — un nom de trigger
        long élargirait sa colonne en flex, et la toile perdrait la place au
@@ -209,38 +221,60 @@ export class LivePage implements AfterViewInit, OnDestroy {
   protected store = inject(StoreService)
   protected readonly HYSTERESIS = HYSTERESIS
   @ViewChild('bars') barsRef!: ElementRef<HTMLCanvasElement>
+  @ViewChild('stack') stackRef!: ElementRef<HTMLElement>
+  @ViewChild('row') rowRef!: ElementRef<HTMLElement>
+  @ViewChild('hud') hudRef!: ElementRef<HTMLElement>
   private raf = 0
 
   readonly armed = computed(() => this.store.gestures().filter((g) => g.enabled).length)
 
-  // ---- Tout doit tenir dans la fenêtre ----
+  // ---- La plus grande image qui tient, dans les DEUX dimensions ----
   //
-  // L'écran entier se lit d'un coup ou il ne sert à rien : une caméra qui pousse
-  // les mesures sous le pli oblige à faire défiler entre l'image qu'on ajuste et
-  // le chiffre qui dit si l'ajustement a servi.
+  // La règle est celle de n'importe quel lecteur vidéo : le plus grand rectangle
+  // au bon rapport qui entre dans la place libre. Ni la largeur seule ni la
+  // hauteur seule ne commandent — c'est la première des deux qui bute.
   //
-  // On borne la LARGEUR de la carte, pas sa hauteur. Le cadre de la vue caméra
-  // épouse exactement le rapport d'image de la source, et il doit le garder :
-  // le <video> est en `cover` (il recadre) tandis que la toile des landmarks est
-  // étirée sur toute la boîte. Dès que la boîte cesse d'être au bon rapport, les
-  // deux divergent et les points tombent à côté du visage. Plafonner la hauteur
-  // casserait précisément ce rapport ; plafonner la largeur le préserve, la
-  // hauteur suivant d'elle-même.
+  //     largeur = min( largeur libre , hauteur libre × rapport )
+  //
+  // Et la place libre est MESURÉE, pas devinée : hauteur de la colonne, moins la
+  // carte du bas telle qu'elle est réellement, moins le bandeau d'instruments.
+  // Une version précédente soustrayait une constante de 500 px censée
+  // représenter « le reste de la page ». Elle laissait un espace mort en bas
+  // parce qu'elle réservait trop, et elle serait redevenue fausse au moindre
+  // changement de contenu — une gesture de plus dans la toile, une ligne de plus
+  // dans le journal.
+  //
+  // On agit sur la largeur et jamais sur la hauteur, parce que le cadre doit
+  // garder exactement le rapport de la source : le <video> est en `cover` — il
+  // recadre — tandis que la toile des landmarks est étirée sur toute la boîte.
+  // Une boîte au mauvais rapport fait diverger les deux, et les points tombent à
+  // côté du visage.
 
-  /** Ce qu'occupe tout ce qui n'est pas l'image : en-tête de page, bandeau
-   *  d'instruments, la ligne Distances/triggers dessous, et les écarts. La
-   *  ligne du bas a une hauteur bornée depuis qu'elle ne montre que trois
-   *  gestures — sans ça il n'y aurait aucune constante à écrire ici. */
-  private readonly CHROME = 500
-  /** En dessous, on laisse défiler plutôt que de réduire l'image à un timbre :
-   *  c'est le cas « fenêtre vraiment petite », et il est assumé. */
+  /** En dessous, on laisse plutôt la page défiler que réduire l'image à un
+   *  timbre-poste : c'est le cas « fenêtre vraiment petite », assumé. */
   private readonly CAM_MIN = 420
+  /** L'écart entre les deux étages, tel que déclaré dans .stack. */
+  private readonly GAP = 16
 
-  protected camMax = computed(() => {
+  /** Largeur retenue pour l'image, en pixels. Recalculée à chaque frame, mais
+   *  n'écrit le signal que lorsqu'elle bouge vraiment : sans ce garde-fou, on
+   *  déclencherait un cycle de rendu Angular soixante fois par seconde pour
+   *  réécrire la même valeur. */
+  protected camPx = signal<number | null>(null)
+
+  private measureCam(): void {
+    const stack = this.stackRef?.nativeElement
+    const row = this.rowRef?.nativeElement
+    const hud = this.hudRef?.nativeElement
+    if (!stack || !row || !hud) return
     const s = this.detection.sourceSize()
     const ratio = s ? s.w / s.h : 4 / 3
-    return `min(100%, max(${this.CAM_MIN}px, calc((100vh - ${this.CHROME}px) * ${ratio.toFixed(4)})))`
-  })
+    const freeW = stack.clientWidth
+    const freeH = stack.clientHeight - row.offsetHeight - this.GAP - hud.offsetHeight
+    const w = Math.max(this.CAM_MIN, Math.min(freeW, freeH * ratio))
+    const px = Math.round(w)
+    if (this.camPx() === null || Math.abs(this.camPx()! - px) >= 1) this.camPx.set(px)
+  }
 
   // ---- Réglage de la sensibilité À MÊME le graphe ----
   //
@@ -440,6 +474,10 @@ export class LivePage implements AfterViewInit, OnDestroy {
   ngAfterViewInit(): void {
     const draw = () => {
       this.drawBars()
+      // Après le tracé : la hauteur de la carte du bas dépend du nombre de
+      // lignes qu'elle vient de dessiner. Mesurer avant, ce serait mesurer
+      // l'image précédente.
+      this.measureCam()
       this.raf = requestAnimationFrame(draw)
     }
     this.raf = requestAnimationFrame(draw)
