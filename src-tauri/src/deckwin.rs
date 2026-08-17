@@ -136,6 +136,10 @@ fn harden(app: &AppHandle, pinned: bool) {
             ex | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE
         };
         SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+        crate::diag::log(
+            "deck",
+            &format!("widget : épinglé = {pinned}, style étendu = 0x{ex:X}"),
+        );
         if SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE) == 0 {
             // Windows antérieur à la 2004. Le widget marchera, mais il sera
             // visible en capture d'écran entier : mieux vaut que ce soit écrit
@@ -181,6 +185,7 @@ pub fn set_pinned(app: &AppHandle, pinned: bool) {
         return;
     };
     let _ = win.set_ignore_cursor_events(!pinned);
+    crate::diag::log("deck", &format!("widget : curseur ignoré = {}", !pinned));
     // Le style d'activation suit l'épinglage : voir `harden`.
     harden(app, pinned);
     if pinned {
