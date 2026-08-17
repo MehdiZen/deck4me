@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 use server::{OverlayStats, ServerState, Sound, TriggerEvent, WsMsg, DEFAULT_PORT};
 use std::sync::{Arc, Mutex};
 use store::{ActionRecord, AssetMeta, BindingRecord, GestureRecord, Profile, Settings, Store};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use virtualcam::{VcamDevice, VcamFormat, VcamStatus, VirtualCam};
 
 pub struct App {
@@ -135,6 +135,7 @@ fn bootstrap(app: tauri::State<App>) -> Value {
         "bindings": db.bindings,
         "macros": db.macros,
         "actions": db.actions,
+        "deckSlots": db.deck_slots,
         "assets": db.assets,
         "defaultAssetId": db.default_asset_id,
         "settings": db.settings,
@@ -345,16 +346,29 @@ fn gesture_fired(
     app: tauri::State<App>,
     gesture_id: String,
 ) -> Result<(), String> {
-    let has_actions = fire_actions(&app_handle, &app, &gesture_id);
+    fire_owner(&app_handle, &app, &gesture_id)
+}
+
+/// Le même déclenchement, appelable hors commande Tauri.
+///
+/// Le deck clavier passe par ici : une case est un déclencheur au même titre
+/// qu'une gesture, et rien dans ce chemin n'a besoin de savoir laquelle des
+/// trois formes l'a réveillé.
+fn fire_owner(
+    handle: &tauri::AppHandle,
+    app: &App,
+    owner_id: &str,
+) -> Result<(), String> {
+    let has_actions = fire_actions(handle, app, owner_id);
 
     // Un déclencheur qui n'a QUE des actions n'affiche rien du tout. L'image de
     // test embarquée n'existe que pour rendre une gesture démontrable avant
     // qu'elle ait son meme ; la faire apparaître dans l'overlay de quelqu'un
     // qui s'en sert pour piloter sa machine serait absurde.
-    if has_actions && !has_binding(&app, &gesture_id) {
+    if has_actions && !has_binding(app, owner_id) {
         return Ok(());
     }
-    let trigger = build_trigger(&app, &gesture_id)?;
+    let trigger = build_trigger(app, owner_id)?;
     app.state.broadcast_trigger(trigger);
     Ok(())
 }
@@ -436,6 +450,121 @@ fn key_names() -> Vec<&'static str> {
 fn gesture_released(app: tauri::State<App>, gesture_id: String) {
     let binding_id = binding_id_for(&app, &gesture_id);
     app.state.broadcast(&WsMsg::Release { binding_id });
+}
+
+// ---- Deck clavier -------------------------------------------------------
+
+/// Reconstruit la configuration du hook d'après la base, et l'installe ou le
+/// désinstalle. Idempotent : appelé au démarrage, à chaque changement de case,
+/// de réglage et de profil actif.
+fn deck_apply(handle: &tauri::AppHandle) {
+    let app = handle.state::<App>();
+    let (enabled, cfg) = {
+        let db = app.state.store.db.lock().unwrap();
+        // Les cases suivent le profil actif, comme les gestures et les macros :
+        // un profil « stream » et un profil « boulot » n'ont aucune raison de
+        // partager leur pavé.
+        let active = db
+            .profiles
+            .iter()
+            .find(|p| p.is_active)
+            .map(|p| p.id.as_str())
+            .unwrap_or("default");
+        let mut slots = std::collections::HashMap::new();
+        for s in &db.deck_slots {
+            if s.profile_id() != Some(active) {
+                continue;
+            }
+            if let (Some(page), Some(key), Some(id)) = (s.page(), s.key(), s.id()) {
+                slots.insert((page, key), id.to_string());
+            }
+        }
+        (
+            db.settings.deck_enabled,
+            deck::Config {
+                pages: db.settings.deck_pages.clone(),
+                slots,
+            },
+        )
+    };
+    if !enabled {
+        deckhook::stop();
+        return;
+    }
+    let h = handle.clone();
+    // `start` est idempotent : seul le premier appel installe le hook et retient
+    // ce puits. Les suivants ne font que reconfigurer, juste en dessous.
+    deckhook::start(move |ev| match ev {
+        deck::Event::Press(owner) => {
+            let app = h.state::<App>();
+            if let Err(e) = fire_owner(&h, &app, &owner) {
+                diag::log("deck", &format!("case {owner} : {e}"));
+            }
+        }
+        deck::Event::Release(owner) => {
+            let app = h.state::<App>();
+            let binding_id = binding_id_for(&app, &owner);
+            app.state.broadcast(&WsMsg::Release { binding_id });
+        }
+        // Le widget vit de cet événement, et de lui seul.
+        deck::Event::Page(p) => {
+            let _ = h.emit("deck-page", p);
+        }
+    });
+    deckhook::configure(cfg);
+}
+
+#[tauri::command]
+fn save_deck_slot(
+    app_handle: tauri::AppHandle,
+    app: tauri::State<App>,
+    slot: Value,
+) -> Result<(), String> {
+    let id = slot
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or("case sans id")?
+        .to_string();
+    let store = &app.state.store;
+    {
+        let mut db = store.db.lock().unwrap();
+        db.deck_slots.retain(|s| s.id() != Some(id.as_str()));
+        db.deck_slots.push(store::SlotRecord(slot));
+    }
+    store.save().map_err(|e| e.to_string())?;
+    deck_apply(&app_handle);
+    Ok(())
+}
+
+#[tauri::command]
+fn delete_deck_slot(
+    app_handle: tauri::AppHandle,
+    app: tauri::State<App>,
+    id: String,
+) -> Result<(), String> {
+    let store = &app.state.store;
+    {
+        let mut db = store.db.lock().unwrap();
+        db.deck_slots.retain(|s| s.id() != Some(id.as_str()));
+        // Une case est un déclencheur : elle emporte son meme et ses actions,
+        // exactement comme une macro supprimée le fait déjà.
+        db.bindings.retain(|b| b.gesture_id() != Some(id.as_str()));
+        db.actions.retain(|a| a.owner_id() != Some(id.as_str()));
+    }
+    store.save().map_err(|e| e.to_string())?;
+    deck_apply(&app_handle);
+    app.state.broadcast(&WsMsg::Clear {
+        binding_id: Some(id),
+    });
+    Ok(())
+}
+
+/// Géométrie du pavé, lue depuis le Rust plutôt que recopiée dans l'interface.
+/// Deux tables de codes physiques qui divergent, ça ne se voit qu'au moment où
+/// une touche ne déclenche rien.
+#[tauri::command]
+fn deck_keys() -> Vec<(u32, &'static str)> {
+    deck::PAD_KEYS.to_vec()
 }
 
 /// Aperçu depuis l'éditeur : le binding en cours d'édition n'est pas encore
@@ -543,8 +672,21 @@ fn delete_profile(app: tauri::State<App>, id: String) -> Result<Value, String> {
             .filter_map(|m| m.id().map(String::from))
             .collect();
         db.macros.retain(|m| m.profile_id() != Some(id.as_str()));
+        // Et les cases du deck, pour la même raison : une case survivante
+        // garderait une touche du pavé confisquée au nom d'un profil disparu.
+        let doomed_slots: Vec<String> = db
+            .deck_slots
+            .iter()
+            .filter(|s| s.profile_id() == Some(id.as_str()))
+            .filter_map(|s| s.id().map(String::from))
+            .collect();
+        db.deck_slots.retain(|s| s.profile_id() != Some(id.as_str()));
         let orphan = |owner: Option<&str>| match owner {
-            Some(o) => doomed.iter().any(|d| d == o) || doomed_macros.iter().any(|d| d == o),
+            Some(o) => {
+                doomed.iter().any(|d| d == o)
+                    || doomed_macros.iter().any(|d| d == o)
+                    || doomed_slots.iter().any(|d| d == o)
+            }
             None => false,
         };
         db.bindings.retain(|b| !orphan(b.gesture_id()));
@@ -570,11 +712,16 @@ fn delete_profile(app: tauri::State<App>, id: String) -> Result<Value, String> {
         "bindings": db.bindings,
         "macros": db.macros,
         "actions": db.actions,
+        "deckSlots": db.deck_slots,
     }))
 }
 
 #[tauri::command]
-fn set_active_profile(app: tauri::State<App>, id: String) -> Result<Vec<Profile>, String> {
+fn set_active_profile(
+    app_handle: tauri::AppHandle,
+    app: tauri::State<App>,
+    id: String,
+) -> Result<Vec<Profile>, String> {
     let store = &app.state.store;
     {
         let mut db = store.db.lock().unwrap();
@@ -588,6 +735,9 @@ fn set_active_profile(app: tauri::State<App>, id: String) -> Result<Vec<Profile>
     store.save().map_err(|e| e.to_string())?;
     // Changer de profil retire de l'écran les memes de l'ancien.
     app.state.broadcast(&WsMsg::Clear { binding_id: None });
+    // Et rebranche le pavé sur les cases du nouveau : sans ça, les touches
+    // continueraient de déclencher les cases du profil précédent.
+    deck_apply(&app_handle);
     Ok(store.db.lock().unwrap().profiles.clone())
 }
 
@@ -604,6 +754,7 @@ fn save_settings(
         db.settings = settings;
     }
     app.state.store.save().map_err(|e| e.to_string())?;
+    deck_apply(&app_handle);
     hotkeys::apply(&app_handle)
 }
 
@@ -751,6 +902,9 @@ pub fn run() {
             if let Err(e) = hotkeys::apply(app.handle()) {
                 diag::log("raccourcis", &e);
             }
+            // Le deck n'installe son hook clavier que s'il est armé ET qu'une
+            // touche de page est configurée : voir `deck_apply`.
+            deck_apply(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -772,6 +926,9 @@ pub fn run() {
             save_calibration,
             gesture_fired,
             gesture_released,
+            save_deck_slot,
+            delete_deck_slot,
+            deck_keys,
             preview_binding,
             panic_clear,
             overlay_url,

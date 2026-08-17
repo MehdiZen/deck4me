@@ -64,6 +64,37 @@ impl MacroRecord {
     }
 }
 
+/// Case du deck : une touche du pavé, sur une page donnée.
+///
+/// C'est un DÉCLENCHEUR, au même titre qu'une gesture ou une macro — pas un
+/// type d'action de plus. Son `id` sert de `gestureId` à son binding et de
+/// `ownerId` à ses actions, exactement comme une macro le fait déjà. C'est ce
+/// qui lui donne meme, son et chaîne d'actions sans un cas particulier de plus
+/// nulle part.
+///
+/// Opaque comme le reste : le core TS est propriétaire du format.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SlotRecord(pub Value);
+
+impl SlotRecord {
+    pub fn id(&self) -> Option<&str> {
+        self.0.get("id").and_then(Value::as_str)
+    }
+    pub fn profile_id(&self) -> Option<&str> {
+        self.0
+            .get("profileId")
+            .and_then(Value::as_str)
+            .or(Some("default"))
+    }
+    pub fn page(&self) -> Option<u8> {
+        self.0.get("page").and_then(Value::as_u64).map(|p| p as u8)
+    }
+    /// Code physique de la touche, drapeau étendu replié dedans.
+    pub fn key(&self) -> Option<u32> {
+        self.0.get("key").and_then(Value::as_u64).map(|k| k as u32)
+    }
+}
+
 /// Action : ce qu'un déclencheur exécute sur la machine (ouvrir, lancer,
 /// raccourci clavier, requête HTTP…). Son `ownerId` est un identifiant de
 /// gesture OU de macro — le format ne distingue pas, et n'a pas à le faire.
@@ -129,6 +160,21 @@ pub struct Settings {
     /// Caméra de détection (deviceId du navigateur), pour ne pas dépendre du
     /// seul localStorage de la webview.
     pub detection_camera: String,
+    /// Deck clavier armé. À `false`, le hook n'est pas installé du tout — le
+    /// meilleur moyen de ne pas gêner le clavier de quelqu'un, c'est de ne pas
+    /// y être.
+    pub deck_enabled: bool,
+    /// Codes PHYSIQUES des touches de page, l'index valant le numéro de page.
+    /// Vide = deck inerte. Voir `deck::DEFAULT_PAGES` pour le choix du trio.
+    pub deck_pages: Vec<u32>,
+    /// Nom de chaque page, même indexation que `deck_pages`. Une page nommée se
+    /// reconnaît d'un coup d'œil ; « page 2 » ne se reconnaît jamais.
+    pub deck_page_names: Vec<String>,
+    /// Widget affiché en permanence plutôt qu'au seul maintien.
+    ///
+    /// Pas seulement un confort : le widget n'a jamais le focus et s'efface au
+    /// relâchement, donc rien n'y est cliquable tant qu'il n'est pas épinglé.
+    pub deck_pinned: bool,
 }
 
 impl Default for Settings {
@@ -141,6 +187,13 @@ impl Default for Settings {
             vcam_auto_start: false,
             detection_auto_start: false,
             detection_camera: String::new(),
+            // Désarmé au premier lancement. Installer un hook clavier chez
+            // quelqu'un qui n'a rien demandé serait indéfendable, et les cases
+            // sont vides de toute façon.
+            deck_enabled: false,
+            deck_pages: crate::deck::DEFAULT_PAGES.to_vec(),
+            deck_page_names: vec!["Page 1".into(), "Page 2".into(), "Page 3".into()],
+            deck_pinned: false,
         }
     }
 }
@@ -161,6 +214,8 @@ pub struct Db {
     pub macros: Vec<MacroRecord>,
     #[serde(default)]
     pub actions: Vec<ActionRecord>,
+    #[serde(default)]
+    pub deck_slots: Vec<SlotRecord>,
 }
 
 impl Default for Db {
@@ -179,6 +234,7 @@ impl Default for Db {
             settings: Settings::default(),
             macros: vec![],
             actions: vec![],
+            deck_slots: vec![],
         }
     }
 }
