@@ -1,4 +1,5 @@
-import { Component, computed, effect, inject, signal } from '@angular/core'
+import { Component, computed, inject, signal } from '@angular/core'
+import { listen } from '@tauri-apps/api/event'
 import { StoreService } from '../services/store.service'
 import { TauriService } from '../services/tauri.service'
 import { DECK_LABELS, DECK_LAYOUT } from './deck-layout'
@@ -19,15 +20,11 @@ import { DECK_LABELS, DECK_LAYOUT } from './deck-layout'
  * un moteur de détection en arrière-plan serait une aberration.
  */
 
-const PAGE_KEY = 'deck4me.hudPage'
-
 interface Cell {
   key: number
   label: string
   /** Identifiant du déclencheur posé sur la touche, s'il y en a un. */
   slotId: string | null
-  /** Le meme reste-t-il tant que la case est tenue ? */
-  held: boolean
   col: number
   row: number
   w: number
@@ -42,11 +39,12 @@ interface Cell {
   template: `
     <!-- La préhension est sur l'EN-TÊTE seul : les cases, elles, se cliquent.
          Tauri n'attrape la fenêtre que si le clic tombe sur l'élément portant
-         l'attribut lui-même, d'où les enfants de l'en-tête rendus transparents
-         au clic — sans quoi le point et le titre le bloquaient et il ne restait
-         que quelques pixels de marge saisissables.
-         Ne répond QUE si le widget est épinglé : sinon le curseur traverse
-         toute la fenêtre, ce qui est bien tout l'intérêt le reste du temps. -->
+         l'attribut LUI-MÊME, d'où les enfants rendus transparents au clic —
+         sans quoi le point et le titre le bloquaient, et il ne restait de
+         saisissable que quelques pixels de marge.
+         Ce déplacement passe par la commande core:window:start-dragging, qui
+         exige une capacité déclarée : sans elle, l'appel est refusé sans un
+         mot, et la fenêtre paraît simplement collée. -->
     <div class="hud">
       <header data-tauri-drag-region>
         <span class="dot"></span>
@@ -54,16 +52,6 @@ interface Cell {
         <span class="hint">{{ modOf(page()) }}</span>
       </header>
 
-      <!-- Les pages se choisissent au clic. Elles suivaient le modificateur
-           tenu ; ce n'est plus possible depuis que les cases partent sur un
-           accord complet, et c'est aussi bien : l'onglet reste où on l'a mis. -->
-      <nav class="tabs">
-        @for (t of tabs(); track t.index) {
-          <button [class.on]="page() === t.index" (click)="page.set(t.index)">
-            {{ t.name }}
-          </button>
-        }
-      </nav>
 
       <div class="pad">
         @for (c of cells(); track c.key) {
@@ -75,9 +63,7 @@ interface Cell {
             [class.filled]="c.filled"
             [style.grid-column]="c.col + 1 + ' / span ' + c.w"
             [style.grid-row]="c.row + 1 + ' / span ' + c.h"
-            (mousedown)="press(c)"
-            (mouseup)="release(c)"
-            (mouseleave)="release(c)"
+            (click)="press(c)"
           >
             <span class="key">{{ c.label }}</span>
             @if (c.filled) {
@@ -92,9 +78,6 @@ interface Cell {
     </div>
   `,
   styles: `
-    /* Fond volontairement translucide et non opaque : le widget se superpose à
-       un jeu ou à OBS, et masquer une bande de 340 px pendant qu'on cherche une
-       touche est plus gênant que la chercher. */
     :host {
       display: block;
       height: 100vh;
@@ -107,11 +90,10 @@ interface Cell {
       user-select: none;
       -webkit-user-select: none;
     }
-    /* Effet verre.
-       backdrop-filter adoucit ce qui est DANS la page, pas le bureau derrière
-       — une fenêtre transparente ne donne pas accès à ce qu'il y a dessous. Le
-       verre est donc peint : dégradé translucide, liseré de lumière en haut,
-       bord clair. À l'œil ça tient ; techniquement rien n'est flouté. */
+    /* Le verre est PEINT, pas flouté : dégradé, liseré de lumière en haut, bord
+       clair. La fenêtre est opaque — une fenêtre transparente sans focus s'est
+       révélée impossible à cliquer comme à déplacer, pour un rendu qu'on
+       obtient très bien ici. */
     .hud {
       height: 100%;
       display: flex;
@@ -120,34 +102,10 @@ interface Cell {
       padding: 12px;
       border-radius: 16px;
       border: 1px solid #ffffff2b;
-      background:
-        linear-gradient(160deg, #1b2430b8, #0a0e13d1);
-      backdrop-filter: blur(18px) saturate(150%);
-      -webkit-backdrop-filter: blur(18px) saturate(150%);
+      background: linear-gradient(160deg, #1b2430, #0a0e13);
       box-shadow:
         inset 0 1px 0 #ffffff2e,
         0 18px 50px #000000a6;
-      transition: opacity 0.12s ease;
-    }
-    .tabs {
-      display: flex;
-      gap: 5px;
-    }
-    .tabs button {
-      flex: 1;
-      padding: 5px 0;
-      border-radius: 7px;
-      border: 1px solid #ffffff1f;
-      background: #ffffff0d;
-      color: #94a3b8;
-      font-size: 10.5px;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    .tabs button.on {
-      border-color: #5eead45c;
-      background: #5eead41f;
-      color: #5eead4;
     }
     /* Les enfants laissent passer le clic jusqu'au panneau, sinon chacun
        redevient un obstacle à la préhension. */
@@ -173,10 +131,6 @@ interface Cell {
       border-radius: 50%;
       background: #5eead4;
       box-shadow: 0 0 8px #5eead4a0;
-    }
-    .idle .dot {
-      background: #64748b;
-      box-shadow: none;
     }
     .hint {
       margin-left: auto;
@@ -252,9 +206,10 @@ export class DeckHudPage {
   private store = inject(StoreService)
   private tauri = inject(TauriService)
 
-  /** Page affichée. Choisie au clic, retenue d'une ouverture à l'autre : une
-   *  page qu'on doit resélectionner à chaque lancement ne sert à rien. */
-  protected page = signal<number>(Number(localStorage.getItem(PAGE_KEY) ?? 0))
+  /** Page affichée. Elle SUIT les modificateurs tenus : le Rust les interroge
+   *  et l'annonce ici. Pas d'onglets — tenir Ctrl+Alt doit suffire à voir ce
+   *  que Ctrl+Alt ferait, c'est tout l'intérêt de l'affichage. */
+  protected page = signal<number>(0)
 
   constructor() {
     // Cette fenêtre n'a ni décoration ni focus : sa console n'est ouvrable par
@@ -266,30 +221,18 @@ export class DeckHudPage {
       .load()
       .then(() => this.say(`base chargée — ${this.store.deckSlots().length} case(s)`))
       .catch((e) => this.say(`base illisible : ${e}`))
-    effect(() => localStorage.setItem(PAGE_KEY, String(this.page())))
+    void listen<number>('deck-page', (e) => this.page.set(e.payload))
   }
-
-  protected tabs = computed(() =>
-    this.store.settings().deckPageMods.map((_, index) => ({
-      index,
-      name: this.store.settings().deckPageNames[index] ?? `Page ${index + 1}`,
-    })),
-  )
 
   protected modOf(page: number): string {
     return this.store.settings().deckPageMods[page] ?? ''
   }
 
-  /** Même chemin que la touche : une case est un déclencheur, le Rust ne
-   *  distingue pas d'où vient l'ordre. */
+  /** Même chemin que l'accord clavier : une case est un déclencheur, et le
+   *  Rust ne distingue pas d'où vient l'ordre. */
   protected press(c: Cell): void {
     if (!c.slotId) return
     void this.tauri.invoke('gesture_fired', { gestureId: c.slotId }, null).catch(() => {})
-  }
-
-  protected release(c: Cell): void {
-    if (!c.slotId || !c.held) return
-    void this.tauri.invoke('gesture_released', { gestureId: c.slotId }, null).catch(() => {})
   }
 
   private say(msg: string): void {
@@ -313,7 +256,6 @@ export class DeckHudPage {
         w,
         h,
         slotId: slot?.id ?? null,
-        held: slot?.holdMode === 'while_held',
         name: slot?.name ?? '',
         filled: !!slot,
         thumb: slot ? this.thumb(slot.id) : null,

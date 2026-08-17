@@ -1,6 +1,7 @@
 pub mod actions;
 mod camfeed;
 pub mod deck;
+pub mod deckpage;
 pub mod deckwin;
 pub mod diag;
 pub mod fetch;
@@ -44,18 +45,17 @@ fn build_trigger(app: &App, gesture_id: &str) -> Result<TriggerEvent, String> {
         .iter()
         .find(|g| g.id() == Some(gesture_id))
         .cloned();
-    // Une case du deck porte son propre mode : sans ça elle retomberait sur le
-    // `false` prévu pour les macros, et son meme s'éteindrait sur un minuteur
-    // alors qu'on tient la touche.
-    let hold = match &gesture {
-        Some(g) => g.hold_mode() == "while_held",
-        None => db
-            .deck_slots
-            .iter()
-            .find(|s| s.id() == Some(gesture_id))
-            .map(|s| s.hold_mode() == "while_held")
-            .unwrap_or(false),
-    };
+    // Le maintien n'existe QUE pour les poses.
+    //
+    // `RegisterHotKey` ne signale jamais le relâchement d'un accord : il n'y a
+    // pas d'événement de fin à attendre. Un meme de case marqué « tenu » restait
+    // donc affiché indéfiniment, l'overlay guettant un signal qui n'arriverait
+    // jamais. Une macro est dans le même cas, et c'est déjà pour ça qu'elle vaut
+    // `false` : une case du deck n'a aucune raison d'être traitée autrement.
+    let hold = gesture
+        .as_ref()
+        .map(|g| g.hold_mode() == "while_held")
+        .unwrap_or(false);
     let binding = db
         .bindings
         .iter()
@@ -506,6 +506,9 @@ fn deck_apply(handle: &tauri::AppHandle) {
         diag::log("deck", &format!("widget impossible à créer : {e}"));
     }
     deckwin::set_pinned(handle, pinned);
+    // La page affichée suit les modificateurs tenus. Aucun hook là-dedans :
+    // on interroge l'état des touches, ce que Windows n'a jamais refusé.
+    deckpage::start(handle);
 }
 
 /// Déclenche une case du deck. Appelé depuis l'enregistrement des accords.
@@ -654,7 +657,11 @@ fn save_profile(app: tauri::State<App>, profile: Profile) -> Result<Vec<Profile>
 /// Supprimer un profil emporte ses gestures et leurs bindings : garder des
 /// gestures orphelines qu'aucun écran n'affiche serait pire.
 #[tauri::command]
-fn delete_profile(app: tauri::State<App>, id: String) -> Result<Value, String> {
+fn delete_profile(
+    app_handle: tauri::AppHandle,
+    app: tauri::State<App>,
+    id: String,
+) -> Result<Value, String> {
     let store = &app.state.store;
     {
         let mut db = store.db.lock().unwrap();
@@ -711,6 +718,9 @@ fn delete_profile(app: tauri::State<App>, id: String) -> Result<Value, String> {
     }
     store.save().map_err(|e| e.to_string())?;
     app.state.broadcast(&WsMsg::Clear { binding_id: None });
+    // Les cases du profil supprimé sont parties : leurs accords aussi, sinon
+    // une touche resterait réservée au nom de ce qui n'existe plus.
+    let _ = hotkeys::apply(&app_handle);
     let db = store.db.lock().unwrap();
     Ok(json!({
         "profiles": db.profiles,
@@ -741,9 +751,11 @@ fn set_active_profile(
     store.save().map_err(|e| e.to_string())?;
     // Changer de profil retire de l'écran les memes de l'ancien.
     app.state.broadcast(&WsMsg::Clear { binding_id: None });
-    // Et rebranche le pavé sur les cases du nouveau : sans ça, les touches
-    // continueraient de déclencher les cases du profil précédent.
     deck_apply(&app_handle);
+    // Et rebranche le pavé sur les cases du NOUVEAU profil : sans ça, les
+    // accords du précédent resteraient enregistrés et continueraient de
+    // déclencher des cases qui ne sont plus à l'écran.
+    let _ = hotkeys::apply(&app_handle);
     Ok(store.db.lock().unwrap().profiles.clone())
 }
 

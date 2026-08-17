@@ -112,15 +112,6 @@ import { DECK_LABELS, DECK_LAYOUT, deckAccel } from './deck-layout'
               </button>
             </div>
 
-            <label class="row">
-              <input
-                type="checkbox"
-                [checked]="slot.holdMode === 'while_held'"
-                (change)="setHold(slot, $event)"
-              />
-              Le meme reste affiché tant que la touche est tenue
-            </label>
-
             @if (bindingOf(slot); as b) {
               <div class="meme">
                 <img [src]="thumbOf(slot)" alt="" />
@@ -336,9 +327,10 @@ export class DeckPage {
       page: this.page(),
       key,
       name: DECK_LABELS[key] ?? 'Case',
-      // Une touche a un relâchement net, contrairement à une pose : le maintien
-      // est donc le comportement qui va de soi ici.
-      holdMode: 'while_held',
+      // Durée fixe, et pas de maintien possible : RegisterHotKey ne signale
+      // jamais le relâchement d'un accord. Un meme « tenu » resterait affiché
+      // indéfiniment, l'overlay guettant une fin qui n'arriverait jamais.
+      holdMode: 'fixed_duration',
     }
     await this.store.saveDeckSlot(slot)
   }
@@ -346,14 +338,6 @@ export class DeckPage {
   protected rename(slot: DeckSlot, ev: Event): void {
     const name = (ev.target as HTMLInputElement).value.trim()
     if (name) void this.store.saveDeckSlot({ ...slot, name })
-  }
-
-  protected setHold(slot: DeckSlot, ev: Event): void {
-    const held = (ev.target as HTMLInputElement).checked
-    void this.store.saveDeckSlot({
-      ...slot,
-      holdMode: held ? 'while_held' : 'fixed_duration',
-    })
   }
 
   protected async remove(slot: DeckSlot): Promise<void> {

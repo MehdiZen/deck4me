@@ -1,11 +1,12 @@
 //! La fenêtre du widget : ce qui la rend utilisable pendant un live.
 //!
-//! Trois propriétés, et sans les trois elle ne sert à rien :
+//! Deux propriétés, et une renoncée.
 //!
-//! **Elle ne prend jamais le focus.** Une fenêtre qui s'active quand elle
-//! apparaît minimise le jeu de plein écran fenêtré et coupe la saisie de celui
-//! qui joue. `WS_EX_NOACTIVATE` le garantit au niveau de Windows, pas au niveau
-//! de nos appels : même un `show()` maladroit ne pourra pas activer la fenêtre.
+//! **Renoncée : ne jamais prendre le focus.** `WS_EX_NOACTIVATE` évitait qu'une
+//! fenêtre surgissant par-dessus un jeu ne le minimise. Mais une fenêtre qui ne
+//! peut jamais s'activer ne donne pas non plus le focus à sa webview, et une
+//! webview sans focus ne traite ni les clics ni le déplacement. Le widget était
+//! intouchable ; on préfère un widget qu'on peut utiliser.
 //!
 //! **Elle est invisible à la capture d'écran.** `WDA_EXCLUDEFROMCAPTURE` retire
 //! la fenêtre de tout ce que voit un capteur d'écran — OBS, Streamlabs, Discord,
@@ -14,8 +15,8 @@
 //! Réservé à Windows 10 2004 et au-dessus ; en dessous l'appel échoue et on le
 //! dit, plutôt que de laisser croire que c'est couvert.
 //!
-//! **Elle ne mange aucun clic.** Hors mode épinglé elle est traversante : le
-//! curseur passe au travers comme si elle n'était pas là.
+//! **Elle se tient hors du chemin.** Retirée d'Alt+Tab et de la barre des
+//! tâches par `WS_EX_TOOLWINDOW` : un widget n'est pas une destination.
 
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 

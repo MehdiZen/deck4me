@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Ce que les deux fenêtres ont le droit de demander au cœur de Tauri. Sans ce fichier, AUCUNE commande du cœur n'est autorisée — les commandes maison passent, les autres sont refusées en silence, sans erreur visible nulle part. C'est ce qui empêchait le widget de recevoir le moindre événement (core:event:listen) et de se laisser déplacer (core:window:start-dragging), deux pannes cherchées longtemps du mauvais côté.",
+  "windows": ["main", "deck-hud"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging"
+  ]
+}
