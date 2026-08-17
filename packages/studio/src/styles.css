@@ -60,6 +60,15 @@
 
 html, body { height: 100%; margin: 0; }
 
+/* Fenêtre du widget : ni fond, ni halo. Elle se superpose au bureau, et tout
+   ce qu'elle peint en dehors de son cadre est un rectangle opaque posé sur
+   l'écran de quelqu'un qui joue. */
+body.deck-window, body.deck-window::before, body.deck-window::after {
+  background: none;
+  animation: none;
+  content: none;
+}
+
 body {
   background: var(--ground);
   color: var(--ink);

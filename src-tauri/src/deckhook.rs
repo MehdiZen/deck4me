@@ -144,11 +144,31 @@ pub fn start(on_event: impl Fn(Event) + Send + 'static) {
     });
 }
 
+/// Désinstalle le hook, et ATTEND qu'il le soit vraiment.
+///
+/// L'attente n'est pas une précaution : `PostThreadMessageW` ne fait que
+/// déposer un message, le fil du hook s'arrête un instant plus tard. Sans elle,
+/// désarmer puis réarmer le deck trouvait `running()` encore vrai, `start`
+/// repartait aussitôt sans rien installer, et le hook mourait juste après —
+/// deck armé dans l'interface, aucune touche vivante. Symptôme observé :
+/// « impossible à réactiver ».
+///
+/// Le plafond existe pour que rien ne puisse figer l'interface si le fil ne
+/// répond pas : mieux vaut un deck qui refuse de se réarmer qu'une application
+/// bloquée.
 pub fn stop() {
     let t = THREAD.load(Ordering::SeqCst);
-    if t != 0 {
-        unsafe { PostThreadMessageW(t, WM_QUIT, 0, 0) };
+    if t == 0 {
+        return;
     }
+    unsafe { PostThreadMessageW(t, WM_QUIT, 0, 0) };
+    for _ in 0..100 {
+        if !running() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    crate::diag::log("deck", "le hook clavier n'a pas rendu la main en 500 ms");
 }
 
 // ---- Le rappel ----------------------------------------------------------

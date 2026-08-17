@@ -14,9 +14,9 @@ import { DECK_LABELS, DECK_LAYOUT } from './deck-layout'
  *
  * ─── Ce qu'elle N'EST PAS ───────────────────────────────────────────────────
  * Pas un écran du Studio. Elle vit dans sa propre fenêtre, sans rail, sans
- * caméra, sans détection. Le composant racine l'aiguille sur `?window=deck`
- * avant même de démarrer le routeur : un widget qui ferait tourner un moteur de
- * détection en arrière-plan serait une aberration.
+ * caméra, sans détection. L'aiguillage se fait dans main.ts, à l'étiquette de
+ * la fenêtre, avant même de démarrer le routeur : un widget qui ferait tourner
+ * un moteur de détection en arrière-plan serait une aberration.
  */
 
 interface Cell {
@@ -79,16 +79,26 @@ interface Cell {
       user-select: none;
       -webkit-user-select: none;
     }
+    /* Effet verre.
+       backdrop-filter adoucit ce qui est DANS la page, pas le bureau derrière
+       — une fenêtre transparente ne donne pas accès à ce qu'il y a dessous. Le
+       verre est donc peint : dégradé translucide, liseré de lumière en haut,
+       bord clair. À l'œil ça tient ; techniquement rien n'est flouté. */
     .hud {
       height: 100%;
       display: flex;
       flex-direction: column;
       gap: 10px;
       padding: 12px;
-      border-radius: 14px;
-      border: 1px solid #ffffff1f;
-      background: #0b0f14e6;
-      box-shadow: 0 18px 50px #000000a6;
+      border-radius: 16px;
+      border: 1px solid #ffffff2b;
+      background:
+        linear-gradient(160deg, #1b2430b8, #0a0e13d1);
+      backdrop-filter: blur(18px) saturate(150%);
+      -webkit-backdrop-filter: blur(18px) saturate(150%);
+      box-shadow:
+        inset 0 1px 0 #ffffff2e,
+        0 18px 50px #000000a6;
       transition: opacity 0.12s ease;
     }
     /* Aucune page tenue : le widget ne s'affiche que si l'utilisateur l'a
@@ -129,12 +139,16 @@ interface Cell {
       grid-template-rows: repeat(5, 1fr);
       gap: 6px;
     }
+    /* Toutes les touches gardent leur cadre, occupées ou non.
+       Une case vide n'est pas un trou : c'est un emplacement libre, et le pavé
+       ne se reconnaît que si sa grille est entière. */
     .cell {
       position: relative;
       overflow: hidden;
-      border-radius: 9px;
-      border: 1px solid #ffffff14;
-      background: #ffffff08;
+      border-radius: 10px;
+      border: 1px solid #ffffff26;
+      background: linear-gradient(#ffffff14, #ffffff08);
+      box-shadow: inset 0 1px 0 #ffffff1f;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -153,8 +167,11 @@ interface Cell {
       color: #64748b;
     }
     .cell.filled {
-      border-color: #5eead43d;
-      background: #5eead41a;
+      border-color: #5eead45c;
+      background: linear-gradient(#5eead42b, #5eead414);
+      box-shadow:
+        inset 0 1px 0 #5eead43d,
+        0 0 14px #5eead41f;
     }
     .cell.filled .key {
       color: #5eead4;
@@ -225,3 +242,20 @@ export class DeckHudPage {
     return asset ? this.store.assetUrl(asset) : null
   }
 }
+
+/**
+ * Racine de la fenêtre du widget.
+ *
+ * Elle n'existe que pour porter le sélecteur `app-root`, seul élément présent
+ * dans `index.html`. Sans elle, Angular ne trouve aucun hôte où s'installer et
+ * ne rend RIEN — pas une erreur visible, juste une fenêtre vide. C'est
+ * exactement ce qui s'est passé : le fond opaque de la feuille globale
+ * s'affichait, et rien d'autre.
+ */
+@Component({
+  selector: 'app-root',
+  imports: [DeckHudPage],
+  template: `<app-deck-hud />`,
+  styles: `:host { display: block; height: 100vh; }`,
+})
+export class DeckHudRoot {}

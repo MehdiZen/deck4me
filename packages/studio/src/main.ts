@@ -1,7 +1,7 @@
 import { bootstrapApplication } from '@angular/platform-browser';
 import { appConfig } from './app/app.config';
 import { App } from './app/app';
-import { DeckHudPage } from './app/pages/deck-hud.page';
+import { DeckHudRoot } from './app/pages/deck-hud.page';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 /**
@@ -40,5 +40,14 @@ for (const key of ['cameraId', 'hideVideo']) {
  */
 const isDeck = '__TAURI_INTERNALS__' in window && getCurrentWindow().label === 'deck-hud';
 
-bootstrapApplication(isDeck ? DeckHudPage : App, appConfig)
+if (isDeck) {
+  // Le fond opaque de la feuille globale ET le halo ambiant sont posés sur
+  // <body> : sans ça, une fenêtre déclarée transparente s'affiche pleine et
+  // carrée. C'est le composant qui peint son propre cadre.
+  document.documentElement.style.background = 'transparent';
+  document.body.style.background = 'transparent';
+  document.body.classList.add('deck-window');
+}
+
+bootstrapApplication(isDeck ? DeckHudRoot : App, appConfig)
   .catch((err) => console.error(err));
