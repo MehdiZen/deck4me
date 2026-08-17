@@ -184,6 +184,15 @@ pub fn start(on_event: impl Fn(Event) + Send + 'static) {
         }
         HOOK.store(h, Ordering::SeqCst);
         THREAD.store(GetCurrentThreadId(), Ordering::SeqCst);
+        // Levé DÈS l'installation, et non à l'arrêt : ce garde ne couvre que
+        // l'intervalle entre `start` et le moment où ce fil pose `HOOK`.
+        // Passé là, c'est `running()` qui protège.
+        //
+        // Le lever à l'arrêt créait un interstice fatal : `stop` rend la main
+        // dès que `HOOK` tombe, donc un réarmement immédiat trouvait `STARTING`
+        // encore vrai et repartait sans rien installer. Observé dans le journal
+        // — « armé » sans « hook clavier installé » derrière.
+        STARTING.store(false, Ordering::SeqCst);
         crate::diag::log("deck", "hook clavier installé");
         watchdog();
         // Un hook bas niveau n'existe que sur un fil qui pompe des messages :
@@ -193,7 +202,6 @@ pub fn start(on_event: impl Fn(Event) + Send + 'static) {
         UnhookWindowsHookEx(h);
         HOOK.store(0, Ordering::SeqCst);
         THREAD.store(0, Ordering::SeqCst);
-        STARTING.store(false, Ordering::SeqCst);
         crate::diag::log(
             "deck",
             &format!("hook clavier retiré — {} événement(s) vus", SEEN.load(Ordering::Relaxed)),
