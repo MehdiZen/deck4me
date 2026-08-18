@@ -5,6 +5,7 @@ import { AssetPicker } from '../components/asset-picker'
 import { BindingEditor } from '../components/binding-editor'
 import { Icon } from '../components/icon'
 import { PoseTester } from '../components/pose-tester'
+import { ChipStack } from '../components/chip-stack'
 import { RangeFill } from '../range-fill'
 import { Wizard, type WizardMode } from '../components/wizard'
 import { ConfirmService } from '../services/confirm.service'
@@ -22,9 +23,13 @@ import {
  * l'éditeur. C'est le seul écran où le meme est le sujet, il occupe donc la
  * plus grande surface de la carte.
  */
+/** Le vide, partagé. Rendre `[]` à chaque appel donnerait une identité neuve
+ *  à chaque cycle, et ferait travailler la vue pour rien. */
+const NO_MACRO: string[] = []
+
 @Component({
   selector: 'app-gestures-page',
-  imports: [Wizard, RouterLink, Icon, BindingEditor, AssetPicker, PoseTester, RangeFill],
+  imports: [Wizard, RouterLink, Icon, BindingEditor, AssetPicker, PoseTester, RangeFill, ChipStack],
   template: `
     <div class="head">
       <div>
@@ -273,14 +278,14 @@ import {
 
             <!-- À quoi il sert : l'info qui manque le plus sur un maillon. -->
             <div class="used">
-              @if (store.macrosUsing(g.id).length) {
-                @for (m of store.macrosUsing(g.id); track m.id) {
-                  <a class="badge ok" routerLink="/macros">{{ m.name }}</a>
+              @if (macroNames(g); as ms) {
+                @if (ms.length) {
+                  <app-chip-stack [items]="ms" lead="Arme" />
+                } @else {
+                  <span class="badge warn" title="Cette pose n'arme aucune macro">
+                    aucune macro
+                  </span>
                 }
-              } @else {
-                <span class="badge warn" title="Cette pose n'arme aucun enchaînement">
-                  aucune macro
-                </span>
               }
             </div>
 
@@ -414,12 +419,9 @@ import {
                s'affichera au passage de l'enchaînement. -->
           @if (store.gesturesInMacros().has(g.id)) {
             <p class="chainopt lbl">
-              Étape de
-              @for (m of store.macrosUsing(g.id); track m.id) {
-                <a class="badge ok" routerLink="/macros">{{ m.name }}</a>
-              }
-              — son meme s'affichera au passage de l'enchaînement. Le bouton
-              <b>↓</b> la rend maillon seulement.
+              Étape de <app-chip-stack [items]="macroNames(g)" lead="Étape de" />
+              — son meme s'affichera au passage de la macro. Le bouton
+              <b>Maillon seulement</b> la rend muette hors enchaînement.
             </p>
           }
 
@@ -869,6 +871,31 @@ export class GesturesPage {
   async demote(g: StoredGesture): Promise<void> {
     await this.store.saveGesture({ ...g, sequenceOnly: true })
     this.tab.set('link')
+  }
+
+  /**
+   * Les macros qui se servent de chaque pose, en une seule passe.
+   *
+   * `macrosUsing` refiltre toute la liste des macros à chaque appel, et il en
+   * fallait deux par carte à chaque cycle de rendu. Surtout, il rendait un
+   * TABLEAU NEUF à chaque fois : passé en entrée à un composant, ça le
+   * réévalue sans arrêt pour un contenu identique. Ici l'identité ne change
+   * que si les macros changent, et le tableau vide est partagé.
+   */
+  private readonly namesByGesture = computed(() => {
+    const map = new Map<string, string[]>()
+    for (const m of this.store.macros()) {
+      for (const step of new Set(m.steps)) {
+        const at = map.get(step)
+        if (at) at.push(m.name)
+        else map.set(step, [m.name])
+      }
+    }
+    return map
+  })
+
+  protected macroNames(g: StoredGesture): string[] {
+    return this.namesByGesture().get(g.id) ?? NO_MACRO
   }
 
   readonly bound = computed(
