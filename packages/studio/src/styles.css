@@ -297,13 +297,23 @@ input[type="range"] {
   height: 20px;
   cursor: pointer;
 }
+/* La portion parcourue est peinte par la variable --pct, posee par la
+   directive RangeFill : Chromium ne sait pas colorer un cote de la piste.
+   La directive est autonome, donc a DECLARER dans chaque composant qui pose un
+   curseur — et l'oublier ne casse rien de visible, la piste se peint juste
+   toute seule sur la valeur de repli.
+   Ce repli vaut donc 0% et non 50%. A 50% la piste avait l'air juste des que
+   la valeur passait pres du milieu, et fausse ailleurs : une panne qui se
+   confond avec un fonctionnement normal survit indefiniment, et c'est
+   exactement ce qui est arrive a l'editeur d'actions. A 0%, une piste vide
+   sous un curseur pose a droite se voit du premier coup d'oeil. */
 input[type="range"]::-webkit-slider-runnable-track {
   height: 5px;
   border-radius: 99px;
   background: linear-gradient(
     90deg,
-    var(--accent) 0 var(--pct, 50%),
-    var(--panel-3) var(--pct, 50%) 100%
+    var(--accent) 0 var(--pct, 0%),
+    var(--panel-3) var(--pct, 0%) 100%
   );
 }
 input[type="range"]::-webkit-slider-thumb {

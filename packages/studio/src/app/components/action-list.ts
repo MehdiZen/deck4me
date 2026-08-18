@@ -13,6 +13,7 @@ import {
 } from '@deck4me/core'
 import { ConfirmService } from '../services/confirm.service'
 import { StoreService } from '../services/store.service'
+import { RangeFill } from '../range-fill'
 import { Icon } from './icon'
 
 /**
@@ -32,7 +33,7 @@ import { Icon } from './icon'
 @Component({
   selector: 'app-action-list',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [Icon],
+  imports: [Icon, RangeFill],
   template: `
     <div class="wrap">
       <div class="hd">

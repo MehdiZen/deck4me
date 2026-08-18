@@ -5,6 +5,7 @@ import { AssetPicker } from '../components/asset-picker'
 import { BindingEditor } from '../components/binding-editor'
 import { Icon } from '../components/icon'
 import { PoseTester } from '../components/pose-tester'
+import { RangeFill } from '../range-fill'
 import { Wizard, type WizardMode } from '../components/wizard'
 import { ConfirmService } from '../services/confirm.service'
 import { MatcherService } from '../services/matcher.service'
@@ -23,7 +24,7 @@ import {
  */
 @Component({
   selector: 'app-gestures-page',
-  imports: [Wizard, RouterLink, Icon, BindingEditor, AssetPicker, PoseTester],
+  imports: [Wizard, RouterLink, Icon, BindingEditor, AssetPicker, PoseTester, RangeFill],
   template: `
     <div class="head">
       <div>
