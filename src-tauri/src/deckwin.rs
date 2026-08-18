@@ -96,11 +96,24 @@ pub fn ensure(app: &AppHandle) -> Result<(), String> {
         .lock()
         .ok()
         .and_then(|db| db.settings.deck_pos);
-    match saved {
+    // La position retenue n'est reprise que si elle tombe encore sur un écran.
+    //
+    // Un widget posé sur un second moniteur débranché depuis, ou déplacé après
+    // un changement de résolution, serait restauré hors de toute surface
+    // visible : rigoureusement identique à « le widget ne s'affiche pas », sauf
+    // qu'il est bien là, ailleurs. On ne peut pas le voir pour le ramener,
+    // puisque c'est en le voyant qu'on le déplace.
+    match saved.filter(|&(x, y)| on_screen(&win, x, y)) {
         Some((x, y)) => {
             let _ = win.set_position(tauri::LogicalPosition::new(x, y));
         }
         None => {
+            if saved.is_some() {
+                crate::diag::log(
+                    "deck",
+                    "position retenue hors écran — widget replacé en bas à droite",
+                );
+            }
             if let Ok(Some(mon)) = win.primary_monitor() {
                 let size = mon.size().to_logical::<f64>(mon.scale_factor());
                 let _ = win.set_position(tauri::LogicalPosition::new(
@@ -119,6 +132,29 @@ pub fn ensure(app: &AppHandle) -> Result<(), String> {
     // « fonctionne mais vide » se ressemblent tous les trois à l'écran.
     crate::diag::log("deck", "widget créé");
     Ok(())
+}
+
+/// Ce point tombe-t-il sur un écran branché ?
+///
+/// On exige une bande de `MARGIN` visible et non le simple coin : une fenêtre
+/// dont deux pixels dépassent sur l'écran est aussi inatteignable qu'une
+/// fenêtre entièrement dehors, et l'utilisateur la déclarerait tout autant
+/// disparue.
+fn on_screen(win: &tauri::WebviewWindow, x: f64, y: f64) -> bool {
+    let Ok(monitors) = win.available_monitors() else {
+        // Impossible d'interroger les écrans : on ne condamne pas une position
+        // qu'on n'a pas pu vérifier, on la garde.
+        return true;
+    };
+    monitors.iter().any(|m| {
+        let s = m.scale_factor();
+        let o = m.position().to_logical::<f64>(s);
+        let d = m.size().to_logical::<f64>(s);
+        x + MARGIN >= o.x
+            && y + MARGIN >= o.y
+            && x + MARGIN <= o.x + d.width
+            && y + MARGIN <= o.y + d.height
+    })
 }
 
 /// Applique les propriétés qui ne passent pas par l'API Tauri.
@@ -219,8 +255,11 @@ pub fn persist(app: &AppHandle) {
     let _ = app.state::<crate::App>().state.store.save();
 }
 
-pub fn close(app: &AppHandle) {
-    if let Some(win) = app.get_webview_window(LABEL) {
-        let _ = win.close();
-    }
-}
+// `close` a été RETIRÉ, volontairement.
+//
+// Il servait au désarmement du deck, et c'est précisément ce qui rendait le
+// widget imprévisible : fermer une fenêtre Tauri est asynchrone, son étiquette
+// reste prise un instant après sa disparition, et la recréer dans cet
+// intervalle échoue. Masquer fait le même effet à l'écran, coûte moins cher, et
+// ne peut pas échouer. La fenêtre disparaît pour de bon quand l'application
+// s'arrête — c'est le seul moment où il y a quelque chose à libérer.

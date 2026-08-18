@@ -499,7 +499,21 @@ fn deck_apply(handle: &tauri::AppHandle) {
         (db.settings.deck_enabled, db.settings.deck_pinned)
     };
     if !enabled {
-        deckwin::close(handle);
+        // MASQUER, et surtout pas détruire.
+        //
+        // Le désarmement fermait la fenêtre. Or fermer une fenêtre Tauri est
+        // asynchrone : son étiquette reste réservée un court instant après que
+        // `get_webview_window` a cessé de la rendre. Réarmer dans cet intervalle
+        // faisait échouer la re-création — étiquette déjà prise — et le widget
+        // ne revenait plus, jusqu'à une bascule de plus tombée au bon moment.
+        // D'où un widget qui « apparaît une fois sur deux ».
+        //
+        // Rien n'exigeait cette destruction : les accords sont enregistrés par
+        // `hotkeys::apply` selon le même drapeau, et l'interrogation des
+        // modificateurs se met en pause toute seule quand le deck est désarmé.
+        // Une fenêtre masquée ne coûte rien ; une fenêtre recréée à chaque
+        // bascule coûte une panne.
+        deckwin::show(handle, false);
         return;
     }
     if let Err(e) = deckwin::ensure(handle) {
