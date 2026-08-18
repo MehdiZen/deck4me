@@ -10,7 +10,6 @@ import { ConfirmService } from '../services/confirm.service'
 import { MatcherService } from '../services/matcher.service'
 import {
   StoreService,
-  effectiveThreshold,
   type AssetMeta,
   type StoredBinding,
   type StoredGesture,
@@ -188,9 +187,8 @@ import {
                 [attr.aria-label]="'Nom de ' + g.name"
               />
               <span class="stats lbl">
-                {{ srcLabel(g.source) }} · seuil
-                <span class="num">{{ effective(g).toFixed(3) }}</span>
-                · <span class="num">{{ g.rawSamples.length }}</span> prises
+                {{ srcLabel(g.source) }} ·
+                <span class="num">{{ g.rawSamples.length }}</span> prises
               </span>
               <!-- Le même réglage que sur une carte à meme, et pour la même
                    raison : un maillon qui ne part jamais n'apparaît jamais dans
@@ -348,8 +346,7 @@ import {
               }
             </div>
             <div class="stats lbl">
-              seuil <span class="num">{{ effective(g).toFixed(3) }}</span>
-              · <span class="num">{{ g.rawSamples.length }}</span> prises
+              <span class="num">{{ g.rawSamples.length }}</span> prises
               @if (needsPosition(g)) {
                 <span
                   class="badge warn"
@@ -464,6 +461,7 @@ import {
       <app-binding-editor
         [gesture]="e.gesture"
         [binding]="e.binding"
+        [holdEditable]="true"
         (cancel)="editing.set(null)"
         (saved)="editing.set(null)"
       />
@@ -763,10 +761,6 @@ export class GesturesPage {
   readonly bound = computed(
     () => this.store.memeGestures().filter((g) => this.store.binding(g.id)).length,
   )
-
-  effective(g: StoredGesture): number {
-    return effectiveThreshold(g)
-  }
 
   /** Pendant le glissement : mémoire seulement. Écrire à chaque pixel ferait
    *  des centaines d'écritures disque pour un seul réglage. */

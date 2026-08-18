@@ -9,7 +9,7 @@ import {
   inject,
   signal,
 } from '@angular/core'
-import { ENTER_FX, EXIT_FX } from '@deck4me/core'
+import { ENTER_FX, EXIT_FX, type HoldMode } from '@deck4me/core'
 import { RangeFill } from '../range-fill'
 import {
   DEFAULT_RENDER,
@@ -185,10 +185,33 @@ const FX_LABEL: Record<string, string> = {
 
           <section>
             <h3>Durée</h3>
-            @if (gesture.holdMode === 'while_held') {
+            <!-- Le mode d'affichage se change ICI.
+                 Il ne vivait que sur la carte de la pose, si bien que la
+                 section Durée d'une pose « tant que tenue » annonçait « la
+                 durée ne s'applique pas » sans offrir le moindre moyen d'y
+                 remédier : il fallait fermer, aller changer le menu de la
+                 carte, et rouvrir. Une impasse dans une fenêtre modale coûte
+                 toujours trois gestes de plus qu'elle n'en épargne. -->
+            @if (holdEditable) {
+              <div class="seg">
+                <button
+                  [class.on]="holdDraft() === 'fixed_duration'"
+                  (click)="holdDraft.set('fixed_duration')"
+                >
+                  Durée fixe
+                </button>
+                <button
+                  [class.on]="holdDraft() === 'while_held'"
+                  (click)="holdDraft.set('while_held')"
+                >
+                  Tant que tenue
+                </button>
+              </div>
+            }
+            @if (holdDraft() === 'while_held') {
               <p class="lbl note">
-                Cette gesture est en « tant que tenue » : le meme reste affiché tant
-                que tu tiens la pose. La durée ne s'applique pas.
+                Le meme reste affiché tant que tu tiens la pose. La durée
+                ci-dessous ne s'applique pas.
               </p>
             } @else {
               <div class="row">
@@ -425,6 +448,10 @@ const FX_LABEL: Record<string, string> = {
 export class BindingEditor {
   @Input({ required: true }) gesture!: StoredGesture
   @Input({ required: true }) binding!: StoredBinding
+  /** Le mode d'affichage n'est modifiable que pour une VRAIE pose. Les macros
+   *  et les cases du deck passent ici un objet de façade, sans identifiant :
+   *  leur proposer la bascule reviendrait à écrire dans le vide. */
+  @Input() holdEditable = false
   @Output() cancel = new EventEmitter<void>()
   @Output() saved = new EventEmitter<void>()
 
@@ -441,6 +468,9 @@ export class BindingEditor {
   readonly showGuides = signal(false)
   readonly cutoutOpen = signal(false)
   readonly swapping = signal(false)
+  /** Brouillon du mode d'affichage, au même titre que le reste : « Annuler »
+   *  doit le rendre comme il était. */
+  readonly holdDraft = signal<HoldMode>('fixed_duration')
 
   readonly currentAsset = computed(() => this.store.asset(this.draft().assetId))
   readonly opaque = computed(() => {
@@ -454,6 +484,7 @@ export class BindingEditor {
 
   ngOnInit(): void {
     this.draft.set({ ...DEFAULT_RENDER, ...this.binding })
+    this.holdDraft.set(this.gesture.holdMode ?? 'fixed_duration')
   }
 
   label(fx: string): string {
@@ -590,6 +621,13 @@ export class BindingEditor {
 
   async save(): Promise<void> {
     await this.store.saveBinding(this.draft())
+    if (this.holdEditable && this.holdDraft() !== this.gesture.holdMode) {
+      // Relu depuis le magasin plutôt que recopié depuis l'entrée : la pose a
+      // pu bouger pendant que la fenêtre était ouverte — sa sensibilité se
+      // règle sur sa carte, juste derrière.
+      const fresh = this.store.gestures().find((g) => g.id === this.gesture.id)
+      if (fresh) await this.store.saveGesture({ ...fresh, holdMode: this.holdDraft() })
+    }
     this.saved.emit()
   }
 }

@@ -16,11 +16,27 @@ import { VcamService } from '../services/vcam.service'
         Streamlabs prend la webcam en accès exclusif. Ici, deck4me l'ouvre seul et
         republie le flux sous le nom « deck4me Camera » : dans Streamlabs, choisis
         cette caméra au lieu de ta webcam.
+        @if (!vcam.status().running) {
+          <b>Inutile si tu streames avec OBS.</b>
+        }
       </p>
 
+      <!-- Repliee tant qu'elle ne sert pas.
+           C'est la plus grosse carte des Reglages — pilote, source, definition,
+           reprise au lancement, compteurs — et elle ne concerne que les gens
+           sous Streamlabs. Deroulee en permanence, elle repoussait vers le bas
+           tout ce que les autres viennent chercher. Elle s'ouvre d'elle-meme
+           des qu'elle diffuse : a ce moment-la, ses compteurs sont ce qu'on
+           regarde. -->
       @if (vcam.status().error) {
         <p class="badge err fault">{{ vcam.status().error }}</p>
       }
+
+      <details class="fold" [open]="vcam.status().running">
+        <summary>
+          {{ vcam.status().running ? 'Réglages de la diffusion' : 'Configurer la caméra virtuelle' }}
+        </summary>
+
 
       <!-- Le filtre est normalement posé par l'installeur ; ce bouton n'est
            qu'un secours (build de dev, ou installation qui a échoué). -->
@@ -146,9 +162,16 @@ import { VcamService } from '../services/vcam.service'
           choisis <b>deck4me Camera</b>. Laisse deck4me ouvert pendant le stream.
         </p>
       }
+      </details>
     </div>
   `,
   styles: `
+    .fold > summary {
+      cursor: pointer; user-select: none;
+      font-size: 12.5px; color: var(--ink-2);
+      padding: 7px 0; margin-bottom: 4px;
+    }
+    .fold > summary:hover { color: var(--ink); }
     .fault {
       display: block; white-space: normal; line-height: 1.5;
       padding: 10px 13px; margin-bottom: 12px;

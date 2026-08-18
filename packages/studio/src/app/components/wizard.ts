@@ -44,6 +44,11 @@ const SAMPLES_PER_TAKE = 8 // unique est artificiellement basse → seuil irréa
 
 /** Chiffres cerclés pour nommer les maillons — lisibles d'un coup d'œil dans la
  *  liste des gestures, où ils voisinent avec des noms libres. */
+/** Temps de relâche entre deux prises, avant que la suivante s'arme d'elle-même.
+ *  Il s'ajoute aux 3 s de décompte de la prise : 5,5 s en tout pour lâcher la
+ *  pose, bouger, et la reprendre. */
+const RELAX_MS = 2500
+
 const CIRCLED = ['①', '②', '③', '④']
 
 /** Identifiant provisoire d'un maillon pas encore écrit sur le disque. Il ne
@@ -169,8 +174,21 @@ interface LinkDraft {
             <h2>{{ linkPrefix() }}Prise {{ take() }}/3 capturée</h2>
             <app-camera-view />
             <p>Relâche complètement la pose, bouge un peu, puis reprends-la.</p>
+            <!-- Ça repart tout seul.
+                 Le bouton d'avant obligeait à lâcher la pose POUR ALLER
+                 CHERCHER LA SOURIS, deux fois par enregistrement et six fois
+                 pour une macro de trois maillons. Sur une pose à deux mains,
+                 c'est carrément impossible sans défaire ce qu'on vient de
+                 monter. Et le délai existait déjà juste après : les trois
+                 secondes de décompte de la prise suivante. On ne fait donc
+                 qu'enlever un obstacle, sans raccourcir le temps de relâche —
+                 il passe même de 3 à 5,5 secondes. -->
+            <div class="progress auto"><div [style.width.%]="relaxProgress()"></div></div>
+            <p class="lbl relax">
+              Reprise automatique — le décompte de la prise {{ take() + 1 }} suit.
+            </p>
             <p style="text-align:right">
-              <button class="primary" (click)="beginTake()">Prise {{ take() + 1 }}/3</button>
+              <button class="primary" (click)="beginTake()">Prise {{ take() + 1 }}/3 tout de suite</button>
             </p>
           }
           @case ('result') {
@@ -314,6 +332,11 @@ interface LinkDraft {
 
     /* Les mesures, repliees. Elles restent accessibles d'un clic — un chiffre
        qu'on ne peut plus retrouver est un chiffre qu'on n'ose plus supprimer. */
+    /* La barre de relache se distingue de celle de capture : l'une mesure un
+       effort en cours, l'autre un compte a rebours qu'on peut devancer. */
+    .progress.auto > div { background: var(--ink-3); }
+    .relax { margin: 6px 0 0; text-transform: none; letter-spacing: 0; font-size: 11.5px; }
+
     .detail { margin: 12px 0 0; }
     .detail summary {
       cursor: pointer; font-size: 12px; color: var(--ink-3);
@@ -399,6 +422,7 @@ export class Wizard implements OnInit, OnDestroy {
   step = signal<Step>('config')
   take = signal(0)
   countdown = signal(3)
+  relaxProgress = signal(0)
   captureProgress = signal(0)
   missing = signal('')
   starting = signal(false)
@@ -415,11 +439,13 @@ export class Wizard implements OnInit, OnDestroy {
    *  30 fois par seconde, pour un composant qui n'existe plus. */
   private unsub: (() => void) | null = null
   private countdownTimer = 0
+  private relaxTimer = 0
 
   ngOnDestroy(): void {
     this.unsub?.()
     this.unsub = null
     clearInterval(this.countdownTimer)
+    clearInterval(this.relaxTimer)
   }
 
   ngOnInit(): void {
@@ -528,6 +554,9 @@ export class Wizard implements OnInit, OnDestroy {
   }
 
   beginTake(): void {
+    // Qu'on soit arrivé par le minuteur ou par le bouton, il ne doit pas
+    // rester un intervalle qui relancerait une prise déjà lancée.
+    clearInterval(this.relaxTimer)
     this.step.set('countdown')
     this.countdown.set(3)
     clearInterval(this.countdownTimer)
@@ -576,9 +605,26 @@ export class Wizard implements OnInit, OnDestroy {
     this.take.set(this.takes.length)
     if (this.takes.length < TAKES) {
       this.step.set('between')
+      this.startRelax()
     } else {
       this.analyze()
     }
+  }
+
+  /** Le temps de relâche, matérialisé.
+   *
+   *  Une barre qui se remplit plutôt qu'un simple délai : on doit voir venir
+   *  la reprise, sinon l'enchaînement automatique surprend au lieu d'aider.
+   *  Le bouton reste, il ne fait plus que devancer l'échéance. */
+  private startRelax(): void {
+    clearInterval(this.relaxTimer)
+    const started = Date.now()
+    this.relaxProgress.set(0)
+    this.relaxTimer = window.setInterval(() => {
+      const p = Math.min(100, ((Date.now() - started) / RELAX_MS) * 100)
+      this.relaxProgress.set(p)
+      if (p >= 100) this.beginTake()
+    }, 50)
   }
 
   private analyze(): void {

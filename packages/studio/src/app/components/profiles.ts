@@ -127,7 +127,7 @@ export class Profiles {
     const n = this.count(id)
     const ok = await this.confirm.ask({
       title: `Supprimer « ${name} » ?`,
-      body: n ? `Ses ${n} gesture(s) partent avec lui : les enregistrements seront perdus.` : undefined,
+      body: n ? `Ses ${n} pose(s) partent avec lui : les enregistrements seront perdus.` : undefined,
       danger: true,
     })
     if (ok) await this.store.deleteProfile(id)
