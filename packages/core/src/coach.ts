@@ -84,12 +84,28 @@ const FACE_HINTS: Record<string, { label: string; more: string; less: string }> 
 /** Les 21 points de MediaPipe, groupés par doigt. Le point 0 est le poignet :
  *  il est l'origine du repère, son écart est nul par construction. */
 const FINGERS: { name: string; tip: number; ids: number[] }[] = [
-  { name: 'pouce', tip: 4, ids: [1, 2, 3, 4] },
-  { name: 'index', tip: 8, ids: [5, 6, 7, 8] },
-  { name: 'majeur', tip: 12, ids: [9, 10, 11, 12] },
-  { name: 'annulaire', tip: 16, ids: [13, 14, 15, 16] },
-  { name: 'auriculaire', tip: 20, ids: [17, 18, 19, 20] },
+  // L'article est porté par le nom : « le index » se lit comme une faute, et
+  // une consigne qui sonne faux, on la relit au lieu de l'appliquer.
+  { name: 'le pouce', tip: 4, ids: [1, 2, 3, 4] },
+  { name: 'l’index', tip: 8, ids: [5, 6, 7, 8] },
+  { name: 'le majeur', tip: 12, ids: [9, 10, 11, 12] },
+  { name: 'l’annulaire', tip: 16, ids: [13, 14, 15, 16] },
+  { name: 'l’auriculaire', tip: 20, ids: [17, 18, 19, 20] },
 ]
+
+/**
+ * Quelle main, dite du point de vue de la personne.
+ *
+ * L'emplacement 0 est la main GAUCHE (handedness MediaPipe, sur un flux jamais
+ * mirroré : elle est donc anatomique, pas « celle de gauche à l'écran »).
+ *
+ * Nommer la main n'est pas une politesse : sans elle, « déplace ta main vers ta
+ * droite » est ambigu dès qu'une pose en emploie deux, et suivre la consigne
+ * sur la mauvaise main éloigne encore de la cible.
+ */
+function handName(slot: 0 | 1): string {
+  return slot === 0 ? 'ta main gauche' : 'ta main droite'
+}
 
 /** En dessous, l'écart est du bruit de reproduction et non une consigne. */
 const FACE_FLOOR = 0.06
@@ -137,10 +153,10 @@ export function advise(
     for (const slot of [0, 1] as const) {
       const s = sample.hands[slot]
       const f = frame.hands[slot]
-      if (s && f) out.push(...adviseHand(s, f))
+      if (s && f) out.push(...adviseHand(s, f, slot))
       const sp = sample.handPos[slot]
       const fp = frame.handPos[slot]
-      if (sp && fp) out.push(...advisePosition(sp, fp))
+      if (sp && fp) out.push(...advisePosition(sp, fp, slot))
     }
   }
 
@@ -156,7 +172,7 @@ export function advise(
  * plus petite veut dire plus replié. C'est la seule lecture de forme qu'on
  * puisse faire sans inventer.
  */
-function adviseHand(s: Float32Array, f: Float32Array): Advice[] {
+function adviseHand(s: Float32Array, f: Float32Array, slot: 0 | 1): Advice[] {
   const out: Advice[] = []
   for (const finger of FINGERS) {
     let err = 0
@@ -171,12 +187,13 @@ function adviseHand(s: Float32Array, f: Float32Array): Advice[] {
     const d = reach(s) - reach(f)
     // Écart de forme sans écart d'extension : le doigt est au bon éloignement
     // mais pas au bon endroit. On le dit sans prétendre savoir dans quel sens.
+    const hand = handName(slot)
     const text =
       Math.abs(d) < FINGER_FLOOR / 2
-        ? `place ton ${finger.name} autrement — il est à la bonne distance mais pas au bon endroit`
+        ? `place autrement ${finger.name} de ${hand} — il est à la bonne distance mais pas au bon endroit`
         : d > 0
-          ? `tends davantage ton ${finger.name}`
-          : `replie davantage ton ${finger.name}`
+          ? `tends davantage ${finger.name} de ${hand}`
+          : `replie davantage ${finger.name} de ${hand}`
     out.push({ text, kind: 'hand', gap: err / HAND_SCALE })
   }
   return out
@@ -190,16 +207,17 @@ function adviseHand(s: Float32Array, f: Float32Array): Advice[] {
  * donnerait une consigne exactement inverse, et c'est le genre d'erreur qu'on
  * ne voit pas en relisant.
  */
-function advisePosition(s: Float32Array, f: Float32Array): Advice[] {
+function advisePosition(s: Float32Array, f: Float32Array, slot: 0 | 1): Advice[] {
   const out: Advice[] = []
   // On repasse en hauteurs de visage : c'est l'unité dans laquelle la position
   // a été mesurée, et la seule qui veuille dire quelque chose pour un humain.
   const toFace = (v: number) => (v / POS_SCALE) * POS_RANGE
   const dx = toFace((s[0] ?? 0) - (f[0] ?? 0))
   const dy = toFace((s[1] ?? 0) - (f[1] ?? 0))
+  const hand = handName(slot)
   if (Math.abs(dx) >= POS_FLOOR) {
     out.push({
-      text: dx > 0 ? 'déplace ta main vers ta gauche' : 'déplace ta main vers ta droite',
+      text: dx > 0 ? `déplace ${hand} vers ta gauche` : `déplace ${hand} vers ta droite`,
       kind: 'position',
       gap: Math.abs(dx),
     })
@@ -207,7 +225,7 @@ function advisePosition(s: Float32Array, f: Float32Array): Advice[] {
   if (Math.abs(dy) >= POS_FLOOR) {
     // y croît vers le BAS de l'image.
     out.push({
-      text: dy > 0 ? 'descends ta main' : 'remonte ta main',
+      text: dy > 0 ? `descends ${hand}` : `remonte ${hand}`,
       kind: 'position',
       gap: Math.abs(dy),
     })

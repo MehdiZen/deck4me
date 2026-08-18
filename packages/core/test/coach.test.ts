@@ -60,17 +60,17 @@ describe('coach', () => {
     const rec = hand({ 5: [0.2, -0.3], 6: [0.2, -0.6], 7: [0.2, -0.9], 8: [0.2, -1.2] })
     const live = hand({ 5: [0.2, -0.3], 6: [0.2, -0.35], 7: [0.2, -0.4], 8: [0.2, -0.45] })
     const a = advise(rec, live, 'hand')
-    expect(a[0]!.text).toBe('tends davantage ton index')
+    expect(a[0]!.text).toBe('tends davantage l’index de ta main gauche')
   })
 
   it('oriente la position dans le repère de la personne, pas de l’image', () => {
     // Le flux n'est pas mirroré : un x enregistré PLUS GRAND est plus à droite
     // dans l'image, donc du côté gauche de la personne.
     const droite = advise(pos(0.9, 0), pos(0.2, 0), 'hand')
-    expect(droite.some((x) => x.text === 'déplace ta main vers ta gauche')).toBe(true)
+    expect(droite.some((x) => x.text === 'déplace ta main gauche vers ta gauche')).toBe(true)
     // y croît vers le bas de l'image.
     const bas = advise(pos(0, 0.9), pos(0, 0.2), 'hand')
-    expect(bas.some((x) => x.text === 'descends ta main')).toBe(true)
+    expect(bas.some((x) => x.text === 'descends ta main gauche')).toBe(true)
   })
 
   it('ne rend jamais plus de consignes que demandé, les plus grosses d’abord', () => {

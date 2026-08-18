@@ -5,7 +5,6 @@ import {
   OnDestroy,
   OnInit,
   Output,
-  computed,
   inject,
   signal,
 } from '@angular/core'
@@ -23,22 +22,33 @@ import { CameraView } from './camera-view'
 import { Icon } from './icon'
 
 /**
- * Testeur de pose : « pourquoi ça ne part pas ? », répondu par un chiffre.
+ * Testeur de pose : « pourquoi ça ne part pas ? », répondu en continu.
  *
- * ─── Ce qu'il remplace ──────────────────────────────────────────────────────
- * Jusqu'ici, comprendre l'échec d'une pose demandait de lire les pastilles de
- * l'écran Live en direct, tout en tenant la pose, en sachant déjà ce que
- * chaque bloc veut dire. Autant dire : à deux, avec quelqu'un qui connaît le
- * code. Ici on tient la pose cinq secondes et l'application raconte.
+ * ─── Pourquoi en TEMPS RÉEL et non par prises ───────────────────────────────
+ * La première version demandait de lancer un test de cinq secondes, puis de le
+ * relancer après chaque correction. Or corriger une pose est une boucle : on
+ * bouge un doigt, on regarde si ça se rapproche, on rebouge. Un bouton entre
+ * chaque essai casse exactement la boucle qu'on vient chercher — et on finit
+ * par cliquer plus qu'on ne pose.
+ *
+ * Ici tout est vivant : le taux, les blocs, les consignes. On se corrige en
+ * regardant les chiffres bouger, ce qui est la seule façon de sentir dans quel
+ * sens ça va.
+ *
+ * ─── Le lissage n'est pas cosmétique ────────────────────────────────────────
+ * Une consigne recalculée à 60 Hz clignote et devient illisible ; pire, elle
+ * change pendant qu'on la lit. Les chiffres sont donc mesurés sur une fenêtre
+ * glissante, et les consignes ne se renouvellent qu'à intervalle fixe, depuis
+ * la MEILLEURE tentative de l'intervalle écoulé.
  *
  * ─── Il ne mesure rien de nouveau ───────────────────────────────────────────
- * Tout vient de `matcher.lastSnapshots`, qui porte déjà pour CHAQUE gesture sa
- * distance, son seuil, son état et le détail par bloc. Le testeur accumule et
- * conclut, il ne calcule pas.
+ * Tout vient de `matcher.lastSnapshots` et `matcher.lastBlocks`, qui portent
+ * déjà distance, seuil, état, détail par bloc et vecteurs de la frame. Ce
+ * composant accumule et raconte, il ne calcule pas.
  *
  * ─── Les deux questions sont distinctes ─────────────────────────────────────
  * « Est-ce que ma pose est reconnue ? » et « est-ce qu'elle déclenche ? » ne
- * sont PAS la même question, et c'est là que le testeur gagne sa place :
+ * sont PAS la même question :
  *
  *  · la reconnaissance se lit sur la distance contre le seuil ;
  *  · le déclenchement passe en plus par l'exclusivité (seule la pose la plus
@@ -50,17 +60,31 @@ import { Icon } from './icon'
  * est indétectable à l'œil et le testeur le nomme.
  */
 
-const DURATION_MS = 5000
-/** Au-dessus, la pose est tenue pour fiable. En dessous de la moitié, elle est
- *  déclarée en échec ; entre les deux, elle est « juste ». */
-const GOOD = 0.8
-const POOR = 0.5
+/** Fenêtre glissante des statistiques. Deux secondes : assez pour lisser le
+ *  tremblement d'une main, assez court pour qu'une correction se voie. */
+const WINDOW_MS = 2000
+/** Cadence de rafraîchissement des chiffres affichés. Au-delà, on ferait
+ *  tourner la détection de changement d'Angular pour des décimales que l'œil ne
+ *  suit pas. */
+const REFRESH_MS = 150
+/** Cadence de renouvellement des consignes. Nettement plus lent : une phrase
+ *  qui change pendant qu'on la lit ne se lit pas. */
+const ADVICE_MS = 900
+
+interface Tick {
+  t: number
+  /** null = bloc requis absent de la frame (main hors champ, visage perdu). */
+  dist: number | null
+  fired: boolean
+  active: boolean
+  blocks: BlockDiag[] | null
+  /** La gesture la plus proche sur cette frame, si ce n'est pas la nôtre. */
+  rival: string | null
+}
 
 interface BlockStat {
   label: string
-  sum: number
-  max: number
-  n: number
+  mean: number
 }
 
 @Component({
@@ -69,120 +93,97 @@ interface BlockStat {
   template: `
     <div class="modal-bg" (click)="close.emit()">
       <div class="modal" (click)="$event.stopPropagation()">
-        <h2>Tester « {{ gesture.name }} »</h2>
+        <header>
+          <h2>Tester « {{ gesture.name }} »</h2>
+          <span class="spacer"></span>
+          <button class="ghost sm" (click)="close.emit()">
+            <app-icon name="close" [size]="15" /> Fermer
+          </button>
+        </header>
 
         <app-camera-view />
 
-        @switch (step()) {
-          @case ('aim') {
-            <p class="hint">
-              Prends la pose comme tu la ferais en live, puis lance le test. Cinq
-              secondes suffisent — inutile de figer, tiens-la normalement.
-            </p>
-            <p style="display:flex; gap:8px; justify-content:flex-end">
-              <button (click)="close.emit()">Fermer</button>
-              <button class="primary" [disabled]="!detection.running()" (click)="start()">
-                <app-icon name="target" [size]="15" /> Lancer le test
-              </button>
-            </p>
-          }
-
-          @case ('run') {
-            <!-- Une barre plutôt qu'un compte à rebours chiffré : on tient une
-                 pose, on ne doit pas avoir à lire. -->
-            <div class="track"><i [style.width.%]="progress()"></i></div>
-            <p class="hint">Tiens la pose…</p>
-          }
-
-          @case ('done') {
-            @if (!measured()) {
-              <p class="badge err verdict">
-                Aucune mesure sur cinq secondes. Le bloc dont cette pose a besoin
-                n'était jamais visible — main hors du champ, ou visage perdu.
-                Recadre-toi et recommence.
-              </p>
-            } @else {
-              <ul>
-                <li>
-                  Frames sous le seuil :
-                  <b class="num">{{ (rate() * 100).toFixed(0) }}%</b>
-                  <span class="lbl">({{ fired() }} / {{ measured() }})</span>
-                </li>
-                <li>
-                  Distance la meilleure : <span class="num">{{ best().toFixed(3) }}</span>
-                  · moyenne <span class="num">{{ mean().toFixed(3) }}</span>
-                  · seuil <b class="num">{{ threshold().toFixed(3) }}</b>
-                </li>
-                @if (missing()) {
-                  <li class="lbl">
-                    {{ missing() }} frame(s) sans mesure — bloc requis absent.
-                  </li>
-                }
-                <li>
-                  A réellement déclenché :
-                  <b [class.ok]="triggered()">{{ triggered() ? 'oui' : 'non' }}</b>
-                </li>
-              </ul>
-
-              @if (rate() >= GOOD) {
-                <p class="badge ok verdict">
-                  Pose fiable. Elle passe le seuil sur la quasi-totalité des frames.
-                </p>
-              } @else {
-                <p class="badge warn verdict">{{ diagnosis() }}</p>
+        @if (!detection.running()) {
+          <p class="hint">Démarrage de la caméra…</p>
+        } @else if (!measured()) {
+          <p class="badge err verdict">
+            Rien à mesurer : le bloc dont cette pose a besoin n'est pas visible.
+            Main hors du champ, ou visage perdu.
+          </p>
+        } @else {
+          <!-- La jauge est le cœur de l'écran : c'est elle qu'on regarde en se
+               corrigeant, pas les décimales. -->
+          <div class="gauge">
+            <div class="track">
+              <i [style.width.%]="rate() * 100" [class.good]="rate() >= GOOD"></i>
+            </div>
+            <div class="read">
+              <b class="num big" [class.ok]="rate() >= GOOD">{{ (rate() * 100).toFixed(0) }}%</b>
+              <span class="lbl">reconnue · 2 dernières secondes</span>
+              <span class="spacer"></span>
+              @if (active()) {
+                <span class="badge ok">déclenchée</span>
               }
+            </div>
+          </div>
 
-              <!-- Les consignes. C'est la seule partie de cet écran qui dise
-                   quoi FAIRE ; tout le reste dit où ça coince. -->
-              @if (advice().length) {
-                <div class="todo">
-                  <h3>Pour t'en rapprocher</h3>
-                  <ol>
-                    @for (a of advice(); track a.text) {
-                      <li>{{ a.text }}</li>
-                    }
-                  </ol>
-                  <!-- Dire ce qu'on ne saura JAMAIS conseiller évite d'aller
-                       corriger une chose qui n'entre pas dans le calcul. -->
-                  <p class="lbl note">
-                    Inutile de chercher du côté de l'angle de ta main ou de
-                    l'inclinaison de ta tête : ni l'un ni l'autre n'entre dans la
-                    comparaison.
-                  </p>
-                </div>
-              }
-
-              <!-- Le voleur : la pose qui a gagné l'exclusivité à notre place.
-                   C'est LE cas qu'on ne peut pas voir autrement. -->
-              @if (thief(); as t) {
-                <p class="badge err verdict">
-                  « {{ t.name }} » était plus proche que la tienne sur
-                  <b class="num">{{ ((t.wins / measured()) * 100).toFixed(0) }}%</b>
-                  des frames. Tant qu'elle gagne, ta pose ne peut pas partir même
-                  reconnue : une seule gesture à la fois progresse, la plus proche.
-                  Différencie les deux, ou réduis la sensibilité de « {{ t.name }} ».
-                </p>
-              }
-
-              <!-- Détail par bloc. Comparer un bloc seul au seuil est une
-                   heuristique — le seuil porte sur la MOYENNE des blocs — mais
-                   c'est ce qui se lit le mieux : « cette partie à elle seule
-                   dépasse le budget total ». -->
-              <div class="blocks">
-                @for (b of blocks(); track b.label) {
-                  <span class="chip" [class.over]="b.sum / b.n > threshold()">
-                    {{ b.label }}
-                    <span class="num">{{ (b.sum / b.n).toFixed(3) }}</span>
-                  </span>
-                }
-              </div>
+          <ul>
+            <li>
+              Distance <span class="num">{{ dist() === null ? '—' : dist()!.toFixed(3) }}</span>
+              · meilleure <span class="num">{{ best().toFixed(3) }}</span>
+              · seuil <b class="num">{{ threshold().toFixed(3) }}</b>
+            </li>
+            @if (missing()) {
+              <li class="lbl">{{ missing() }} frame(s) sans mesure sur la fenêtre.</li>
             }
+          </ul>
 
-            <p style="display:flex; gap:8px; justify-content:flex-end">
-              <button (click)="close.emit()">Fermer</button>
-              <button class="primary" (click)="start()">Refaire</button>
+          <!-- Les consignes. C'est la seule partie de cet écran qui dise quoi
+               FAIRE ; tout le reste dit où ça coince. -->
+          @if (advice().length) {
+            <div class="todo">
+              <h3>Pour t'en rapprocher</h3>
+              <ol>
+                @for (a of advice(); track a.text) {
+                  <li>{{ a.text }}</li>
+                }
+              </ol>
+              <!-- Dire ce qu'on ne saura JAMAIS conseiller évite d'aller
+                   corriger une chose qui n'entre pas dans le calcul. -->
+              <p class="lbl note">
+                Inutile de chercher du côté de l'angle de ta main ou de
+                l'inclinaison de ta tête : ni l'un ni l'autre n'entre dans la
+                comparaison.
+              </p>
+            </div>
+          } @else if (rate() >= GOOD) {
+            <p class="badge ok verdict">
+              Pose fiable. Elle passe le seuil sur la quasi-totalité des frames.
             </p>
           }
+
+          @if (thief(); as t) {
+            <p class="badge err verdict">
+              « {{ t.name }} » est plus proche que la tienne sur
+              <b class="num">{{ (t.share * 100).toFixed(0) }}%</b>
+              des frames. Tant qu'elle gagne, ta pose ne peut pas partir même
+              reconnue : une seule gesture à la fois progresse, la plus proche.
+              Différencie les deux, ou réduis la sensibilité de « {{ t.name }} ».
+            </p>
+          }
+
+          <!-- Détail par bloc. Comparer un bloc seul au seuil est une
+               heuristique — le seuil porte sur la MOYENNE des blocs — mais
+               c'est ce qui se lit le mieux : « cette partie à elle seule
+               dépasse le budget total ». -->
+          <div class="blocks">
+            @for (b of blocks(); track b.label) {
+              <span class="chip" [class.over]="b.mean > threshold()">
+                {{ b.label }}
+                <span class="num">{{ b.mean.toFixed(3) }}</span>
+              </span>
+            }
+          </div>
         }
       </div>
     </div>
@@ -201,21 +202,27 @@ interface BlockStat {
       border-radius: var(--r-panel); padding: 20px;
       box-shadow: var(--edge), 0 30px 80px #000000a0;
     }
-    .modal h2 { margin: 0 0 14px; font-size: 17px; }
+    header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    header h2 { margin: 0; font-size: 17px; }
     app-camera-view { display: block; margin-bottom: 14px; border-radius: 10px; overflow: hidden; }
     .hint { color: var(--ink-3); font-size: 13px; line-height: 1.55; margin: 12px 0; }
     ul { margin: 12px 0; padding: 0; list-style: none; font-size: 13px; line-height: 1.9; }
     .verdict { display: block; padding: 11px 13px; line-height: 1.55; white-space: normal; margin: 12px 0; }
     .ok { color: var(--st-armed); }
-    /* Barre de progression : la seule animation de l'écran, et elle dit la
-       seule chose qu'on ait besoin de savoir pendant qu'on tient la pose. */
-    .track {
-      height: 6px; border-radius: 3px; overflow: hidden;
-      background: var(--void); margin: 16px 0 8px;
+
+    .gauge { margin: 14px 0 6px; }
+    .track { height: 8px; border-radius: 4px; overflow: hidden; background: var(--void); }
+    /* La barre change de couleur au franchissement du seuil de fiabilité :
+       l'information passe par la forme ET par la teinte, elle se capte donc du
+       coin de l'œil pendant qu'on tient la pose. */
+    .track i {
+      display: block; height: 100%; background: var(--st-candidate);
+      transition: width 120ms linear, background 200ms ease;
     }
-    .track i { display: block; height: 100%; background: var(--st-armed); }
-    /* Les consignes sont l'aboutissement de l'écran : elles ont droit à leur
-       propre encadré, et pas à une pastille de plus perdue dans la liste. */
+    .track i.good { background: var(--st-armed); }
+    .read { display: flex; align-items: baseline; gap: 8px; margin-top: 7px; }
+    .big { font-size: 19px; font-weight: 700; }
+
     .todo {
       margin: 14px 0;
       padding: 12px 14px;
@@ -243,181 +250,161 @@ export class PoseTester implements OnInit, OnDestroy {
   protected detection = inject(DetectionService)
   private matcher = inject(MatcherService)
   private store = inject(StoreService)
-  protected readonly GOOD = GOOD
-
-  protected step = signal<'aim' | 'run' | 'done'>('aim')
-  protected progress = signal(0)
+  protected readonly GOOD = 0.8
 
   protected measured = signal(0)
   protected missing = signal(0)
-  protected fired = signal(0)
+  protected rate = signal(0)
+  protected dist = signal<number | null>(null)
   protected best = signal(0)
-  protected mean = signal(0)
   protected threshold = signal(0)
-  protected triggered = signal(false)
+  protected active = signal(false)
   protected blocks = signal<BlockStat[]>([])
-  /** La gesture qui a raflé l'exclusivité à notre place, si elle l'a fait
-   *  souvent. En dessous d'un tiers des frames, ce n'est pas elle le problème. */
-  protected thief = signal<{ name: string; wins: number } | null>(null)
-  /** Ce qu'il faut CHANGER, en français. Le reste de cet écran dit où ça
-   *  coince ; ces phrases-là disent quoi faire du corps. */
+  protected thief = signal<{ name: string; share: number } | null>(null)
   protected advice = signal<Advice[]>([])
 
-  protected rate = computed(() => (this.measured() ? this.fired() / this.measured() : 0))
-
   private raf = 0
+  private ticks: Tick[] = []
+  private lastRefresh = 0
+  private lastAdvice = 0
+  /** Meilleure tentative de l'intervalle de consigne en cours. Remise à zéro à
+   *  chaque renouvellement : les consignes doivent décrire ce qu'on vient de
+   *  faire, pas le meilleur essai depuis l'ouverture. */
+  private bestFrame: FeatureBlocks | null = null
+  private bestSample: FeatureBlocks | null = null
+  private bestDist = Infinity
 
   ngOnInit(): void {
     // La caméra est indispensable ici : sans elle il n'y a rien à mesurer, et un
     // testeur qui affiche « aucune mesure » parce que personne n'a démarré la
     // détection serait une fausse panne de plus.
     if (!this.detection.running()) void this.detection.start()
+    this.raf = requestAnimationFrame(() => this.tick())
   }
 
   ngOnDestroy(): void {
     cancelAnimationFrame(this.raf)
   }
 
-  start(): void {
-    cancelAnimationFrame(this.raf)
-    this.step.set('run')
-    this.progress.set(0)
+  /** Les samples re-featurisés avec la baseline courante — jamais le cache
+   *  persisté, qui peut dater d'une autre calibration. */
+  private samples(): FeatureBlocks[] {
+    return this.store.runtimeGestures().find((g) => g.id === this.gesture.id)?.samples ?? []
+  }
 
-    let measured = 0
-    let missing = 0
-    let fired = 0
-    let best = Infinity
-    let sum = 0
-    let triggered = false
-    let threshold = 0
-    const blocks = new Map<string, BlockStat>()
-    const wins = new Map<string, number>()
-    const t0 = performance.now()
+  private tick(): void {
+    const now = performance.now()
+    const snaps = this.matcher.lastSnapshots
+    const mine = snaps.find((s) => s.gestureId === this.gesture.id)
 
-    // La MEILLEURE tentative, gardée pour être racontée à la fin.
-    //
-    // Ni la première frame ni une moyenne : la moyenne de plusieurs instants
-    // d'un geste vivant n'est pas forcément une pose réalisable, et on
-    // enverrait corriger vers une cible qui n'existe pas. La frame la plus
-    // proche est, elle, un instant qui a vraiment eu lieu.
-    let bestFrame: FeatureBlocks | null = null
-    let bestSample: FeatureBlocks | null = null
-    const samples =
-      this.store.runtimeGestures().find((g) => g.id === this.gesture.id)?.samples ?? []
-
-    const tick = () => {
-      const dt = performance.now() - t0
-      this.progress.set(Math.min(100, (dt / DURATION_MS) * 100))
-
-      const snaps = this.matcher.lastSnapshots
-      const mine = snaps.find((s) => s.gestureId === this.gesture.id)
-      if (mine) {
-        threshold = mine.threshold
-        if (mine.dist === null) {
-          missing++
-        } else {
-          measured++
-          sum += mine.dist
-          if (mine.dist < best) {
-            best = mine.dist
-            // On retient le sample dont on s'est le plus approché : c'est LUI
-            // la cible à décrire, pas un sample moyen ni le premier venu.
-            const live = this.matcher.lastBlocks
-            if (live) {
-              let near: FeatureBlocks | null = null
-              let nd = Infinity
-              for (const s of samples) {
-                const d = frameDistance(s, live, this.gesture.source)
-                if (d !== null && d < nd) {
-                  nd = d
-                  near = s
-                }
-              }
-              if (near) {
-                bestFrame = live
-                bestSample = near
-              }
-            }
-          }
-          if (mine.dist <= mine.threshold) fired++
-          // L'état vient de la vraie machine à états : c'est la seule preuve
-          // que la pose a franchi TOUT le chemin, exclusivité et frames
-          // consécutives comprises.
-          if (mine.state === 'ACTIVE') triggered = true
-          for (const b of mine.blocks ?? []) {
-            if (b.dist === null) continue
-            const label = this.blockLabel(b)
-            const cur = blocks.get(label) ?? { label, sum: 0, max: 0, n: 0 }
-            cur.sum += b.dist
-            cur.n++
-            if (b.dist > cur.max) cur.max = b.dist
-            blocks.set(label, cur)
-          }
-          // Qui était le plus proche sur cette frame ? Si ce n'est pas nous,
-          // c'est cette gesture-là qui empêche la nôtre de progresser.
-          let winner: string | null = null
-          let bestDist = Infinity
-          for (const s of snaps) {
-            if (s.dist !== null && s.dist < bestDist) {
-              bestDist = s.dist
-              winner = s.gestureId
-            }
-          }
-          if (winner && winner !== this.gesture.id) {
-            wins.set(winner, (wins.get(winner) ?? 0) + 1)
-          }
+    if (mine) {
+      let rival: string | null = null
+      let bd = Infinity
+      for (const s of snaps) {
+        if (s.dist !== null && s.dist < bd) {
+          bd = s.dist
+          rival = s.gestureId
         }
       }
-
-      if (dt >= DURATION_MS) {
-        this.measured.set(measured)
-        this.missing.set(missing)
-        this.fired.set(fired)
-        this.best.set(best === Infinity ? 0 : best)
-        this.mean.set(measured ? sum / measured : 0)
-        this.threshold.set(threshold || this.gesture.threshold)
-        this.triggered.set(triggered)
-        this.blocks.set([...blocks.values()])
-        this.thief.set(this.worstRival(wins, measured))
-        this.advice.set(
-          bestSample && bestFrame ? advise(bestSample, bestFrame, this.gesture.source) : [],
-        )
-        this.step.set('done')
-        return
+      this.ticks.push({
+        t: now,
+        dist: mine.dist,
+        fired: mine.dist !== null && mine.dist <= mine.threshold,
+        active: mine.state === 'ACTIVE',
+        blocks: mine.blocks,
+        rival: rival === this.gesture.id ? null : rival,
+      })
+      // On retient la frame la plus proche de l'intervalle : c'est elle qui
+      // décrira le mieux ce qu'il reste à corriger.
+      const live = this.matcher.lastBlocks
+      if (mine.dist !== null && mine.dist < this.bestDist && live) {
+        let near: FeatureBlocks | null = null
+        let nd = Infinity
+        for (const s of this.samples()) {
+          const d = frameDistance(s, live, this.gesture.source)
+          if (d !== null && d < nd) {
+            nd = d
+            near = s
+          }
+        }
+        if (near) {
+          this.bestDist = mine.dist
+          this.bestFrame = live
+          this.bestSample = near
+        }
       }
-      this.raf = requestAnimationFrame(tick)
     }
-    this.raf = requestAnimationFrame(tick)
+
+    // Fenêtre glissante : tout ce qui a plus de deux secondes ne décrit plus la
+    // pose qu'on est en train de tenir.
+    const cut = now - WINDOW_MS
+    while (this.ticks.length && this.ticks[0]!.t < cut) this.ticks.shift()
+
+    if (now - this.lastRefresh >= REFRESH_MS) {
+      this.lastRefresh = now
+      this.publish(mine?.threshold ?? this.gesture.threshold)
+    }
+    if (now - this.lastAdvice >= ADVICE_MS) {
+      this.lastAdvice = now
+      this.advice.set(
+        this.bestSample && this.bestFrame
+          ? advise(this.bestSample, this.bestFrame, this.gesture.source)
+          : [],
+      )
+      this.bestDist = Infinity
+      this.bestFrame = null
+      this.bestSample = null
+    }
+
+    this.raf = requestAnimationFrame(() => this.tick())
   }
 
-  /** La rivale la plus gênante, si elle l'est assez pour valoir d'être nommée. */
-  private worstRival(wins: Map<string, number>, measured: number): { name: string; wins: number } | null {
+  /** Recalcule tout depuis la fenêtre et pousse dans les signaux. */
+  private publish(threshold: number): void {
+    const withDist = this.ticks.filter((t) => t.dist !== null)
+    const n = withDist.length
+    this.measured.set(n)
+    this.missing.set(this.ticks.length - n)
+    this.threshold.set(threshold)
+    const last = this.ticks[this.ticks.length - 1]
+    this.dist.set(last?.dist ?? null)
+    this.active.set(this.ticks.some((t) => t.active))
+    if (!n) {
+      this.rate.set(0)
+      this.best.set(0)
+      this.blocks.set([])
+      this.thief.set(null)
+      return
+    }
+    this.rate.set(withDist.filter((t) => t.fired).length / n)
+    this.best.set(Math.min(...withDist.map((t) => t.dist!)))
+
+    const acc = new Map<string, { sum: number; n: number }>()
+    for (const t of withDist) {
+      for (const b of t.blocks ?? []) {
+        if (b.dist === null) continue
+        const label = this.blockLabel(b)
+        const cur = acc.get(label) ?? { sum: 0, n: 0 }
+        cur.sum += b.dist
+        cur.n++
+        acc.set(label, cur)
+      }
+    }
+    this.blocks.set([...acc].map(([label, v]) => ({ label, mean: v.sum / v.n })))
+
+    const wins = new Map<string, number>()
+    for (const t of withDist) if (t.rival) wins.set(t.rival, (wins.get(t.rival) ?? 0) + 1)
     let id: string | null = null
-    let n = 0
-    for (const [k, v] of wins) if (v > n) ((n = v), (id = k))
-    if (!id || !measured || n / measured < 1 / 3) return null
+    let best = 0
+    for (const [k, v] of wins) if (v > best) ((best = v), (id = k))
+    // En dessous d'un tiers des frames, la rivale n'est pas le problème : la
+    // nommer ferait chercher une collision là où il n'y a qu'une pose mal tenue.
+    if (!id || best / n < 1 / 3) {
+      this.thief.set(null)
+      return
+    }
     const g = this.store.allGestures().find((x) => x.id === id)
-    const m = this.store.macros().find((x) => x.id === id)
-    return { name: g?.name ?? m?.name ?? '—', wins: n }
-  }
-
-  /** Le bloc qui coûte le plus cher, nommé avec son chiffre contre son budget.
-   *  Nommer sans chiffrer ne servirait à rien : « c'est la main » ne dit pas
-   *  s'il manque un cheveu ou un monde. */
-  protected diagnosis(): string {
-    const t = this.threshold()
-    const worst = this.blocks().reduce<BlockStat | null>(
-      (acc, b) => (!acc || b.sum / b.n > acc.sum / acc.n ? b : acc),
-      null,
-    )
-    const part = this.rate() < POOR ? 'ne passe presque jamais' : 'passe une fois sur deux'
-    if (!worst) return `La pose ${part} le seuil.`
-    return (
-      `La pose ${part} le seuil. C'est « ${worst.label} » qui coûte le plus cher : ` +
-      `${(worst.sum / worst.n).toFixed(3)} en moyenne pour un budget total de ${t.toFixed(3)}. ` +
-      `Soit tu exagères davantage cette partie de la pose, soit tu la réenregistres, ` +
-      `soit tu élargis son seuil dans l'écran Live.`
-    )
+    this.thief.set({ name: g?.name ?? '—', share: best / n })
   }
 
   /** « main G » = ta main gauche : le flux n'est pas mirroré, la handedness
