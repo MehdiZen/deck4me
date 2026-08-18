@@ -25,7 +25,7 @@ const SAMPLE_EVERY_MS = 250
           {{ cal.savedAt.slice(0, 10) }}
         </p>
       } @else {
-        <p><span class="badge warn">Requis avant d'enregistrer des gestures</span></p>
+        <p><span class="badge warn">Requis avant d'enregistrer des poses</span></p>
       }
       <p class="lbl">
         20 secondes : parle normalement, ris, bois, regarde ailleurs — comme en stream.

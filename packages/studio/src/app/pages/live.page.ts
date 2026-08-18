@@ -10,10 +10,12 @@ import {
   signal,
 } from '@angular/core'
 import { HYSTERESIS, type BlockDiag, type GestureSnapshot } from '@deck4me/core'
+import { RouterLink } from '@angular/router'
 import { CameraView } from '../components/camera-view'
 import { Icon } from '../components/icon'
 import { DetectionService } from '../services/detection.service'
 import { MatcherService } from '../services/matcher.service'
+import { OverlayService } from '../services/overlay.service'
 import { StoreService } from '../services/store.service'
 
 /**
@@ -25,7 +27,7 @@ import { StoreService } from '../services/store.service'
  */
 @Component({
   selector: 'app-live-page',
-  imports: [CameraView, Icon],
+  imports: [CameraView, Icon, RouterLink],
   template: `
     <div class="head">
       <div>
@@ -41,13 +43,72 @@ import { StoreService } from '../services/store.service'
         <button (click)="detection.stop()"><app-icon name="stop" [size]="15" /> Arrêter</button>
       }
       @if (matcher.muted()) {
-        <button class="primary" (click)="matcher.unmute()">Réactiver les gestures</button>
+        <button class="primary" (click)="matcher.unmute()">Réactiver les poses</button>
       } @else {
         <button class="danger" (click)="matcher.panic()">
           <app-icon name="power" [size]="15" /> Panic
         </button>
       }
     </div>
+
+    <!-- Liste de mise en route.
+         L'application s'ouvre sur cet écran, qui est le seul des six à
+         supposer que tout est déjà fait : caméra éteinte, aucune barre, « Rien
+         encore ». Et c'était aussi le seul à ne rien dire de la calibration,
+         alors que sans elle TOUS les boutons d'enregistrement sont grisés et
+         qu'elle se trouve dans la sixième carte du dernier onglet.
+         Elle disparaît d'elle-même dès qu'on a de quoi travailler : une
+         calibration et une pose. Ce n'est pas un tutoriel, c'est un chemin. -->
+    @if (setupOpen()) {
+      <ol class="setup card rise">
+        <li [class.done]="detection.running()">
+          <i class="tick"></i>
+          <div>
+            <b>Allume la caméra</b>
+            <span class="lbl">Tout le reste en dépend, à commencer par la calibration.</span>
+          </div>
+          @if (!detection.running()) {
+            <button class="sm primary" (click)="detection.start()">Démarrer</button>
+          }
+        </li>
+        <li [class.done]="!!store.calibration()">
+          <i class="tick"></i>
+          <div>
+            <b>Calibre-toi — vingt secondes</b>
+            <span class="lbl">
+              Ton visage au repos sert de garde-fou. Sans elle, impossible
+              d'enregistrer quoi que ce soit.
+            </span>
+          </div>
+          @if (!store.calibration()) {
+            <a class="btn" routerLink="/reglages">Aller à la calibration</a>
+          }
+        </li>
+        <li [class.done]="store.gestures().length > 0">
+          <i class="tick"></i>
+          <div>
+            <b>Enregistre une première pose</b>
+            <span class="lbl">Volontaire et exagérée : c'est ce qui se reconnaît le mieux.</span>
+          </div>
+          @if (store.calibration() && !store.gestures().length) {
+            <a class="btn" routerLink="/gestures">Aller aux poses</a>
+          }
+        </li>
+        <li [class.done]="overlay.connected()">
+          <i class="tick"></i>
+          <div>
+            <b>Branche l'overlay dans OBS</b>
+            <span class="lbl">
+              Sans cette source de navigateur, la pose sera reconnue mais
+              <b>aucun meme n'apparaîtra</b> en stream.
+            </span>
+          </div>
+          @if (!overlay.connected()) {
+            <a class="btn" routerLink="/reglages">Copier l'URL</a>
+          }
+        </li>
+      </ol>
+    }
 
     <!-- La caméra d'abord, sur toute la largeur : c'est l'image qui sert à se
          cadrer et à s'éclairer, et ces deux réglages-là pèsent plus lourd sur
@@ -71,6 +132,13 @@ import { StoreService } from '../services/store.service'
             }
           }
           <span class="spacer"></span>
+          <!-- La panne silencieuse : tout est vert, la pose part, et rien
+               n'arrive en stream parce que personne n'écoute au bout du fil. -->
+          @if (overlay.missing()) {
+            <span class="badge warn" title="Colle l'URL de l'overlay dans une source Navigateur d'OBS (Réglages)">
+              <i class="led"></i> OBS non branché
+            </span>
+          }
           @if (armed(); as n) {
             <span class="badge ok"><span class="num">{{ n }}</span> armée(s)</span>
           }
@@ -81,9 +149,14 @@ import { StoreService } from '../services/store.service'
         <div class="card">
           <div class="cardhead">
             <h2>Distances</h2>
+            <!-- Une toile n'a aucune affordance : tout ce qui n'est pas
+                 écrit n'existe pas. Cette ligne est la seule chose qui dise
+                 que le graphe est une commande, elle a donc le droit de tenir
+                 sur deux lignes. -->
             <span class="lbl legend">
-              glisse le trait pour régler · double-clic = auto · pointillé =
-              relâche (×{{ HYSTERESIS }})
+              <b>attrape le trait plein</b> pour régler le déclenchement ·
+              double-clic = retour auto · le pointillé est le seuil de relâche
+              (×{{ HYSTERESIS }})
             </span>
           </div>
           <!-- mouseup et mouseleave sur la fenêtre : relâcher hors de la toile
@@ -98,6 +171,7 @@ import { StoreService } from '../services/store.service'
             (mouseleave)="hover.set(null)"
             (dblclick)="onBarsDbl($event)"
             (window:mouseup)="onBarsUp()"
+            title="Attrape le trait plein d'une ligne pour régler sa facilité de déclenchement. Double-clic sur la ligne pour revenir au seuil mesuré à l'enregistrement."
           ></canvas>
         </div>
 
@@ -129,6 +203,63 @@ import { StoreService } from '../services/store.service'
     .head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 20px; flex: 0 0 auto; }
     .head h1 { margin: 0 0 4px; }
     .sub { margin: 0; text-transform: none; letter-spacing: 0; }
+
+    /* Liste de mise en route : une colonne d'etapes, pas un encart d'alerte.
+       Un chemin se lit de haut en bas, et chaque ligne porte l'action qui la
+       termine — sans quoi on sait quoi faire mais pas ou aller. */
+    .setup {
+      flex: 0 0 auto;
+      display: flex; flex-direction: column; gap: 2px;
+      margin: 0 0 18px; padding: 14px 16px;
+      list-style: none;
+      counter-reset: step;
+    }
+    .setup li {
+      display: flex; align-items: center; gap: 12px;
+      padding: 9px 0; font-size: 13px;
+      border-bottom: 1px solid var(--line-soft);
+    }
+    .setup li:last-child { border-bottom: 0; }
+    .setup li > div { flex: 1; min-width: 0; }
+    /* Selecteur volontairement etroit : un <b> a l'interieur de la ligne
+       d'explication doit rester dans le fil de la phrase, pas passer en bloc. */
+    .setup li > div > b { display: block; font-weight: 580; color: var(--ink); }
+    .setup .lbl {
+      display: block; margin-top: 2px;
+      text-transform: none; letter-spacing: 0; font-size: 11.5px; line-height: 1.5;
+    }
+    /* La pastille porte le numero tant que l'etape reste a faire, et une coche
+       une fois passee : le compte des etapes restantes se lit sans compter. */
+    .setup .tick {
+      counter-increment: step;
+      flex: none; width: 21px; height: 21px; border-radius: 50%;
+      display: grid; place-items: center;
+      border: 1px solid var(--line);
+      color: var(--ink-3); font-size: 10.5px; font-weight: 600;
+      font-style: normal;
+    }
+    .setup .tick::before { content: counter(step); }
+    .setup li.done .tick {
+      border-color: transparent; background: var(--st-armed); color: #04140c;
+    }
+    .setup li.done .tick::before { content: '✓'; }
+    .setup li.done > div > b { color: var(--ink-2); font-weight: 520; }
+    .setup li.done .lbl { display: none; }
+    /* Un lien qui mene a l'etape suivante doit avoir l'air d'un bouton : les
+       styles de bouton de la feuille globale sont portes par l'element
+       button, un <a> n'en herite rien. */
+    .setup .btn {
+      flex: none;
+      display: inline-flex; align-items: center; justify-content: center;
+      padding: 5px 11px; border-radius: var(--r-control);
+      border: 1px solid var(--line); background: var(--panel-2);
+      color: var(--ink); text-decoration: none; white-space: nowrap;
+      font: 550 12px/1 var(--font-ui);
+      box-shadow: var(--edge);
+      transition: background 140ms var(--ease), border-color 140ms var(--ease);
+    }
+    .setup .btn:hover { background: var(--panel-3); border-color: #423e56; }
+    .setup button { flex: none; }
 
     .stack { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 16px; }
     /* Les deux étages gardent leur hauteur propre : l'image la reçoit en style
@@ -219,6 +350,7 @@ export class LivePage implements AfterViewInit, OnDestroy {
   protected detection = inject(DetectionService)
   protected matcher = inject(MatcherService)
   protected store = inject(StoreService)
+  protected overlay = inject(OverlayService)
   protected readonly HYSTERESIS = HYSTERESIS
   @ViewChild('bars') barsRef!: ElementRef<HTMLCanvasElement>
   @ViewChild('stack') stackRef!: ElementRef<HTMLElement>
@@ -227,6 +359,15 @@ export class LivePage implements AfterViewInit, OnDestroy {
   private raf = 0
 
   readonly armed = computed(() => this.store.gestures().filter((g) => g.enabled).length)
+
+  /** La liste de mise en route ne vit que le temps de l'installation.
+   *  Elle s'accroche aux deux seules conditions VRAIMENT bloquantes ; la
+   *  caméra et OBS y figurent comme étapes, mais ne suffisent pas à la faire
+   *  revenir — quelqu'un qui coupe sa caméra entre deux streams, ou qui se
+   *  sert du deck sans OBS, n'a pas à se faire répéter une leçon apprise. */
+  readonly setupOpen = computed(
+    () => this.store.loaded() && (!this.store.calibration() || !this.store.gestures().length),
+  )
 
   // ---- La plus grande image qui tient, dans les DEUX dimensions ----
   //
@@ -575,7 +716,7 @@ export class LivePage implements AfterViewInit, OnDestroy {
         this.matcher.muted()
           ? 'Gestures coupées par le bouton Panic.'
           : !all.length
-            ? 'Rien à mesurer : démarre la caméra et active au moins une gesture.'
+            ? 'Rien à mesurer : démarre la caméra et active au moins une pose.'
             : 'Aucune mesure : visage ou main hors du champ.',
         0,
         20,
@@ -731,7 +872,7 @@ export class LivePage implements AfterViewInit, OnDestroy {
       ctx.font = uiFont
       ctx.fillStyle = ink3
       ctx.fillText(
-        `+${hidden} gesture(s) plus loin du seuil, masquée(s)`,
+        `+${hidden} pose(s) plus loin du seuil, masquée(s)`,
         0,
         snaps.length * ROW + 18,
       )

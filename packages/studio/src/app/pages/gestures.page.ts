@@ -28,7 +28,7 @@ import {
   template: `
     <div class="head">
       <div>
-        <h1>Gestures</h1>
+        <h1>Poses</h1>
         <p class="lbl sub">
           {{ store.gestures().length }} pose(s) dans « {{ store.activeProfile()?.name }} »
           @if (isLink()) {
@@ -39,9 +39,14 @@ import {
         </p>
       </div>
       <span class="spacer"></span>
-      <button class="primary" [disabled]="!store.calibration()" (click)="newGesture()">
+      <button
+        class="primary"
+        [disabled]="!store.calibration()"
+        [title]="store.calibration() ? '' : whyLocked"
+        (click)="newGesture()"
+      >
         <app-icon name="plus" [size]="16" />
-        {{ isLink() ? 'Enregistrer un maillon' : 'Enregistrer une gesture' }}
+        {{ isLink() ? 'Enregistrer un maillon' : 'Enregistrer une pose' }}
       </button>
     </div>
 
@@ -125,7 +130,7 @@ import {
       <div class="notice err rise">
         <app-icon name="pulse" [size]="18" />
         <div>
-          <b>{{ store.staleGestures().length }} gesture(s) à réenregistrer.</b>
+          <b>{{ store.staleGestures().length }} pose(s) à réenregistrer.</b>
           Elles viennent d'une version antérieure et n'ont plus les données nécessaires.
           Utilise l'icône <b>main</b> sur la carte : la pose est refaite, le meme
           et son cadrage restent en place.
@@ -147,7 +152,7 @@ import {
           </p>
         } @else {
           <span class="bigmark"><app-icon name="hand" [size]="30" /></span>
-          <b>Aucune gesture dans ce profil.</b>
+          <b>Aucune pose dans ce profil.</b>
           <p class="lbl">
             Vise huit à quinze poses volontaires et exagérées, lisibles à la caméra.
             Une pose que le viewer ne devine pas ne fait pas un bon bit.
@@ -185,11 +190,39 @@ import {
               <span class="stats lbl">
                 {{ srcLabel(g.source) }} · seuil
                 <span class="num">{{ effective(g).toFixed(3) }}</span>
-                @if ((g.sensitivity ?? 1) !== 1) {
-                  <span class="num sens">{{ ((g.sensitivity ?? 1) * 100).toFixed(0) }}%</span>
-                }
                 · <span class="num">{{ g.rawSamples.length }}</span> prises
               </span>
+              <!-- Le même réglage que sur une carte à meme, et pour la même
+                   raison : un maillon qui ne part jamais n'apparaît jamais dans
+                   la toile de Live, donc n'y était jamais réglable. -->
+              <div class="sens">
+                <span class="lbl">déclenchement</span>
+                <span class="end">strict</span>
+                <input
+                  type="range"
+                  min="0.4"
+                  max="3"
+                  step="0.05"
+                  [value]="g.sensitivity ?? 1"
+                  (input)="previewSens(g, +$any($event.target).value)"
+                  (change)="commitSens(g)"
+                  title="Vers la gauche, la pose doit être plus juste pour partir. Vers la droite, elle part plus facilement — et risque davantage de partir toute seule."
+                  [attr.aria-label]="'Facilité de déclenchement de ' + g.name"
+                />
+                <span class="end">facile</span>
+                <b class="num pct" [class.tuned]="(g.sensitivity ?? 1) !== 1">
+                  {{ ((g.sensitivity ?? 1) * 100).toFixed(0) }}%
+                </b>
+                @if ((g.sensitivity ?? 1) !== 1) {
+                  <button
+                    class="ghost sm"
+                    (click)="autoSens(g)"
+                    title="Revenir au seuil mesuré à l'enregistrement"
+                  >
+                    auto
+                  </button>
+                }
+              </div>
             </div>
 
             <!-- À quoi il sert : l'info qui manque le plus sur un maillon. -->
@@ -211,9 +244,9 @@ import {
             <button
               class="sm"
               (click)="testing.set(g)"
-              title="Tenir la pose devant la caméra et mesurer si elle est reconnue"
+              title="Tenir la pose devant la caméra et mesurer, en direct, si elle est reconnue"
             >
-              <app-icon name="target" [size]="14" /> Tester la pose
+              <app-icon name="target" [size]="14" /> Vérifier ma pose
             </button>
             <button
               class="ghost sm"
@@ -225,9 +258,9 @@ import {
             <button
               class="ghost sm"
               (click)="promote(g)"
-              title="Rendre cette pose autonome : elle repassera dans Memes"
+              title="La pose affichera son meme toute seule, sans attendre le reste de la macro"
             >
-              <app-icon name="up" [size]="15" />
+              <app-icon name="up" [size]="15" /> Rendre autonome
             </button>
             <button class="ghost sm" (click)="remove(g)" [attr.aria-label]="'Supprimer ' + g.name">
               <app-icon name="trash" [size]="15" />
@@ -278,11 +311,44 @@ import {
               (change)="rename(g, $any($event.target).value)"
               [attr.aria-label]="'Nom de ' + g.name"
             />
+            <!-- Le réglage qui n'existait nulle part.
+                 Le pourcentage était AFFICHÉ ici et modifiable seulement en
+                 glissant un trait sur la toile de Live — laquelle ne montre que
+                 les trois poses les plus proches de ce qu'on fait à l'instant.
+                 Une pose qui ne se déclenche jamais n'y entrait donc jamais :
+                 exactement celle qu'on cherche à assouplir. Le wizard, lui,
+                 conseillait « règle la sensibilité des deux ensuite » — une
+                 promesse que rien dans l'interface ne savait tenir. -->
+            <div class="sens">
+              <span class="lbl">déclenchement</span>
+              <span class="end">strict</span>
+              <input
+                type="range"
+                min="0.4"
+                max="3"
+                step="0.05"
+                [value]="g.sensitivity ?? 1"
+                (input)="previewSens(g, +$any($event.target).value)"
+                (change)="commitSens(g)"
+                title="Vers la gauche, la pose doit être plus juste pour partir. Vers la droite, elle part plus facilement — et risque davantage de partir toute seule."
+                [attr.aria-label]="'Facilité de déclenchement de ' + g.name"
+              />
+              <span class="end">facile</span>
+              <b class="num pct" [class.tuned]="(g.sensitivity ?? 1) !== 1">
+                {{ ((g.sensitivity ?? 1) * 100).toFixed(0) }}%
+              </b>
+              @if ((g.sensitivity ?? 1) !== 1) {
+                <button
+                  class="ghost sm"
+                  (click)="autoSens(g)"
+                  title="Revenir au seuil mesuré à l'enregistrement"
+                >
+                  auto
+                </button>
+              }
+            </div>
             <div class="stats lbl">
               seuil <span class="num">{{ effective(g).toFixed(3) }}</span>
-              @if ((g.sensitivity ?? 1) !== 1) {
-                <span class="num sens">{{ ((g.sensitivity ?? 1) * 100).toFixed(0) }}%</span>
-              }
               · <span class="num">{{ g.rawSamples.length }}</span> prises
               @if (needsPosition(g)) {
                 <span
@@ -339,16 +405,16 @@ import {
             <button
               class="sm"
               (click)="matcher.testTrigger(g.id)"
-              title="Envoie le meme dans OBS, sans toucher à la pose"
+              title="Envoie le meme dans OBS tout de suite, sans toucher à la pose"
             >
-              <app-icon name="zap" [size]="14" /> Aperçu
+              <app-icon name="zap" [size]="14" /> Voir dans OBS
             </button>
             <button
               class="sm"
               (click)="testing.set(g)"
-              title="Tenir la pose devant la caméra et mesurer si elle est reconnue"
+              title="Tenir la pose devant la caméra et mesurer, en direct, si elle est reconnue"
             >
-              <app-icon name="target" [size]="14" /> Tester la pose
+              <app-icon name="target" [size]="14" /> Vérifier ma pose
             </button>
             <button
               class="ghost sm"
@@ -363,9 +429,9 @@ import {
             <button
               class="ghost sm"
               (click)="demote(g)"
-              title="Renvoyer vers Maillons de macro : la pose n'affichera plus son meme toute seule"
+              title="La pose reste utilisable dans une macro, mais n'affichera plus son meme toute seule"
             >
-              <app-icon name="down" [size]="15" />
+              <app-icon name="down" [size]="15" /> Maillon seulement
             </button>
             <span class="spacer"></span>
             <button class="ghost sm" (click)="remove(g)" [attr.aria-label]="'Supprimer ' + g.name">
@@ -549,7 +615,21 @@ import {
       margin-top: 5px; text-transform: none; letter-spacing: 0; font-size: 11.5px;
     }
     .stats .num { color: var(--ink); }
-    .stats .sens { color: var(--accent-hi); }
+
+    /* Le curseur de déclenchement. Rangée unique : la carte est déjà dense, et
+       ce reglage doit se lire d'un coup d'oeil sans agrandir la tuile. Les deux
+       bouts sont ecrits en toutes lettres — un curseur sans extremites nommees
+       ne dit pas dans quel sens il va. */
+    .sens {
+      display: flex; align-items: center; gap: 7px;
+      margin-top: 8px; font-size: 11px;
+    }
+    .sens .lbl { text-transform: uppercase; letter-spacing: 0.04em; }
+    .sens .end { color: var(--ink-3); font-size: 10px; white-space: nowrap; }
+    .sens input[type='range'] { flex: 1; min-width: 54px; }
+    .sens .pct { color: var(--ink-2); font-size: 11.5px; min-width: 34px; text-align: right; }
+    .sens .pct.tuned { color: var(--accent-hi); }
+    .sens button { padding: 2px 7px; font-size: 10.5px; }
 
     /* N'apparaît que si la pose sert dans un enchaînement : hors de ce cas,
        l'option n'aurait aucun sens et n'ajouterait que du bruit. */
@@ -582,6 +662,8 @@ import {
 })
 export class GesturesPage {
   protected store = inject(StoreService)
+  protected readonly whyLocked =
+    'Calibration requise : elle est dans Réglages, et ne prend que vingt secondes.'
   protected matcher = inject(MatcherService)
   private confirm = inject(ConfirmService)
   wizardOpen = signal(false)
@@ -684,6 +766,24 @@ export class GesturesPage {
 
   effective(g: StoredGesture): number {
     return effectiveThreshold(g)
+  }
+
+  /** Pendant le glissement : mémoire seulement. Écrire à chaque pixel ferait
+   *  des centaines d'écritures disque pour un seul réglage. */
+  previewSens(g: StoredGesture, v: number): void {
+    this.store.setSensitivityLocal(g.id, v)
+  }
+
+  /** Au relâchement : c'est là, et seulement là, qu'on écrit. */
+  async commitSens(g: StoredGesture): Promise<void> {
+    await this.store.persistGesture(g.id)
+  }
+
+  /** Retour au seuil mesuré à l'enregistrement. Un réglage sans chemin de
+   *  retour est un piège : on n'ose plus y toucher. */
+  async autoSens(g: StoredGesture): Promise<void> {
+    this.store.setSensitivityLocal(g.id, 1)
+    await this.store.persistGesture(g.id)
   }
 
   render(g: StoredGesture): StoredBinding {

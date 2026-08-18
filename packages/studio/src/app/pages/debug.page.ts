@@ -39,7 +39,7 @@ interface OverlayStats {
   template: `
     <div class="head">
       <div>
-        <h1>Debug</h1>
+        <h1>Diagnostic</h1>
         <p class="lbl sub">Ce que la machine mesure, pas ce qu'elle promet.</p>
       </div>
       <span class="spacer"></span>
@@ -124,7 +124,7 @@ interface OverlayStats {
         </span>
       </div>
       @if (!store.gestures().length) {
-        <p class="empty">Aucune gesture dans ce profil.</p>
+        <p class="empty">Aucune pose dans ce profil.</p>
       } @else {
         <canvas #hist></canvas>
         <p class="lbl note">
@@ -140,7 +140,7 @@ interface OverlayStats {
     <!-- Détail des gestures -->
     <div class="card">
       <div class="cardhead">
-        <h2>État des gestures</h2>
+        <h2>État des poses</h2>
         <span class="lbl legend">{{ rows().length }} pose(s)</span>
       </div>
       <div class="scroller">
@@ -195,7 +195,7 @@ interface OverlayStats {
       <p class="lbl note">
         La distance est une moyenne quadratique sur toutes les dimensions : une
         seule clé qui oscille alors que tu ne bouges pas pollue <b>toutes</b> les
-        comparaisons, y compris celles des gestures qui ne s'en servent pas. Une
+        comparaisons, y compris celles des poses qui ne s'en servent pas. Une
         amplitude au repos au-dessus de <span class="num">{{ UNSTABLE }}</span>
         coûte plus qu'elle ne rapporte. Mesure ici avant d'ajouter une clé au
         featurizer — c'est l'absence de cette mesure qui a déréglé la v4.
@@ -272,7 +272,7 @@ interface OverlayStats {
         }
         <span class="lbl note flat">
           Un bloc de texte à coller si tu demandes de l'aide : versions, cadence,
-          latences, état des gestures. Aucune image, aucun jeton.
+          latences, état des poses. Aucune image, aucun jeton.
         </span>
       </div>
     </div>

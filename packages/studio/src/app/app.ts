@@ -28,16 +28,29 @@ import { VcamService } from './services/vcam.service'
           <span class="word">deck<b>4</b>me</span>
         </div>
 
+        <!-- Cinq destinations, et une seule langue.
+             « Gestures » disait en anglais ce que tout le reste de
+             l'application appelle une pose — jusque dans le même écran, où le
+             titre annonçait Gestures et le sous-titre comptait des poses. Deux
+             mots pour un objet, c'est un objet de plus à apprendre. -->
         <nav>
           <a routerLink="/live" routerLinkActive="on"><app-icon name="live" /> Live</a>
-          <a routerLink="/gestures" routerLinkActive="on"><app-icon name="hand" /> Gestures</a>
+          <a routerLink="/gestures" routerLinkActive="on"><app-icon name="hand" /> Poses</a>
           <a routerLink="/macros" routerLinkActive="on"><app-icon name="zap" /> Macros</a>
           <a routerLink="/deck" routerLinkActive="on"><app-icon name="keyboard" /> Deck</a>
-          <a routerLink="/debug" routerLinkActive="on"><app-icon name="pulse" /> Debug</a>
           <a routerLink="/reglages" routerLinkActive="on"><app-icon name="sliders" /> Réglages</a>
         </nav>
 
         <span class="spacer"></span>
+
+        <!-- Le diagnostic n'est pas une destination.
+             Il occupait un sixième du rail, au même poids visuel que Live, sur
+             le chemin normal — avec des sections nommées « Stabilité des
+             blendshapes ». Le public visé n'a pas à savoir ce qu'est un
+             blendshape. Il reste atteignable, en bas, en discret. -->
+        <a class="diag" routerLink="/debug" routerLinkActive="on">
+          <app-icon name="pulse" [size]="14" /> Diagnostic
+        </a>
 
         <!-- Régie -->
         <div class="console">
@@ -70,7 +83,7 @@ import { VcamService } from './services/vcam.service'
             <button class="primary wide" (click)="matcher.unmute()">
               <app-icon name="play" [size]="16" /> Réactiver
             </button>
-            <p class="cut">Gestures coupées.</p>
+            <p class="cut">Poses coupées.</p>
           } @else {
             <button class="danger wide" (click)="matcher.panic()">
               <app-icon name="power" [size]="16" /> Panic
@@ -156,6 +169,16 @@ import { VcamService } from './services/vcam.service'
       background: var(--accent-hi);
       box-shadow: 0 0 12px var(--accent);
     }
+
+    .diag {
+      display: flex; align-items: center; gap: 9px;
+      padding: 6px 11px; margin-bottom: 8px; border-radius: 9px;
+      color: var(--ink-3); text-decoration: none; font-size: 12px;
+      transition: color 160ms var(--ease), background 160ms var(--ease);
+    }
+    .diag app-icon { color: var(--ink-3); }
+    .diag:hover { color: var(--ink-2); background: #ffffff06; }
+    .diag.on { color: var(--ink-2); background: #ffffff0a; }
 
     .console {
       display: flex; flex-direction: column; gap: 9px;

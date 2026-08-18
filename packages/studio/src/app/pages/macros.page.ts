@@ -45,7 +45,7 @@ import {
       <div>
         <h1>Macros</h1>
         <p class="lbl sub">
-          {{ store.macros().length }} enchaînement(s) dans
+          {{ store.macros().length }} macro(s) dans
           « {{ store.activeProfile()?.name }} »
         </p>
       </div>
@@ -58,16 +58,21 @@ import {
           Relier mes {{ store.freeLinkGestures().length }} maillons libres
         </button>
       } @else if (store.gestures().length >= 2) {
-        <button [disabled]="!store.calibration()" (click)="create()">
+        <button
+          [disabled]="!store.calibration()"
+          [title]="store.calibration() ? 'Assembler une macro avec des poses déjà enregistrées' : whyLocked"
+          (click)="create()"
+        >
           <app-icon name="layers" [size]="16" /> Depuis mes poses
         </button>
       }
       <button
         [class.primary]="store.freeLinkGestures().length < MIN"
         [disabled]="!store.calibration()"
+        [title]="store.calibration() ? 'Faire les poses à la suite, en une seule session' : whyLocked"
         (click)="record()"
       >
-        <app-icon name="hand" [size]="16" /> Enregistrer un enchaînement
+        <app-icon name="hand" [size]="16" /> Enregistrer une macro
       </button>
     </div>
 
@@ -90,7 +95,7 @@ import {
               — « Relier mes maillons libres » en fait une macro d'un clic, dans
               leur ordre d'enregistrement.
             } @else {
-              — il en faut au moins {{ MIN }} pour former un enchaînement.
+              — il en faut au moins {{ MIN }} pour former une macro.
             }
           </p>
         </div>
@@ -103,7 +108,7 @@ import {
         <b>Il faut d'abord se calibrer.</b>
         <p class="lbl">
           Le seuil d'une pose se mesure par rapport à ton visage au repos.
-          <a routerLink="/live">Fais la calibration</a>, puis reviens.
+          <a routerLink="/reglages">Fais la calibration</a>, puis reviens.
         </p>
       </div>
     } @else if (!store.macros().length) {
@@ -111,10 +116,10 @@ import {
         <span class="bigmark"><app-icon name="zap" [size]="30" /></span>
         <b>Aucune macro pour l'instant.</b>
         <p class="lbl">
-          <b>Enregistrer un enchaînement</b> te fait faire les poses à la suite,
+          <b>Enregistrer une macro</b> te fait faire les poses à la suite,
           en une seule session — c'est le chemin normal. Elles n'auront pas de
           meme à elles : elles ne servent qu'à déclencher la macro.
-          <b>Depuis mes poses</b> réutilise au contraire des gestures qui
+          <b>Depuis mes poses</b> réutilise au contraire des poses qui
           existent déjà.
         </p>
         <p class="lbl">
@@ -354,9 +359,9 @@ import {
       <div class="card tip">
         <app-icon name="target" [size]="18" />
         <div>
-          <b>Une pose enregistrée ici ne coûte pas la même chose qu'une gesture.</b>
+          <b>Une pose enregistrée ici ne coûte pas la même chose qu'une pose à meme.</b>
           <p class="lbl">
-            Les poses créées par « Enregistrer un enchaînement » sont marquées
+            Les poses créées par « Enregistrer une macro » sont marquées
             <b>« maillon seulement »</b> : elles n'affichent rien toutes seules,
             donc un faux positif ne fait rien tant que la pose suivante n'arrive
             pas derrière. Tu peux les faire moins appuyées qu'une pose à meme.
@@ -366,7 +371,7 @@ import {
             chaque nouvelle pose resserre le seuil de ses voisines. Si tu réutilises
             au contraire une pose qui a déjà un meme, pense à la marquer
             « maillon seulement » sur sa carte dans
-            <a routerLink="/gestures">Gestures</a>, sinon son meme apparaîtra au
+            <a routerLink="/gestures">Poses</a>, sinon son meme apparaîtra au
             passage.
           </p>
         </div>
@@ -554,6 +559,8 @@ import {
 })
 export class MacrosPage implements OnDestroy {
   protected store = inject(StoreService)
+  protected readonly whyLocked =
+    'Calibration requise : elle est dans Réglages, et ne prend que vingt secondes.'
   protected matcher = inject(MatcherService)
   private confirm = inject(ConfirmService)
   protected readonly MIN = MACRO_MIN_STEPS
@@ -665,7 +672,7 @@ export class MacrosPage implements OnDestroy {
     // gesture empêche un second déclenchement dans la fenêtre.
     for (let i = 1; i < m.steps.length; i++) {
       if (m.steps[i] === m.steps[i - 1]) {
-        return 'Deux fois la même pose à la suite : le temps de repos de la gesture empêchera le second déclenchement.'
+        return 'Deux fois la même pose à la suite : le temps de repos de la pose empêchera le second déclenchement.'
       }
     }
     return null
@@ -732,7 +739,7 @@ export class MacrosPage implements OnDestroy {
     const first = this.store.allGestures().find((g) => g.id === ids[0])
     // Les maillons s'appellent « <nom> ① » : on retire le chiffre cerclé pour
     // retrouver le nom que l'utilisateur a réellement tapé.
-    const name = (first?.name ?? 'Enchaînement').replace(/\s*[①②③④]\s*$/, '')
+    const name = (first?.name ?? 'Macro').replace(/\s*[①②③④]\s*$/, '')
     const id = crypto.randomUUID()
     await this.store.saveMacro({
       id,
@@ -839,8 +846,8 @@ export class MacrosPage implements OnDestroy {
       // Les poses survivent — c'est LA question qu'on se pose avant de
       // supprimer une macro, autant y répondre sans qu'on la pose.
       body: n
-        ? `Ses ${n} action(s) partent avec elle. Les poses de l'enchaînement restent dans Gestures.`
-        : "Les poses de l'enchaînement restent dans Gestures.",
+        ? `Ses ${n} action(s) partent avec elle. Les poses de la macro restent dans Poses.`
+        : "Les poses de la macro restent dans Poses.",
       danger: true,
     })
     if (ok) await this.store.deleteMacro(m.id)

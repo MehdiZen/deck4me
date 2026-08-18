@@ -17,7 +17,7 @@ import { Icon } from './icon'
     <div class="card">
       <h2>Profils</h2>
       <p class="lbl">
-        Chaque profil a ses propres gestures. Le profil actif est le seul armé —
+        Chaque profil a ses propres poses. Le profil actif est le seul armé —
         change-en depuis le rail à gauche, ou avec le raccourci « profil suivant ».
       </p>
 
@@ -45,7 +45,7 @@ import { Icon } from './icon'
             } @else {
               <b class="nm" (dblclick)="renaming.set(p.id)">{{ p.name }}</b>
               <span class="lbl count">
-                <span class="num">{{ count(p.id) }}</span> gesture(s)
+                <span class="num">{{ count(p.id) }}</span> pose(s)
               </span>
               <span class="spacer"></span>
               <button class="ghost sm" (click)="renaming.set(p.id)" aria-label="Renommer">

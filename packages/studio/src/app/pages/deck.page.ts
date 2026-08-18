@@ -40,16 +40,19 @@ import { DECK_LABELS, DECK_LAYOUT, deckAccel } from './deck-layout'
           <app-icon [name]="armed() ? 'zap' : 'power'" [size]="15" />
           {{ armed() ? 'Deck armé' : 'Deck désarmé' }}
         </label>
-        <label class="arm" [class.on]="pinned()" [class.off]="!armed()">
-          <input
-            type="checkbox"
-            [checked]="pinned()"
-            [disabled]="!armed()"
-            (change)="togglePinned($event)"
-          />
-          <app-icon name="eye" [size]="15" />
-          Widget épinglé
-        </label>
+        <!-- Un seul interrupteur de premier rang.
+             Deux bascules côte à côte, dont l'une commandait l'autre — armer
+             force désormais l'épinglage — se lisaient comme un réglage cassé :
+             on cochait, l'autre bougeait toute seule. Le deck s'arme ou ne
+             s'arme pas ; l'affichage du widget est une préférence
+             subordonnée, et elle n'a de sens qu'une fois armé. -->
+        @if (armed()) {
+          <label class="subopt">
+            <input type="checkbox" [checked]="pinned()" (change)="togglePinned($event)" />
+            <app-icon name="eye" [size]="14" />
+            Afficher le widget
+          </label>
+        }
       </div>
     </header>
 
@@ -62,9 +65,9 @@ import { DECK_LABELS, DECK_LAYOUT, deckAccel } from './deck-layout'
       <!-- L'état muet d'avant : le deck marchait, le widget était masqué, et
            rien ne le disait. On le dit. -->
       <p class="note">
-        Le deck fonctionne, mais <b>le widget est masqué</b>. Les accords
+        Le deck fonctionne, mais <b>le widget est masqué</b>. Les combinaisons
         déclenchent bien ; tu n'as simplement pas l'aide-mémoire à l'écran.
-        Coche « Widget épinglé » pour le faire apparaître.
+        Coche « Afficher le widget » pour le faire revenir.
       </p>
     }
 
@@ -184,6 +187,14 @@ import { DECK_LABELS, DECK_LAYOUT, deckAccel } from './deck-layout'
     .arm.on { border-color: #5eead466; background: #5eead41a; color: #5eead4; }
     .arm.off { opacity: .45; cursor: default; }
     .arm input { accent-color: #5eead4; }
+    /* Subordonnee, et qui en a l'air : elle se range sous l'interrupteur
+       principal, sans cadre, en plus petit. Une preference n'a pas le meme
+       poids qu'un armement. */
+    .subopt {
+      display: flex; align-items: center; gap: 7px;
+      padding-left: 4px; font-size: 12px; color: var(--ink-2); cursor: pointer;
+    }
+    .subopt input { accent-color: #5eead4; }
     .note {
       margin: 0 0 16px; padding: 10px 13px; border-radius: 9px;
       border: 1px solid var(--line-soft); background: var(--surface);

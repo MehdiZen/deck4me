@@ -89,7 +89,7 @@ interface LinkDraft {
               </p>
             }
             <p>
-              <label class="lbl">{{ isChain ? "Nom de l'enchaînement" : 'Nom' }}</label><br />
+              <label class="lbl">{{ isChain ? "Nom de la macro" : 'Nom' }}</label><br />
               <input
                 [(ngModel)]="name"
                 [placeholder]="isChain ? 'ex. Changer de scène' : 'ex. Sourire forcé'"
@@ -133,10 +133,10 @@ interface LinkDraft {
                 <span>
                   Les {{ links() }} poses seront enregistrées <b>à la suite</b>, 3 prises
                   chacune, puis marquées <b>« maillon seulement »</b> — elles
-                  déclenchent l'enchaînement sans rien afficher toutes seules.
+                  déclenchent la macro sans rien afficher toutes seules.
                   Elles s'appelleront « {{ chainName() }} {{ CIRCLED[0] }} »,
                   « {{ chainName() }} {{ CIRCLED[1] }} »… et restent renommables
-                  ensuite dans Gestures.
+                  ensuite dans Poses.
                 </span>
               </p>
             }
@@ -183,17 +183,11 @@ interface LinkDraft {
               </ol>
             }
             @if (verdict(); as v) {
-              <ul>
-                <li>Samples retenus : {{ keptCount() }} / {{ TAKES * SAMPLES_PER_TAKE }}</li>
-                <li>Dispersion intra-pose max : {{ v.maxIntra.toFixed(3) }}</li>
-                <li>Seuil auto : <b>{{ v.threshold.toFixed(3) }}</b></li>
-                @if (v.nearestOther; as n) {
-                  <li>Gesture la plus proche : « {{ nameOf(n.gestureId) }} » à {{ n.dist.toFixed(3) }}</li>
-                }
-                @if (v.nearestNegative !== null) {
-                  <li>Parole normale la plus proche : {{ v.nearestNegative!.toFixed(3) }}</li>
-                }
-              </ul>
+              <!-- Le verdict AVANT les chiffres.
+                   L'ordre inverse était l'ordre de la lecture inversé : quatre
+                   lignes de mesures d'abord, puis la seule phrase qu'on soit
+                   venu chercher — « c'est bon ou pas ? ». Les mesures ne
+                   disparaissent pas, elles attendent qu'on les demande. -->
               @switch (v.verdict) {
                 @case ('collision') {
                   <!-- Avertissement, plus refus. Le détail de ce qui arrive
@@ -216,7 +210,7 @@ interface LinkDraft {
                          mensonge par excès de prudence. -->
                     <p class="badge ok verdict">
                       Cette pose ressemble à ta tête en parlant normalement — sans
-                      importance dans un enchaînement : rien ne part tant que la
+                      importance dans une macro : rien ne part tant que la
                       pose suivante n'arrive pas derrière.
                     </p>
                   } @else {
@@ -230,6 +224,23 @@ interface LinkDraft {
                   <p class="badge ok verdict">Pose propre, seuil fiable.</p>
                 }
               }
+              <details class="detail">
+                <summary>Le détail des mesures</summary>
+                <ul>
+                  <li>Images retenues : {{ keptCount() }} / {{ TAKES * SAMPLES_PER_TAKE }}</li>
+                  <li>
+                    Écart entre tes 3 prises : {{ v.maxIntra.toFixed(3) }}
+                    <span class="lbl">— plus c'est bas, plus tu refais la pose à l'identique</span>
+                  </li>
+                  <li>Seuil retenu : <b>{{ v.threshold.toFixed(3) }}</b></li>
+                  @if (v.nearestOther; as n) {
+                    <li>Pose la plus proche : « {{ nameOf(n.gestureId) }} » à {{ n.dist.toFixed(3) }}</li>
+                  }
+                  @if (v.nearestNegative !== null) {
+                    <li>Ta tête en parlant normalement : {{ v.nearestNegative!.toFixed(3) }}</li>
+                  }
+                </ul>
+              </details>
             }
             <p style="display:flex; gap:8px; justify-content:flex-end">
               <button (click)="retry()">Refaire les prises</button>
@@ -300,6 +311,17 @@ interface LinkDraft {
     li:last-child { border-bottom: 0; }
     li b { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
     .verdict { display: block; padding: 11px 13px; line-height: 1.55; white-space: normal; }
+
+    /* Les mesures, repliees. Elles restent accessibles d'un clic — un chiffre
+       qu'on ne peut plus retrouver est un chiffre qu'on n'ose plus supprimer. */
+    .detail { margin: 12px 0 0; }
+    .detail summary {
+      cursor: pointer; font-size: 12px; color: var(--ink-3);
+      padding: 4px 0; user-select: none;
+    }
+    .detail summary:hover { color: var(--ink-2); }
+    .detail ul { margin: 6px 0 0; padding-left: 20px; font-size: 12.5px; line-height: 1.7; }
+    .detail .lbl { text-transform: none; letter-spacing: 0; font-size: 11.5px; }
     /* Ce qui est conservé mérite d'être dit avant la première prise : sans ça,
        on hésite à réenregistrer de peur de tout perdre. */
     .keep {
@@ -440,9 +462,9 @@ export class Wizard implements OnInit, OnDestroy {
   }
 
   configTitle(): string {
-    if (this.isChain) return 'Enregistrer un enchaînement'
+    if (this.isChain) return 'Enregistrer une macro'
     if (this.isLink) return 'Nouvelle pose de maillon'
-    return this.replacing ? 'Réenregistrer la pose' : 'Nouvelle gesture'
+    return this.replacing ? 'Réenregistrer la pose' : 'Nouvelle pose'
   }
 
   /** « Maillon 2/3 — » devant chaque titre de prise, pour ne jamais se demander

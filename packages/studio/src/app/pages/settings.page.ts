@@ -6,6 +6,7 @@ import { Profiles } from '../components/profiles'
 import { Updater } from '../components/updater'
 import { VirtualCamCard } from '../components/virtual-cam'
 import { DetectionService } from '../services/detection.service'
+import { OverlayService } from '../services/overlay.service'
 import { StoreService } from '../services/store.service'
 
 @Component({
@@ -15,7 +16,7 @@ import { StoreService } from '../services/store.service'
     <div class="head">
       <div>
         <h1>Réglages</h1>
-        <p class="lbl sub">Caméra, overlay, profils et raccourcis.</p>
+        <p class="lbl sub">Caméra, calibration, overlay OBS, profils et raccourcis.</p>
       </div>
     </div>
 
@@ -89,7 +90,7 @@ import { StoreService } from '../services/store.service'
         </label>
       </div>
 
-      <app-virtual-cam />
+      <app-calibration />
 
       <div class="card">
         <h2>Overlay OBS</h2>
@@ -110,6 +111,31 @@ import { StoreService } from '../services/store.service'
             {{ copied() ? 'Copié' : 'Copier' }}
           </button>
         </div>
+        <!-- Le seul endroit de l'application qui réponde à « est-ce que c'est
+             branché ? ». Sans lui, tout le reste peut afficher du vert alors
+             que rien n'arrivera jamais en stream : la pose est reconnue, le
+             meme est envoyé, et personne n'est au bout du fil. -->
+        <div class="row wire">
+          @if (overlay.connected()) {
+            <span class="badge ok">
+              <i class="led on"></i>
+              OBS reçoit l'overlay
+              @if ((overlay.clients() ?? 0) > 1) {
+                · <b class="num">{{ overlay.clients() }}</b> sources
+              }
+            </span>
+            <span class="lbl">Tes memes s'afficheront.</span>
+          } @else if (overlay.missing()) {
+            <span class="badge warn"><i class="led"></i> aucune source connectée</span>
+            <span class="lbl">
+              Tant que cette URL n'est pas dans OBS, <b>rien ne s'affichera</b>,
+              même si la pose est reconnue.
+            </span>
+          } @else {
+            <span class="badge"><i class="led"></i> vérification…</span>
+          }
+        </div>
+
         <p class="lbl warnline">
           Cette adresse contient un jeton privé : ne la laisse pas apparaître à
           l'écran pendant un stream. Port <span class="num">{{ store.port() }}</span>,
@@ -117,9 +143,10 @@ import { StoreService } from '../services/store.service'
         </p>
       </div>
 
+      <app-virtual-cam />
+
       <app-profiles />
       <app-hotkeys />
-      <app-calibration />
       <app-updater />
     </div>
   `,
@@ -132,6 +159,8 @@ import { StoreService } from '../services/store.service'
     .grow { flex: 1; min-width: 0; }
     .url { font-family: var(--font-data); font-size: 12px; }
     .warnline { border-left: 2px solid var(--st-candidate); padding-left: 11px; }
+    .wire { flex-wrap: wrap; }
+    .wire .lbl { text-transform: none; letter-spacing: 0; font-size: 12px; flex: 1; min-width: 200px; }
     .opt { display: flex; align-items: flex-start; gap: 11px; cursor: pointer; font-size: 13.5px; margin-top: 14px; }
     .opt .lbl { display: block; margin-top: 2px; text-transform: none; letter-spacing: 0; font-size: 11.5px; }
   `,
@@ -139,6 +168,7 @@ import { StoreService } from '../services/store.service'
 export class SettingsPage {
   protected store = inject(StoreService)
   protected detection = inject(DetectionService)
+  protected overlay = inject(OverlayService)
   copied = signal(false)
 
   constructor() {
