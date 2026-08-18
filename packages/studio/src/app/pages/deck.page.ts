@@ -58,6 +58,14 @@ import { DECK_LABELS, DECK_LAYOUT, deckAccel } from './deck-layout'
         Tant que le deck est désarmé, aucun raccordement au clavier n'est
         installé. Rien de ce qui est ci-dessous ne se déclenchera.
       </p>
+    } @else if (!pinned()) {
+      <!-- L'état muet d'avant : le deck marchait, le widget était masqué, et
+           rien ne le disait. On le dit. -->
+      <p class="note">
+        Le deck fonctionne, mais <b>le widget est masqué</b>. Les accords
+        déclenchent bien ; tu n'as simplement pas l'aide-mémoire à l'écran.
+        Coche « Widget épinglé » pour le faire apparaître.
+      </p>
     }
 
     <nav class="pages">
@@ -306,8 +314,21 @@ export class DeckPage {
     this.selectedKey.set(key)
   }
 
+  /**
+   * Armer le deck montre AUSSI le widget.
+   *
+   * Les deux réglages étaient indépendants et valaient `false` au départ :
+   * armer le deck créait donc le widget puis le masquait aussitôt, et cocher ou
+   * décocher cette case ne pouvait rien y changer — jamais. Le widget avait
+   * l'air capricieux ; il obéissait exactement à un second réglage dont rien ne
+   * disait qu'il commandait la visibilité.
+   *
+   * Le masquer reste possible, mais devient un acte délibéré : on décoche la
+   * case d'à côté, après. Désarmer ne remet pas ce choix en cause.
+   */
   protected toggleArmed(ev: Event): void {
-    void this.store.saveSettings({ deckEnabled: (ev.target as HTMLInputElement).checked })
+    const on = (ev.target as HTMLInputElement).checked
+    void this.store.saveSettings(on ? { deckEnabled: true, deckPinned: true } : { deckEnabled: false })
   }
 
   /** Épinglé, le widget reste à l'écran et accepte les clics.

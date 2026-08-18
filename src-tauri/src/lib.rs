@@ -503,8 +503,17 @@ fn deck_apply(handle: &tauri::AppHandle) {
         return;
     }
     if let Err(e) = deckwin::ensure(handle) {
+        // Journalisé ET abandonné ici. Continuer appellerait `set_pinned` sur
+        // une fenêtre qui n'existe pas, laquelle ne fait rien en silence : on
+        // aurait alors un widget absent sans la moindre trace de la raison.
         diag::log("deck", &format!("widget impossible à créer : {e}"));
+        return;
     }
+    // Les DEUX réglages sont écrits, parce que « armé » et « visible » sont
+    // deux choses différentes et que leur confusion a déjà coûté une panne :
+    // armé sans épinglage donne un deck qui fonctionne et un widget invisible,
+    // ce qui ressemble beaucoup à un widget cassé.
+    diag::log("deck", &format!("widget : armé = {enabled}, épinglé = {pinned}"));
     deckwin::set_pinned(handle, pinned);
     // La page affichée suit les modificateurs tenus. Aucun hook là-dedans :
     // on interroge l'état des touches, ce que Windows n'a jamais refusé.
