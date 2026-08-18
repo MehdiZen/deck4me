@@ -365,6 +365,26 @@ input[type="checkbox"] { accent-color: var(--accent); width: 17px; height: 17px;
 
 :focus-visible { outline: 2px solid var(--accent-hi); outline-offset: 2px; }
 
+/* ---- Fenêtres modales ---- */
+
+/* Le fond d'une modale : cinq composants le redéfinissaient à l'identique, sous
+   deux noms d'animation différents, et avaient fini par diverger sur le flou et
+   la marge. Les styles de composant sont portés, les keyframes non : un
+   @keyframes déclaré dans un composant est de toute façon global. */
+.modal-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #07060acc;
+  backdrop-filter: blur(5px);
+  animation: fade 160ms ease-out;
+}
+
+@keyframes fade { from { opacity: 0 } }
+
 /* ---- Pastilles d'état ---- */
 
 .badge {

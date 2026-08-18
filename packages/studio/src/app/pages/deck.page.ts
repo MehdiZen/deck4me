@@ -40,12 +40,8 @@ import { DECK_LABELS, DECK_LAYOUT, deckAccel } from './deck-layout'
           <app-icon [name]="armed() ? 'zap' : 'power'" [size]="15" />
           {{ armed() ? 'Deck armé' : 'Deck désarmé' }}
         </label>
-        <!-- Un seul interrupteur de premier rang.
-             Deux bascules côte à côte, dont l'une commandait l'autre — armer
-             force désormais l'épinglage — se lisaient comme un réglage cassé :
-             on cochait, l'autre bougeait toute seule. Le deck s'arme ou ne
-             s'arme pas ; l'affichage du widget est une préférence
-             subordonnée, et elle n'a de sens qu'une fois armé. -->
+        <!-- Subordonnée : armer force l'épinglage, donc cette case ne sert
+             qu'à masquer le widget d'un deck armé. -->
         @if (armed()) {
           <label class="subopt">
             <input type="checkbox" [checked]="pinned()" (change)="togglePinned($event)" />
@@ -83,13 +79,8 @@ import { DECK_LABELS, DECK_LAYOUT, deckAccel } from './deck-layout'
       }
     </nav>
 
-    <!-- Le nom d'une page et sa combinaison se changent.
-         Les deux etaient lus partout — les onglets ici, l'en-tete du widget,
-         l'accord enregistre aupres de Windows — et ecrits nulle part. Les
-         trois pages s'appelaient donc « Page 1 », « Page 2 », « Page 3 » a
-         vie, alors que le widget est precisement la pour remplacer les
-         etiquettes d'un boitier ; et la combinaison etait figee sur Alt, sans
-         recours si elle tombait sur celle d'un autre logiciel. -->
+    <!-- Le nom nourrit les onglets et l'en-tête du widget, la combinaison
+         l'accord enregistré auprès de Windows. -->
     <div class="pagecfg">
       <label>
         <span class="lbl">Nom de cette page</span>

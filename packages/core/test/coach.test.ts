@@ -7,9 +7,11 @@ function empty(): FeatureBlocks {
   return { face: null, hands: [null, null], handPos: [null, null] }
 }
 
-function face(set: Record<string, number>): FeatureBlocks {
+type FaceKey = (typeof FACE_KEYS)[number]
+
+function face(set: Partial<Record<FaceKey, number>>): FeatureBlocks {
   const v = new Float32Array(FACE_DIMS)
-  for (const [k, val] of Object.entries(set)) v[FACE_KEYS.indexOf(k)] = val
+  for (const [k, val] of Object.entries(set)) v[FACE_KEYS.indexOf(k as FaceKey)] = val!
   return { ...empty(), face: v }
 }
 

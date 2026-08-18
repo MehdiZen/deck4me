@@ -33,8 +33,9 @@ describe('Matcher', () => {
     const m = new Matcher()
     m.setGestures([gesture('smile', 2), gesture('shock', 9)])
     const frame = faceBlocks(0.1, 2) // = smile
-    let events = m.step(frame, 0).events
-    events = m.step(frame, 33).events
+    // framesToTrigger vaut 3 : les deux premières images ne déclenchent rien.
+    expect(m.step(frame, 0).events).toEqual([])
+    expect(m.step(frame, 33).events).toEqual([])
     const r = m.step(frame, 66)
     expect(r.events).toEqual([{ type: 'fire', gestureId: 'smile', dist: expect.any(Number) }])
     expect(r.snapshots).toHaveLength(2)

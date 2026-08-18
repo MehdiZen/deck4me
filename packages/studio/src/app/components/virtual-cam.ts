@@ -21,13 +21,8 @@ import { VcamService } from '../services/vcam.service'
         }
       </p>
 
-      <!-- Repliee tant qu'elle ne sert pas.
-           C'est la plus grosse carte des Reglages — pilote, source, definition,
-           reprise au lancement, compteurs — et elle ne concerne que les gens
-           sous Streamlabs. Deroulee en permanence, elle repoussait vers le bas
-           tout ce que les autres viennent chercher. Elle s'ouvre d'elle-meme
-           des qu'elle diffuse : a ce moment-la, ses compteurs sont ce qu'on
-           regarde. -->
+      <!-- Repliée tant qu'elle ne diffuse pas : c'est la plus grosse carte des
+           Réglages et elle ne concerne que Streamlabs. -->
       @if (vcam.status().error) {
         <p class="badge err fault">{{ vcam.status().error }}</p>
       }

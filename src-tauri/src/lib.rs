@@ -328,12 +328,6 @@ async fn import_asset_from_url(
 }
 
 /// Retire une image ou un son de la bibliothèque.
-///
-/// Sans cette commande, tout ce qui entrait dans la bibliothèque y restait
-/// pour toujours : un import raté, une image d'essai, et surtout les
-/// `-detoure.png` que le détourage crée à CHAQUE tentative — lesquels
-/// s'empilaient ensuite dans tous les sélecteurs « reprendre une image déjà
-/// importée » sans qu'aucun écran ne permette d'en retirer un seul.
 #[tauri::command]
 fn delete_asset(app: tauri::State<App>, id: String) -> Result<(), String> {
     app.state.store.delete_asset(&id)?;

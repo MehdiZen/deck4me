@@ -149,9 +149,8 @@ const ANIMATED = new Set(['gif', 'webm'])
     .bg {
       position: absolute; inset: 0;
       background: #07060ad9; backdrop-filter: blur(5px);
-      animation: fadein 160ms ease-out;
+      animation: fade 160ms ease-out;
     }
-    @keyframes fadein { from { opacity: 0 } }
     .panel {
       position: relative; width: min(940px, 94vw); max-height: 92vh;
       display: flex; flex-direction: column; padding: 0; overflow: hidden;

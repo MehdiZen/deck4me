@@ -482,13 +482,6 @@ import {
 
     /* La modale reprend la largeur du wizard : deux boîtes de dialogue de
        tailles différentes dans la même app, ça se remarque. */
-    .modal-bg {
-      position: fixed; inset: 0; z-index: 50;
-      background: #07060acc; backdrop-filter: blur(5px);
-      display: grid; place-items: center; padding: 24px;
-      animation: fade 160ms ease-out;
-    }
-    @keyframes fade { from { opacity: 0 } }
     .modal {
       width: 680px; max-width: 100%; max-height: 88vh; overflow-y: auto;
       padding: 16px 18px 18px;
@@ -616,9 +609,13 @@ export class MacrosPage implements OnDestroy {
   }
 
 
+  private readonly nameById = computed(
+    () => new Map(this.store.gestures().map((g) => [g.id, g.name])),
+  )
+
   /** Nom de la pose d'un maillon, ou un repère lisible si elle a disparu. */
   shortName(gestureId: string): string {
-    return this.store.gestures().find((g) => g.id === gestureId)?.name ?? '— manquante —'
+    return this.nameById().get(gestureId) ?? '— manquante —'
   }
 
   /** Résumé des actions, pour l'infobulle de la pastille en vue repliée. */

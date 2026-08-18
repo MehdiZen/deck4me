@@ -185,13 +185,8 @@ const FX_LABEL: Record<string, string> = {
 
           <section>
             <h3>Durée</h3>
-            <!-- Le mode d'affichage se change ICI.
-                 Il ne vivait que sur la carte de la pose, si bien que la
-                 section Durée d'une pose « tant que tenue » annonçait « la
-                 durée ne s'applique pas » sans offrir le moindre moyen d'y
-                 remédier : il fallait fermer, aller changer le menu de la
-                 carte, et rouvrir. Une impasse dans une fenêtre modale coûte
-                 toujours trois gestes de plus qu'elle n'en épargne. -->
+            <!-- Le mode se change ici aussi : sans lui, une pose « tant que
+                 tenue » lisait « la durée ne s'applique pas » sans recours. -->
             @if (holdEditable) {
               <div class="seg">
                 <button
@@ -315,9 +310,8 @@ const FX_LABEL: Record<string, string> = {
     .bg {
       position: absolute; inset: 0;
       background: #07060acc; backdrop-filter: blur(5px);
-      animation: fadein 160ms ease-out;
+      animation: fade 160ms ease-out;
     }
-    @keyframes fadein { from { opacity: 0 } }
     .panel {
       position: relative;
       width: min(1060px, 94vw); max-height: 92vh;

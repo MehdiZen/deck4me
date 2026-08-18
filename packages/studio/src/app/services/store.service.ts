@@ -432,26 +432,12 @@ export class StoreService {
         .filter((o) => o.id !== g.id && (o.profileId || 'default') === (g.profileId || 'default'))
         .map((o) => ({ gestureId: o.id, samples: refeaturized.get(o.id)!, source: o.source }))
       const v = computeThreshold(samples, g.source, others, negatives)
-      // Sur une collision, on garde le seuil calculé et on le DIT, au lieu de
-      // le raboter en douce.
-      //
-      // Une version antérieure prenait ici `min(seuil, voisin × NEIGHBOR_CAP)`
-      // au motif qu'une migration ne peut rien refuser, contrairement au
-      // wizard. Deux raisons de l'avoir retiré :
-      //
-      //  1. c'était la seule voie du produit où un seuil bougeait sans que
-      //     personne ne le sache. Une pose devenait plus dure à déclencher
-      //     entre deux lancements, et rien à l'écran ne l'expliquait ;
-      //  2. c'était inutile. Le matcher est en winner-take-all : sur une
-      //     frame, seule la pose la PLUS PROCHE reçoit sa distance, les autres
-      //     reçoivent null. Deux seuils qui se chevauchent ne déclenchent donc
-      //     pas ensemble — la plus proche gagne. Le rétrécissement ne réglait
-      //     rien que le matcher ne règle déjà.
-      //
-      // Reste le vrai risque, que le rabotage ne traitait pas non plus : deux
-      // poses si semblables que c'est le bruit de reproduction qui désigne la
-      // gagnante. Ça, ça se dit à l'utilisateur — il choisit de réenregistrer
-      // ou d'en supprimer une. Ça ne se compense pas dans son dos.
+      // Sur une collision, le seuil calculé est GARDÉ et signalé, jamais raboté
+      // en douce : un seuil qui bouge tout seul entre deux lancements n'est
+      // explicable nulle part à l'écran. Le matcher étant en winner-take-all,
+      // deux seuils qui se chevauchent ne déclenchent de toute façon pas
+      // ensemble — seule l'identité de la gagnante devient incertaine, et c'est
+      // à l'utilisateur d'en décider.
       if (v.verdict === 'collision' && v.collidesWith) {
         const other = this.allGestures().find((o) => o.id === v.collidesWith)
         this.migrationCollisions.update((all) => [

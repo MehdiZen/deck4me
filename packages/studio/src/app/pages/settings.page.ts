@@ -112,10 +112,7 @@ import { StoreService } from '../services/store.service'
             {{ copied() ? 'Copié' : 'Copier' }}
           </button>
         </div>
-        <!-- Le seul endroit de l'application qui réponde à « est-ce que c'est
-             branché ? ». Sans lui, tout le reste peut afficher du vert alors
-             que rien n'arrivera jamais en stream : la pose est reconnue, le
-             meme est envoyé, et personne n'est au bout du fil. -->
+        <!-- Le seul endroit qui réponde à « est-ce que c'est branché ? ». -->
         <div class="row wire">
           @if (overlay.connected()) {
             <span class="badge ok">

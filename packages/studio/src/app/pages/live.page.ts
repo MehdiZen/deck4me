@@ -8,6 +8,7 @@ import {
   effect,
   inject,
   signal,
+  untracked,
 } from '@angular/core'
 import { HYSTERESIS, type BlockDiag, type GestureSnapshot } from '@deck4me/core'
 import { RouterLink } from '@angular/router'
@@ -17,6 +18,7 @@ import { DetectionService } from '../services/detection.service'
 import { MatcherService } from '../services/matcher.service'
 import { OverlayService } from '../services/overlay.service'
 import { StoreService } from '../services/store.service'
+import { cssToken } from '../css-token'
 
 /**
  * Écran Live : ce qu'on regarde pendant qu'on stream.
@@ -51,14 +53,9 @@ import { StoreService } from '../services/store.service'
       }
     </div>
 
-    <!-- Liste de mise en route.
-         L'application s'ouvre sur cet écran, qui est le seul des six à
-         supposer que tout est déjà fait : caméra éteinte, aucune barre, « Rien
-         encore ». Et c'était aussi le seul à ne rien dire de la calibration,
-         alors que sans elle TOUS les boutons d'enregistrement sont grisés et
-         qu'elle se trouve dans la sixième carte du dernier onglet.
-         Elle disparaît d'elle-même dès qu'on a de quoi travailler : une
-         calibration et une pose. Ce n'est pas un tutoriel, c'est un chemin. -->
+    <!-- Liste de mise en route : l'application s'ouvre sur cet écran, qui
+         suppose tout installé. Elle disparaît d'elle-même dès qu'on a de quoi
+         travailler — une calibration et une pose. -->
     @if (setupOpen()) {
       <ol class="setup card rise">
         <li [class.done]="detection.running()">
@@ -357,6 +354,7 @@ export class LivePage implements AfterViewInit, OnDestroy {
   @ViewChild('row') rowRef!: ElementRef<HTMLElement>
   @ViewChild('hud') hudRef!: ElementRef<HTMLElement>
   private raf = 0
+  private ro: ResizeObserver | null = null
 
   readonly armed = computed(() => this.store.gestures().filter((g) => g.enabled).length)
 
@@ -371,25 +369,15 @@ export class LivePage implements AfterViewInit, OnDestroy {
 
   // ---- La plus grande image qui tient, dans les DEUX dimensions ----
   //
-  // La règle est celle de n'importe quel lecteur vidéo : le plus grand rectangle
-  // au bon rapport qui entre dans la place libre. Ni la largeur seule ni la
-  // hauteur seule ne commandent — c'est la première des deux qui bute.
-  //
   //     largeur = min( largeur libre , hauteur libre × rapport )
   //
-  // Et la place libre est MESURÉE, pas devinée : hauteur de la colonne, moins la
-  // carte du bas telle qu'elle est réellement, moins le bandeau d'instruments.
-  // Une version précédente soustrayait une constante de 500 px censée
-  // représenter « le reste de la page ». Elle laissait un espace mort en bas
-  // parce qu'elle réservait trop, et elle serait redevenue fausse au moindre
-  // changement de contenu — une gesture de plus dans la toile, une ligne de plus
-  // dans le journal.
+  // La place libre est mesurée sur les éléments réels, jamais estimée par une
+  // constante : elle change avec le nombre de lignes de la carte du bas.
   //
-  // On agit sur la largeur et jamais sur la hauteur, parce que le cadre doit
-  // garder exactement le rapport de la source : le <video> est en `cover` — il
-  // recadre — tandis que la toile des landmarks est étirée sur toute la boîte.
-  // Une boîte au mauvais rapport fait diverger les deux, et les points tombent à
-  // côté du visage.
+  // On agit sur la largeur et jamais sur la hauteur : le <video> est en `cover`
+  // et recadre, la toile des landmarks est étirée sur toute la boîte. Un cadre
+  // au mauvais rapport fait diverger les deux et les points tombent à côté du
+  // visage.
 
   /** En dessous, on laisse plutôt la page défiler que réduire l'image à un
    *  timbre-poste : c'est le cas « fenêtre vraiment petite », assumé. */
@@ -610,22 +598,39 @@ export class LivePage implements AfterViewInit, OnDestroy {
       this.flash.set(true)
       setTimeout(() => this.flash.set(false), 450)
     })
+
+    // Le rapport de l'image change quand la caméra démarre ou change de
+    // définition : aucun élément ne se redimensionne, seul le calcul change.
+    // `untracked` isole la mesure, qui lit et écrit `camPx` — sans lui, l'effet
+    // se réveillerait lui-même.
+    effect(() => {
+      this.detection.sourceSize()
+      untracked(() => this.measureCam())
+    })
   }
 
   ngAfterViewInit(): void {
     const draw = () => {
       this.drawBars()
-      // Après le tracé : la hauteur de la carte du bas dépend du nombre de
-      // lignes qu'elle vient de dessiner. Mesurer avant, ce serait mesurer
-      // l'image précédente.
-      this.measureCam()
       this.raf = requestAnimationFrame(draw)
     }
     this.raf = requestAnimationFrame(draw)
+
+    // La place libre ne bouge qu'au redimensionnement de la fenêtre ou quand la
+    // carte du bas change de hauteur — c'est-à-dire rarement. La mesurer à
+    // chaque image imposait quatre lectures de géométrie par image, chacune
+    // forçant un recalcul de disposition, pour un résultat presque toujours
+    // identique au précédent.
+    this.ro = new ResizeObserver(() => this.measureCam())
+    for (const el of [this.stackRef, this.rowRef, this.hudRef]) {
+      if (el) this.ro.observe(el.nativeElement)
+    }
+    this.measureCam()
   }
 
   ngOnDestroy(): void {
     cancelAnimationFrame(this.raf)
+    this.ro?.disconnect()
   }
 
   /** « main G » = ta main gauche : le flux n'est pas mirroré, la handedness
@@ -636,21 +641,17 @@ export class LivePage implements AfterViewInit, OnDestroy {
     return b.kind === 'hand' ? `main ${side}` : `pos ${side}`
   }
 
-  /** Couleurs lues depuis les tokens CSS : la toile et le DOM ne divergent jamais. */
-  private token(name: string): string {
-    return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-  }
 
   private stateColor(state: string): string {
     switch (state) {
       case 'ACTIVE':
-        return this.token('--st-armed')
+        return cssToken('--st-armed')
       case 'CANDIDATE':
-        return this.token('--st-candidate')
+        return cssToken('--st-candidate')
       case 'COOLDOWN':
-        return this.token('--st-cooldown')
+        return cssToken('--st-cooldown')
       default:
-        return this.token('--st-idle')
+        return cssToken('--st-idle')
     }
   }
 
@@ -667,6 +668,11 @@ export class LivePage implements AfterViewInit, OnDestroy {
     ctx.closePath()
     ctx.fill()
   }
+
+  /** Seuil automatique de chaque pose, indexé. */
+  private readonly autoById = computed(
+    () => new Map(this.store.gestures().map((g) => [g.id, g.thresholdAuto ?? g.threshold])),
+  )
 
   private drawBars(): void {
     const canvas = this.barsRef?.nativeElement
@@ -698,11 +704,11 @@ export class LivePage implements AfterViewInit, OnDestroy {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, cssW, cssH)
 
-    const ink = this.token('--ink')
-    const ink2 = this.token('--ink-2')
-    const ink3 = this.token('--ink-3')
-    const track = this.token('--void')
-    const panel = this.token('--panel-2')
+    const ink = cssToken('--ink')
+    const ink2 = cssToken('--ink-2')
+    const ink3 = cssToken('--ink-3')
+    const track = cssToken('--void')
+    const panel = cssToken('--panel-2')
     const uiFont = '12.5px "Segoe UI Variable Display", "Segoe UI", system-ui'
     const dataFont = '12px "Cascadia Mono", ui-monospace, Consolas, monospace'
 
@@ -724,32 +730,15 @@ export class LivePage implements AfterViewInit, OnDestroy {
       return
     }
 
-    // Échelle PAR LIGNE, fondée sur le seuil AUTO de la gesture.
-    //
-    // Trois exigences qui semblaient s'exclure :
-    //   1. le trait de seuil ne doit pas bouger tout seul ;
-    //   2. il doit bouger quand on règle la sensibilité — c'est CE qu'on règle ;
-    //   3. on doit pouvoir l'attraper à la souris.
-    //
-    // La faute d'origine n'était pas « échelle absolue » mais « échelle PARTAGÉE
-    // et recalculée à chaque frame sur les distances vivantes » : une pose qui
-    // s'éloignait faisait glisser les traits de toutes les autres. En prenant
-    // `thresholdAuto × SPAN` comme pleine largeur, l'échelle ne dépend plus
-    // d'aucune mesure — `thresholdAuto` ne change qu'au réenregistrement.
-    //
-    // Le trait tombe alors en `sensibilité / SPAN` de la largeur : il ne dépend
-    // QUE de la sensibilité. Conséquence heureuse — toutes les gestures laissées
-    // en automatique (sensibilité = 1) alignent leur trait au tiers, ce qui
-    // reconstitue la colonne de référence, et seules celles qu'on a retouchées
-    // s'en écartent visiblement.
+    // Échelle PAR LIGNE et adossée au seuil AUTO, jamais aux distances vivantes.
+    // Une échelle partagée et recalculée sur les mesures ferait glisser le trait
+    // de toutes les lignes dès qu'une seule pose s'éloigne — donc sous le
+    // curseur pendant qu'on vise. Ici le trait ne dépend que de la sensibilité.
     const SPAN = 3 // pleine largeur = 3 × seuil auto, couvre la plage 0,4–3
     // Reconstruites à chaque tracé : une gesture supprimée ne doit pas laisser
     // derrière elle une zone cliquable qui règle un fantôme.
     this.hit = []
-    const autoOf = (id: string) => {
-      const g = this.store.gestures().find((x) => x.id === id)
-      return g ? (g.thresholdAuto ?? g.threshold) : null
-    }
+    const autoBy = this.autoById()
 
     snaps.forEach((s, i) => {
       const y = i * ROW + 8
@@ -781,7 +770,7 @@ export class LivePage implements AfterViewInit, OnDestroy {
       // Pleine largeur = seuil auto × SPAN. Sans seuil auto connu (gesture tout
       // juste supprimée), on retombe sur le seuil effectif : jamais de division
       // par zéro, jamais de barre qui disparaît.
-      const auto = autoOf(s.gestureId) ?? s.threshold ?? 1
+      const auto = autoBy.get(s.gestureId) ?? s.threshold ?? 1
       const full = (auto || 1) * SPAN
       const T_X = Math.min(cssW - 2, (s.threshold / full) * cssW)
       this.hit[i] = { gestureId: s.gestureId, auto: auto || 1, top: y, x: T_X }
@@ -852,10 +841,10 @@ export class LivePage implements AfterViewInit, OnDestroy {
         const over = b.dist !== null && b.dist > s.threshold
         const hue =
           b.dist === null
-            ? this.token('--st-idle')
+            ? cssToken('--st-idle')
             : over
-              ? this.token('--st-live')
-              : this.token('--st-armed')
+              ? cssToken('--st-live')
+              : cssToken('--st-armed')
         ctx.fillStyle = panel
         this.bar(ctx, x, chipY, w, 18)
         ctx.fillStyle = hue

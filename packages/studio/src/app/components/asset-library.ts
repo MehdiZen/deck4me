@@ -4,18 +4,10 @@ import { StoreService, isAudio, type AssetMeta } from '../services/store.service
 import { Icon } from './icon'
 
 /**
- * La bibliothèque, et le droit d'en retirer quelque chose.
+ * Liste les images et les sons importés, et permet d'en retirer.
  *
- * Rien ne pouvait sortir d'ici. On importait une image, elle y restait pour
- * toujours : un fichier choisi par erreur, une capture d'essai, et surtout les
- * `-detoure.png` que le détourage fabrique à CHAQUE tentative — le détourage
- * étant justement une opération qu'on refait trois fois avant d'être content.
- * Tous s'empilaient ensuite dans chaque menu « reprendre une image déjà
- * importée », sans qu'aucun écran ne permette d'en retirer un seul.
- *
- * Ce qui sert ne se supprime pas, et le bouton dit qui s'en sert plutôt que de
- * se contenter d'être gris — « pourquoi je ne peux pas ? » est la seule
- * question qu'un bouton désactivé doit savoir devancer.
+ * Ce qui sert n'est pas supprimable, et le bouton dit qui s'en sert plutôt que
+ * de se contenter d'être gris.
  */
 @Component({
   selector: 'app-asset-library',

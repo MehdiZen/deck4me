@@ -1,28 +1,17 @@
 //! La fenêtre du widget : ce qui la rend utilisable pendant un live.
 //!
-//! Deux propriétés, et une renoncée.
+//! **Transparente** : sans ça, Windows peint du blanc sous les coins arrondis,
+//! et ce liseré est DERRIÈRE la vue, donc ineffaçable depuis elle.
 //!
-//! **Elle est transparente.** Le panneau a des coins arrondis ; sans
-//! transparence, Windows peint du blanc dessous et les quatre angles portent un
-//! liseré clair que rien, côté vue, ne peut effacer — il est derrière elle. La
-//! transparence sert aussi le rendu voulu : un fond légèrement translucide qui
-//! laisse deviner ce qu'il couvre.
+//! **Invisible à la capture** (`WDA_EXCLUDEFROMCAPTURE`) : sinon un stream de
+//! l'écran entier montrerait le deck aux spectateurs. Windows 10 2004 et
+//! au-dessus ; en dessous l'appel échoue et on le journalise.
 //!
-//! **Renoncée : ne jamais prendre le focus.** `WS_EX_NOACTIVATE` évitait qu'une
-//! fenêtre surgissant par-dessus un jeu ne le minimise. Mais une fenêtre qui ne
-//! peut jamais s'activer ne donne pas non plus le focus à sa webview, et une
-//! webview sans focus ne traite ni les clics ni le déplacement. Le widget était
-//! intouchable ; on préfère un widget qu'on peut utiliser.
+//! **Hors du chemin** (`WS_EX_TOOLWINDOW`) : ni Alt+Tab, ni barre des tâches.
 //!
-//! **Elle est invisible à la capture d'écran.** `WDA_EXCLUDEFROMCAPTURE` retire
-//! la fenêtre de tout ce que voit un capteur d'écran — OBS, Streamlabs, Discord,
-//! une capture système. Sans ça, quelqu'un qui diffuse son écran entier
-//! montrerait son deck à ses spectateurs, ce qui est exactement l'inverse du but.
-//! Réservé à Windows 10 2004 et au-dessus ; en dessous l'appel échoue et on le
-//! dit, plutôt que de laisser croire que c'est couvert.
-//!
-//! **Elle se tient hors du chemin.** Retirée d'Alt+Tab et de la barre des
-//! tâches par `WS_EX_TOOLWINDOW` : un widget n'est pas une destination.
+//! **`WS_EX_NOACTIVATE` est abandonné** : une fenêtre qui ne s'active jamais ne
+//! donne pas le focus à sa webview, et une webview sans focus ne traite ni les
+//! clics ni le déplacement. Le widget en devenait intouchable.
 
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
@@ -157,20 +146,8 @@ fn on_screen(win: &tauri::WebviewWindow, x: f64, y: f64) -> bool {
     })
 }
 
-/// Applique les propriétés qui ne passent pas par l'API Tauri.
-///
-/// `WS_EX_NOACTIVATE` est ABANDONNÉ.
-///
-/// Il empêchait la fenêtre de prendre le focus — souhaitable quand elle
-/// apparaissait par-dessus un jeu. Mais une fenêtre qui ne peut jamais
-/// s'activer ne donne pas non plus le focus à sa webview, et une webview sans
-/// focus ne traite ni les clics ni le déplacement, lequel passe par un clic
-/// dans la page. Le widget était donc intouchable, et c'était de ce côté-là,
-/// pas du clavier.
-///
-/// Reste `WS_EX_TOOLWINDOW`, qui le retire d'Alt+Tab et de la barre des tâches
-/// sans rien coûter, et l'exclusion de capture, qui est la vraie raison d'être
-/// de cette fonction.
+/// Applique les propriétés qui ne passent pas par l'API Tauri : retrait
+/// d'Alt+Tab, et exclusion de la capture d'écran.
 #[cfg(windows)]
 fn harden(app: &AppHandle, pinned: bool) {
     let Some(win) = app.get_webview_window(LABEL) else {

@@ -22,42 +22,16 @@ import { CameraView } from './camera-view'
 import { Icon } from './icon'
 
 /**
- * Testeur de pose : « pourquoi ça ne part pas ? », répondu en continu.
+ * Mesure en continu si une pose est reconnue, et dit ce qu'il reste à corriger.
  *
- * ─── Pourquoi en TEMPS RÉEL et non par prises ───────────────────────────────
- * La première version demandait de lancer un test de cinq secondes, puis de le
- * relancer après chaque correction. Or corriger une pose est une boucle : on
- * bouge un doigt, on regarde si ça se rapproche, on rebouge. Un bouton entre
- * chaque essai casse exactement la boucle qu'on vient chercher — et on finit
- * par cliquer plus qu'on ne pose.
+ * N'établit aucune mesure propre : tout vient de `matcher.lastSnapshots` et
+ * `matcher.lastBlocks`. Ce composant accumule et raconte.
  *
- * Ici tout est vivant : le taux, les blocs, les consignes. On se corrige en
- * regardant les chiffres bouger, ce qui est la seule façon de sentir dans quel
- * sens ça va.
- *
- * ─── Le lissage n'est pas cosmétique ────────────────────────────────────────
- * Une consigne recalculée à 60 Hz clignote et devient illisible ; pire, elle
- * change pendant qu'on la lit. Les chiffres sont donc mesurés sur une fenêtre
- * glissante, et les consignes ne se renouvellent qu'à intervalle fixe, depuis
- * la MEILLEURE tentative de l'intervalle écoulé.
- *
- * ─── Il ne mesure rien de nouveau ───────────────────────────────────────────
- * Tout vient de `matcher.lastSnapshots` et `matcher.lastBlocks`, qui portent
- * déjà distance, seuil, état, détail par bloc et vecteurs de la frame. Ce
- * composant accumule et raconte, il ne calcule pas.
- *
- * ─── Les deux questions sont distinctes ─────────────────────────────────────
- * « Est-ce que ma pose est reconnue ? » et « est-ce qu'elle déclenche ? » ne
- * sont PAS la même question :
- *
- *  · la reconnaissance se lit sur la distance contre le seuil ;
- *  · le déclenchement passe en plus par l'exclusivité (seule la pose la plus
- *    proche progresse) et par `framesToTrigger` (il faut tenir plusieurs
- *    frames d'affilée).
- *
- * Une pose peut donc être parfaitement reconnue et ne jamais partir, parce
- * qu'une AUTRE est encore plus proche et rafle la mise à chaque frame. Ce cas
- * est indétectable à l'œil et le testeur le nomme.
+ * Il sépare deux questions qu'on confond à l'œil. Être reconnue, c'est passer
+ * sous son seuil. Déclencher, c'est en plus être la plus proche de toutes
+ * (le matcher est en winner-take-all) et le rester `framesToTrigger` images.
+ * Une pose peut donc être parfaitement reconnue et ne jamais partir ; le
+ * testeur nomme alors la rivale.
  */
 
 /** Fenêtre glissante des statistiques. Deux secondes : assez pour lisser le
@@ -189,12 +163,6 @@ interface BlockStat {
     </div>
   `,
   styles: `
-    .modal-bg {
-      position: fixed; inset: 0; z-index: 50;
-      background: #000000b8;
-      display: flex; align-items: center; justify-content: center;
-      padding: 24px;
-    }
     .modal {
       width: min(560px, 100%);
       max-height: 90vh; overflow-y: auto;

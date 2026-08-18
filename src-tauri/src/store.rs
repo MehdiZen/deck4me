@@ -490,15 +490,12 @@ impl Store {
 
     /// Retire un asset : sa fiche, puis son fichier.
     ///
-    /// Refuse tant que quelque chose s'en sert. Le Studio le sait déjà — il
-    /// tient les bindings en mémoire et grise le bouton — mais la vérification
-    /// est refaite ici parce que c'est ici que le fichier disparaît : une
-    /// image effacée sous un meme donnerait un carré vide en plein stream,
-    /// sans rien pour dire pourquoi.
+    /// Refuse tant que quelque chose s'en sert — le Studio grise déjà le
+    /// bouton, mais c'est ici que le fichier disparaît pour de bon.
     ///
-    /// L'échec de l'effacement du fichier n'est PAS une erreur : la fiche est
-    /// déjà partie, et un fichier orphelin ne se voit nulle part, alors qu'une
-    /// fiche sans fichier casse tous les sélecteurs.
+    /// L'échec de l'effacement du fichier n'est pas remonté : un fichier
+    /// orphelin ne se voit nulle part, une fiche sans fichier casse tous les
+    /// sélecteurs.
     pub fn delete_asset(&self, id: &str) -> Result<(), String> {
         {
             let mut db = self.db.lock().unwrap();

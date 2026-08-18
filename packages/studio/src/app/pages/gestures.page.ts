@@ -196,9 +196,7 @@ const NO_MACRO: string[] = []
                 {{ srcLabel(g.source) }} ·
                 <span class="num">{{ g.rawSamples.length }}</span> prises
               </span>
-              <!-- Le même réglage que sur une carte à meme, et pour la même
-                   raison : un maillon qui ne part jamais n'apparaît jamais dans
-                   la toile de Live, donc n'y était jamais réglable. -->
+              <!-- Même réglage que sur une carte à meme. -->
               <div class="sens">
                 <span class="lbl">déclenchement</span>
                 <span class="end">strict</span>
@@ -362,14 +360,9 @@ const NO_MACRO: string[] = []
               (change)="rename(g, $any($event.target).value)"
               [attr.aria-label]="'Nom de ' + g.name"
             />
-            <!-- Le réglage qui n'existait nulle part.
-                 Le pourcentage était AFFICHÉ ici et modifiable seulement en
-                 glissant un trait sur la toile de Live — laquelle ne montre que
-                 les trois poses les plus proches de ce qu'on fait à l'instant.
-                 Une pose qui ne se déclenche jamais n'y entrait donc jamais :
-                 exactement celle qu'on cherche à assouplir. Le wizard, lui,
-                 conseillait « règle la sensibilité des deux ensuite » — une
-                 promesse que rien dans l'interface ne savait tenir. -->
+            <!-- La toile de Live règle aussi la sensibilité, mais elle ne
+                 montre que les trois poses les plus proches de l'instant :
+                 celle qui ne part jamais n'y entre jamais. -->
             <div class="sens">
               <span class="lbl">déclenchement</span>
               <span class="end">strict</span>
@@ -829,45 +822,22 @@ export class GesturesPage {
     this.rerecording.set(null)
   }
 
-  /** Rend un maillon autonome : il repasse dans Memes et pourra afficher un
-   *  meme. Il reste dans ses macros — une pose peut très bien faire les deux,
-   *  au prix de voir son meme apparaître au passage de l'enchaînement. */
-  /**
-   * Renomme une pose. Aucune des deux familles ne le permettait, alors que les
-   * macros, elles, s'éditent en ligne depuis toujours.
-   *
-   * C'est le manque qui coûtait le plus cher aux maillons : enregistrés depuis
-   * Macros, ils s'appellent « Truc ① », « Truc ② » — un nom de fabrication que
-   * personne n'a choisi. Faute de pouvoir le corriger, on cliquait sur le
-   * bouton voisin en espérant qu'il serve à ça.
-   *
-   * Un nom vide est ignoré plutôt que refusé avec un message : le champ
-   * retrouve son ancienne valeur au prochain rendu, ce qui dit la même chose
-   * sans rien interrompre.
-   */
+  /** Renomme une pose. Un nom vide est ignoré : le champ retrouve son ancienne
+   *  valeur au prochain rendu, ce qui dit la même chose sans rien interrompre. */
   async rename(g: StoredGesture, name: string): Promise<void> {
     const t = name.trim()
     if (t && t !== g.name) await this.store.saveGesture({ ...g, name: t })
   }
 
+  /** Rend une pose autonome : elle repasse dans Memes et affichera son meme
+   *  toute seule. Elle reste dans ses macros. */
   async promote(g: StoredGesture): Promise<void> {
     await this.store.saveGesture({ ...g, sequenceOnly: false })
     this.tab.set('meme')
   }
 
-  /**
-   * Renvoie une pose vers les maillons. Symétrique exact de `promote`.
-   *
-   * L'interruptrice « Maillon seulement » existait déjà plus bas dans la
-   * carte, mais seulement pour les poses employées dans une macro. Une pose
-   * rendue autonome par erreur et n'appartenant à aucune macro n'avait donc
-   * plus AUCUN chemin de retour : il fallait la supprimer et la réenregistrer.
-   * Un aller sans retour dans une bascule à deux états est toujours un bug.
-   *
-   * Le meme et son cadrage sont conservés : le drapeau ne détruit rien, il
-   * décide seulement si la pose s'affiche toute seule. La repromouvoir lui
-   * rend son meme intact.
-   */
+  /** Renvoie une pose vers les maillons. Symétrique exact de `promote` : le
+   *  meme et son cadrage sont conservés, seul l'affichage solitaire cesse. */
   async demote(g: StoredGesture): Promise<void> {
     await this.store.saveGesture({ ...g, sequenceOnly: true })
     this.tab.set('link')

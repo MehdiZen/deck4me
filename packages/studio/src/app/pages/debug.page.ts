@@ -14,6 +14,7 @@ import { DetectionService } from '../services/detection.service'
 import { HISTORY_HZ, HISTORY_LEN, MatcherService } from '../services/matcher.service'
 import { StoreService, effectiveThreshold } from '../services/store.service'
 import { TauriService } from '../services/tauri.service'
+import { cssToken } from '../css-token'
 
 interface OverlayStats {
   lastMs: number | null
@@ -573,20 +574,17 @@ export class DebugPage implements AfterViewInit, OnDestroy {
     }
   }
 
-  private token(name: string): string {
-    return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-  }
 
   private stateColor(state: string): string {
     switch (state) {
       case 'ACTIVE':
-        return this.token('--st-armed')
+        return cssToken('--st-armed')
       case 'CANDIDATE':
-        return this.token('--st-candidate')
+        return cssToken('--st-candidate')
       case 'COOLDOWN':
-        return this.token('--st-cooldown')
+        return cssToken('--st-cooldown')
       default:
-        return this.token('--st-idle')
+        return cssToken('--st-idle')
     }
   }
 
@@ -612,11 +610,11 @@ export class DebugPage implements AfterViewInit, OnDestroy {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, cssW, cssH)
 
-    const ink = this.token('--ink')
-    const ink3 = this.token('--ink-3')
-    const line = this.token('--line-soft')
-    const armed = this.token('--st-armed')
-    const accent = this.token('--accent-hi')
+    const ink = cssToken('--ink')
+    const ink3 = cssToken('--ink-3')
+    const line = cssToken('--line-soft')
+    const armed = cssToken('--st-armed')
+    const accent = cssToken('--accent-hi')
 
     gestures.forEach((g, i) => {
       const top = i * ROW + 6
@@ -627,7 +625,7 @@ export class DebugPage implements AfterViewInit, OnDestroy {
       const yOf = (v: number) => top + h - Math.min(1, v / max) * h
 
       // fond de piste
-      ctx.fillStyle = this.token('--void')
+      ctx.fillStyle = cssToken('--void')
       ctx.fillRect(0, top, cssW, h)
 
       // seuil + hystérésis

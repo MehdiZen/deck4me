@@ -52,7 +52,6 @@ import { Icon } from './icon'
       display: grid; place-items: center; padding: 24px;
       animation: fade 140ms ease-out;
     }
-    @keyframes fade { from { opacity: 0 } }
     .box {
       width: 380px; max-width: 100%; padding: 20px;
       text-align: center;

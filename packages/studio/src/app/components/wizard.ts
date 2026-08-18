@@ -174,15 +174,9 @@ interface LinkDraft {
             <h2>{{ linkPrefix() }}Prise {{ take() }}/3 capturée</h2>
             <app-camera-view />
             <p>Relâche complètement la pose, bouge un peu, puis reprends-la.</p>
-            <!-- Ça repart tout seul.
-                 Le bouton d'avant obligeait à lâcher la pose POUR ALLER
-                 CHERCHER LA SOURIS, deux fois par enregistrement et six fois
-                 pour une macro de trois maillons. Sur une pose à deux mains,
-                 c'est carrément impossible sans défaire ce qu'on vient de
-                 monter. Et le délai existait déjà juste après : les trois
-                 secondes de décompte de la prise suivante. On ne fait donc
-                 qu'enlever un obstacle, sans raccourcir le temps de relâche —
-                 il passe même de 3 à 5,5 secondes. -->
+            <!-- Ça repart tout seul : un bouton ici obligerait à lâcher la
+                 pose pour aller chercher la souris, ce qui est impossible sur
+                 une pose à deux mains. -->
             <div class="progress auto"><div [style.width.%]="relaxProgress()"></div></div>
             <p class="lbl relax">
               Reprise automatique — le décompte de la prise {{ take() + 1 }} suit.
@@ -279,14 +273,6 @@ interface LinkDraft {
     </div>
   `,
   styles: `
-    .modal-bg {
-      position: fixed; inset: 0; z-index: 50;
-      background: #07060acc;
-      backdrop-filter: blur(5px);
-      display: grid; place-items: center;
-      animation: fade 160ms ease-out;
-    }
-    @keyframes fade { from { opacity: 0 } }
     .modal {
       width: 580px; max-height: 90vh; overflow-y: auto;
       border-radius: var(--r-big);
@@ -664,23 +650,12 @@ export class Wizard implements OnInit, OnDestroy {
 
   async save(): Promise<void> {
     const v = this.verdict()
-    // Une collision n'empêche plus d'enregistrer.
+    // Une collision avertit mais n'interdit pas : le matcher étant en
+    // winner-take-all, deux poses proches ne partent pas ensemble, seule
+    // l'identité de la gagnante devient incertaine.
     //
-    // Le refus était incohérent avec le reste du produit : la migration de
-    // featurizer, elle, GARDE une pose devenue trop proche d'une autre et se
-    // contente de le signaler. Le wizard interdisait donc de créer un état que
-    // l'application sait très bien porter.
-    //
-    // Il était aussi plus sévère que la réalité. Le matcher est en
-    // winner-take-all : sur une frame, seule la pose la plus proche reçoit sa
-    // distance, les autres reçoivent null. Deux poses proches ne partent pas
-    // ensemble ; c'est laquelle des deux qui part qui devient incertaine. Ça
-    // se dit, et ensuite ça se règle — le seuil de chaque pose est réglable à
-    // la main, et c'est à l'utilisateur d'en décider.
-    //
-    // Le seuil enregistré est `base` (dispersion intra-classe × marge), non
-    // raboté sur le voisin : exactement ce que garde la migration, pour que
-    // les deux chemins n'écrivent pas des seuils différents pour un même état.
+    // Le seuil retenu est `base`, non raboté sur le voisin — le même que celui
+    // qu'écrit la migration, pour que les deux chemins ne divergent pas.
     if (!v) return
     if (this.isChain) return this.saveChain(v.threshold)
     const baseline = this.store.baseline()

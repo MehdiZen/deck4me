@@ -2,19 +2,12 @@ import { Component, Input, computed, signal } from '@angular/core'
 import { RouterLink } from '@angular/router'
 
 /**
- * Une pastille qui en cache d'autres.
+ * Affiche une liste de noms sans plafond dans un encombrement constant : le
+ * premier nom, deux feuilles empilées derrière, un compte, la liste au survol.
  *
- * Ces listes n'ont pas de plafond : une pose peut servir de maillon à autant
- * de macros qu'on veut. Alignées à plat, elles poussaient les boutons hors de
- * la carte au troisième nom, et faisaient d'une phrase — « Étape de X, Y, Z —
- * son meme s'affichera… » — quelque chose qui ne se lit plus.
- *
- * L'empilement rend l'encombrement CONSTANT : un nom, deux feuilles derrière,
- * un compte. Ce qui varie, c'est le chiffre, pas la largeur.
- *
- * Le premier nom reste visible parce que c'est souvent le seul qui existe, et
- * qu'une pastille qui ne dirait que « 3 » obligerait à survoler pour savoir de
- * quoi on parle. Le survol sert au reste : la liste entière, dans l'ordre.
+ * Le premier nom reste visible parce que c'est souvent le seul qui existe —
+ * une pastille qui ne dirait que « 3 » obligerait à survoler pour savoir de
+ * quoi on parle.
  */
 @Component({
   selector: 'app-chip-stack',

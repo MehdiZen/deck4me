@@ -4,16 +4,10 @@ import { TauriService } from './tauri.service'
 /**
  * Combien de sources de navigateur écoutent l'overlay.
  *
- * Cette information existait déjà côté Rust, mais elle n'était lue que par
- * l'écran Debug — c'est-à-dire par personne. Or c'est la panne silencieuse la
- * plus probable de toute l'application : on calibre, on enregistre une pose, le
- * testeur affiche « déclenchée » en vert, et rien n'apparaît en stream parce
- * que l'URL n'a jamais été collée dans OBS. Tous les écrans disent que ça
- * marche ; aucun ne pose la question.
- *
- * Le sondage est volontairement lent (3 s) et se suspend quand la fenêtre est
- * cachée : brancher OBS est un geste qu'on fait une fois, pas une mesure à
- * suivre à la seconde.
+ * Répond à la panne silencieuse la plus probable de l'application : tout est
+ * vert, la pose part, et rien n'arrive en stream parce que l'URL n'a jamais été
+ * collée dans OBS. Sondage lent, suspendu fenêtre cachée — brancher OBS est un
+ * geste qu'on fait une fois.
  */
 @Injectable({ providedIn: 'root' })
 export class OverlayService {

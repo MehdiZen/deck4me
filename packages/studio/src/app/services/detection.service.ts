@@ -291,23 +291,12 @@ export class DetectionService {
       await this.ensureModels()
       this.status.set('accès caméra…')
       const wanted = this.selectedCameraId()
-      // On demande un mode CONFORTABLE POUR L'ŒIL, pas le minimum utile à la
-      // détection.
+      // Un mode confortable pour l'œil, pas le minimum utile à la détection :
+      // MediaPipe redimensionne de toute façon autour de 200 px, la définition
+      // demandée ne joue donc que sur l'aperçu.
       //
-      // Le code réclamait 640×480 depuis toujours, par économie. La mesure a
-      // retiré tout fondement à cette économie : réduire une image nous coûte
-      // 1,4 ms, et MediaPipe redimensionne de toute façon en interne autour de
-      // 200 px — lui donner du 720p ou du 480p ne change pas un landmark.
-      //
-      // Ce que ça changeait, en revanche : l'aperçu ne pouvait pas être meilleur
-      // que ce qu'on avait demandé. Une caméra 1440p affichée en 640×480 dans
-      // un logiciel qui ne s'en sert jamais à cette taille, c'est une dégradation
-      // sans contrepartie.
-      //
-      // `ideal` et non une valeur exacte : le pilote choisit le mode le plus
-      // proche parmi les siens. Exiger une définition qu'il n'expose pas ferait
-      // échouer l'ouverture, ou le forcerait à convertir — ce qu'on ne veut
-      // surtout pas lui demander.
+      // `ideal` et non une valeur exacte : exiger une définition que le pilote
+      // n'expose pas ferait échouer l'ouverture, ou le forcerait à convertir.
       const base: MediaTrackConstraints = {
         width: { ideal: 1280 },
         height: { ideal: 720 },
@@ -446,17 +435,10 @@ export class DetectionService {
     // Ancre visage : situe les mains par rapport à la tête, indépendamment de
     // la distance à la caméra.
     //
-    // v2 (nez + écart inter-oculaire) s'écroulait dès qu'on tournait la tête.
-    // Le bout du nez est le point du visage qui se déplace le PLUS en
-    // rotation — il dépasse — et l'écart entre les yeux rétrécit en
-    // projection : −13 % à 30°, −29 % à 45°. La position étant divisée par
-    // cette échelle, elle enflait de 41 % à main strictement immobile.
-    // Symptôme vécu : le signe ne passe plus dès qu'on regarde le second
-    // écran.
-    //
-    // v7 corrige les deux : origine entre les yeux (creux stable, ne dépasse
-    // pas) et échelle prise sur la HAUTEUR du visage, front→menton, qui elle
-    // ne rétrécit pas quand on tourne la tête sur le côté.
+    // Origine entre les yeux et échelle sur la HAUTEUR du visage : ni l'une ni
+    // l'autre ne se déforme quand on tourne la tête, contrairement au bout du
+    // nez et à l'écart inter-oculaire (−29 % à 45°, ce qui enflait la position
+    // de 41 % à main immobile).
     //
     // `nose` et `scale` restent écrits pour les enregistrements d'avant, qui
     // n'ont que ce repère-là. Voir featurizePosition.
@@ -551,9 +533,8 @@ export class DetectionService {
         this.workCtx!.drawImage(video, 0, 0, src.w, src.h)
         input = this.work
       }
-      if (this.sourceSize()?.w !== vw || this.sourceSize()?.h !== vh) {
-        this.sourceSize.set({ w: vw, h: vh })
-      }
+      const known = this.sourceSize()
+      if (known?.w !== vw || known?.h !== vh) this.sourceSize.set({ w: vw, h: vh })
 
       this.process(input, ts)
       this.lastTickEnd = performance.now()
