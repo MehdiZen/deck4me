@@ -876,18 +876,20 @@ async fn install_update(app_handle: tauri::AppHandle) -> Result<(), String> {
     app_handle.restart();
 }
 
-/// Ramène le Studio devant, quel que soit son état.
+/// Ramène le Studio devant. Rend `false` s'il n'y a plus de Studio à ramener.
 ///
 /// Les trois appels sont nécessaires et ne font pas la même chose : une fenêtre
 /// peut être cachée, réduite, ou simplement derrière une autre. N'en faire qu'un
 /// laisserait le second lancement sans effet visible dans deux cas sur trois —
 /// c'est-à-dire ressembler exactement à « l'application ne se lance pas ».
-fn reveal_main(app: &tauri::AppHandle) {
-    if let Some(win) = app.get_webview_window("main") {
-        let _ = win.unminimize();
-        let _ = win.show();
-        let _ = win.set_focus();
-    }
+fn reveal_main(app: &tauri::AppHandle) -> bool {
+    let Some(win) = app.get_webview_window("main") else {
+        return false;
+    };
+    let _ = win.unminimize();
+    let _ = win.show();
+    let _ = win.set_focus();
+    true
 }
 
 pub fn run() {
@@ -905,7 +907,23 @@ pub fn run() {
         // Le second processus s'arrête tout seul ; on se contente de ramener
         // celle qui tourne déjà au premier plan.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            reveal_main(app);
+            // Pas de Studio à ramener : le processus qui tient le verrou n'a
+            // plus de fenêtre. C'est un revenant — fermeture qui n'est pas allée
+            // au bout, fil bloqué à l'extinction.
+            //
+            // Sans ce cas, l'instance unique serait PIRE que le défaut qu'elle
+            // corrige : le revenant avalerait tous les lancements suivants, et
+            // cliquer sur le raccourci ne ferait plus rien du tout — ni fenêtre,
+            // ni message, ni erreur. On préfère le laisser mourir : le clic
+            // suivant repartira sur une application neuve.
+            if !reveal_main(app) {
+                diag::log(
+                    "instance",
+                    "second lancement reçu alors que le Studio n'existe plus — \
+                     ce processus se retire pour laisser la place",
+                );
+                app.exit(0);
+            }
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
