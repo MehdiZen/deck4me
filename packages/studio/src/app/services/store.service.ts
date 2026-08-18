@@ -192,6 +192,10 @@ export class StoreService {
   readonly actions = signal<ActionDef[]>([])
   readonly allDeckSlots = signal<DeckSlot[]>([])
   readonly assets = signal<AssetMeta[]>([])
+  /** L'image de test livrée avec l'application. Elle n'a été importée par
+   *  personne et ne peut pas être supprimée : la bibliothèque l'écarte plutôt
+   *  que d'offrir un bouton qui échouera. */
+  readonly builtinAssetId = signal<string | null>(null)
   readonly settings = signal<Settings>({ ...DEFAULT_SETTINGS })
   readonly overlayUrl = signal('')
   readonly port = signal(47821)
@@ -328,6 +332,7 @@ export class StoreService {
     this.actions.set((boot.actions ?? []).map(normalizeAction))
     this.allDeckSlots.set(boot.deckSlots ?? [])
     this.assets.set(boot.assets)
+    this.builtinAssetId.set(boot.defaultAssetId ?? null)
     this.settings.set({ ...DEFAULT_SETTINGS, ...boot.settings })
     this.overlayUrl.set(boot.overlayUrl)
     this.port.set(boot.port)
@@ -501,7 +506,13 @@ export class StoreService {
    *  pour que le matcher et les barres réagissent sans écrire sur le disque
    *  à chaque pixel. */
   setSensitivityLocal(id: string, sensitivity: number): void {
-    this.allGestures.update((all) => all.map((g) => (g.id === id ? { ...g, sensitivity } : g)))
+    this.patchGestureLocal(id, { sensitivity })
+  }
+
+  /** Même contrat, pour n'importe quel champ : glisser un curseur ne doit
+   *  jamais écrire sur le disque, seul le relâchement le fait. */
+  patchGestureLocal(id: string, patch: Partial<StoredGesture>): void {
+    this.allGestures.update((all) => all.map((g) => (g.id === id ? { ...g, ...patch } : g)))
   }
 
   /** Persiste l'état courant d'une gesture (fin de glissement). */
@@ -516,6 +527,36 @@ export class StoreService {
     this.allGestures.update((all) => all.filter((x) => x.id !== id))
     this.bindings.update((all) => all.filter((x) => x.gestureId !== id))
     this.actions.update((all) => all.filter((a) => a.ownerId !== id))
+  }
+
+  /**
+   * Qui se sert de cet asset ? Renvoie les identifiants de ses propriétaires.
+   *
+   * Un binding porte l'identifiant de ce qu'il habille — pose, macro ou case
+   * du deck confondues —, et le son est imbriqué dedans : les deux comptent,
+   * sans quoi supprimer un son laisserait un meme muet sans prévenir.
+   */
+  assetUsers(id: string): string[] {
+    return this.bindings()
+      .filter((b) => b.assetId === id || b.sound?.assetId === id)
+      .map((b) => b.gestureId)
+  }
+
+  /** Le nom lisible d'un propriétaire de binding, quelle que soit sa famille. */
+  ownerName(id: string): string {
+    return (
+      this.allGestures().find((g) => g.id === id)?.name ??
+      this.allMacros().find((m) => m.id === id)?.name ??
+      this.allDeckSlots().find((s) => s.id === id)?.name ??
+      'un élément supprimé'
+    )
+  }
+
+  /** Retire une image ou un son de la bibliothèque. Le Rust refuse si quelque
+   *  chose s'en sert encore — on remonte son message tel quel. */
+  async deleteAsset(id: string): Promise<void> {
+    await this.tauri.invoke('delete_asset', { id })
+    this.assets.update((all) => all.filter((a) => a.id !== id))
   }
 
   async uploadAsset(file: File): Promise<AssetMeta> {

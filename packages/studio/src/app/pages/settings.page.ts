@@ -1,4 +1,5 @@
 import { Component, inject, signal } from '@angular/core'
+import { AssetLibrary } from '../components/asset-library'
 import { Calibration } from '../components/calibration'
 import { Hotkeys } from '../components/hotkeys'
 import { Icon } from '../components/icon'
@@ -11,7 +12,7 @@ import { StoreService } from '../services/store.service'
 
 @Component({
   selector: 'app-settings-page',
-  imports: [Calibration, VirtualCamCard, Profiles, Hotkeys, Updater, Icon],
+  imports: [Calibration, VirtualCamCard, AssetLibrary, Profiles, Hotkeys, Updater, Icon],
   template: `
     <div class="head">
       <div>
@@ -144,6 +145,8 @@ import { StoreService } from '../services/store.service'
       </div>
 
       <app-virtual-cam />
+
+      <app-asset-library />
 
       <app-profiles />
       <app-hotkeys />

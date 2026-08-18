@@ -221,6 +221,53 @@ import {
                   </button>
                 }
               </div>
+          <!-- Les deux reglages que rien ne permettait de toucher.
+                   Ils sont poses une fois par le wizard et jamais revus, alors que
+                   l'ecran de diagnostic designe nommement « le nombre d'images a tenir » comme
+                   la cause quand une courbe plonge sous le seuil sans declencher :
+                   il disait le remede sans donner le moyen. Replies, parce que la
+                   plupart des poses n'en ont jamais besoin. -->
+              <details class="fine">
+                <summary>Réglages fins</summary>
+                <label class="fl">
+                  <span class="lbl">
+                    Tenir la pose <b class="num">{{ g.framesToTrigger }}</b> images
+                    <span class="dim">(≈ {{ (g.framesToTrigger / 30).toFixed(2) }} s)</span>
+                  </span>
+                  <input
+                    type="range"
+                    min="1"
+                    max="15"
+                    step="1"
+                    [value]="g.framesToTrigger"
+                    (input)="previewFine(g, { framesToTrigger: +$any($event.target).value })"
+                    (change)="commitSens(g)"
+                    [attr.aria-label]="'Images à tenir pour ' + g.name"
+                  />
+                </label>
+                <label class="fl">
+                  <span class="lbl">
+                    Repos après déclenchement
+                    <b class="num">{{ (g.cooldownMs / 1000).toFixed(1) }}</b> s
+                  </span>
+                  <input
+                    type="range"
+                    min="200"
+                    max="5000"
+                    step="100"
+                    [value]="g.cooldownMs"
+                    (input)="previewFine(g, { cooldownMs: +$any($event.target).value })"
+                    (change)="commitSens(g)"
+                    [attr.aria-label]="'Temps de repos de ' + g.name"
+                  />
+                </label>
+                <p class="lbl hint">
+                  La première règle combien de temps la pose doit être tenue avant
+                  de partir : monter, c'est moins de faux départs mais une pose plus
+                  longue à tenir. La seconde est le temps mort qui suit un
+                  déclenchement, pendant lequel la même pose ne repart pas.
+                </p>
+              </details>
             </div>
 
             <!-- À quoi il sert : l'info qui manque le plus sur un maillon. -->
@@ -388,6 +435,54 @@ import {
               <option value="while_held">tant que tenue</option>
             </select>
           </div>
+
+          <!-- Les deux reglages que rien ne permettait de toucher.
+               Ils sont poses une fois par le wizard et jamais revus, alors que
+               l'ecran de diagnostic designe nommement « le nombre d'images a tenir » comme
+               la cause quand une courbe plonge sous le seuil sans declencher :
+               il disait le remede sans donner le moyen. Replies, parce que la
+               plupart des poses n'en ont jamais besoin. -->
+          <details class="fine">
+            <summary>Réglages fins</summary>
+            <label class="fl">
+              <span class="lbl">
+                Tenir la pose <b class="num">{{ g.framesToTrigger }}</b> images
+                <span class="dim">(≈ {{ (g.framesToTrigger / 30).toFixed(2) }} s)</span>
+              </span>
+              <input
+                type="range"
+                min="1"
+                max="15"
+                step="1"
+                [value]="g.framesToTrigger"
+                (input)="previewFine(g, { framesToTrigger: +$any($event.target).value })"
+                (change)="commitSens(g)"
+                [attr.aria-label]="'Images à tenir pour ' + g.name"
+              />
+            </label>
+            <label class="fl">
+              <span class="lbl">
+                Repos après déclenchement
+                <b class="num">{{ (g.cooldownMs / 1000).toFixed(1) }}</b> s
+              </span>
+              <input
+                type="range"
+                min="200"
+                max="5000"
+                step="100"
+                [value]="g.cooldownMs"
+                (input)="previewFine(g, { cooldownMs: +$any($event.target).value })"
+                (change)="commitSens(g)"
+                [attr.aria-label]="'Temps de repos de ' + g.name"
+              />
+            </label>
+            <p class="lbl hint">
+              La première règle combien de temps la pose doit être tenue avant
+              de partir : monter, c'est moins de faux départs mais une pose plus
+              longue à tenir. La seconde est le temps mort qui suit un
+              déclenchement, pendant lequel la même pose ne repart pas.
+            </p>
+          </details>
 
           <div class="acts">
             @if (asset(g)) {
@@ -629,6 +724,23 @@ import {
     .sens .pct.tuned { color: var(--accent-hi); }
     .sens button { padding: 2px 7px; font-size: 10.5px; }
 
+    /* Repliee : la plupart des poses ne demandent jamais ces deux curseurs, et
+       une carte est deja dense sans eux. */
+    .fine { margin: 8px 15px 0; }
+    .fine > summary {
+      cursor: pointer; user-select: none;
+      font-size: 11px; color: var(--ink-3); padding: 3px 0;
+    }
+    .fine > summary:hover { color: var(--ink-2); }
+    .fl { display: flex; flex-direction: column; gap: 3px; margin-top: 7px; }
+    .fl .lbl { text-transform: none; letter-spacing: 0; font-size: 11px; }
+    .fl .num { color: var(--ink); }
+    .fl .dim { color: var(--ink-3); }
+    .fine .hint {
+      margin: 8px 0 0; text-transform: none; letter-spacing: 0;
+      font-size: 11px; line-height: 1.55;
+    }
+
     /* N'apparaît que si la pose sert dans un enchaînement : hors de ce cas,
        l'option n'aurait aucun sens et n'ajouterait que du bruit. */
     .chainopt {
@@ -766,6 +878,12 @@ export class GesturesPage {
    *  des centaines d'écritures disque pour un seul réglage. */
   previewSens(g: StoredGesture, v: number): void {
     this.store.setSensitivityLocal(g.id, v)
+  }
+
+  /** Même contrat que le curseur de déclenchement : mémoire au glissement,
+   *  disque au relâchement — `commitSens` sert aux deux. */
+  previewFine(g: StoredGesture, patch: Partial<StoredGesture>): void {
+    this.store.patchGestureLocal(g.id, patch)
   }
 
   /** Au relâchement : c'est là, et seulement là, qu'on écrit. */

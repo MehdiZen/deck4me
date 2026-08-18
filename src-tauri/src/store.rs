@@ -136,6 +136,12 @@ impl BindingRecord {
     pub fn asset_id(&self) -> Option<&str> {
         self.0.get("assetId").and_then(Value::as_str)
     }
+    /// Le son d'un binding est un objet imbriqué, pas un champ à plat : sans
+    /// cet accès, un son resterait « inutilisé » aux yeux de la suppression et
+    /// disparaîtrait sous les pieds du meme qui le joue.
+    pub fn sound_asset_id(&self) -> Option<&str> {
+        self.0.get("sound")?.get("assetId").and_then(Value::as_str)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -480,6 +486,36 @@ impl Store {
         db.assets.retain(|a| a.id != id);
         db.assets.push(meta.clone());
         Ok(meta)
+    }
+
+    /// Retire un asset : sa fiche, puis son fichier.
+    ///
+    /// Refuse tant que quelque chose s'en sert. Le Studio le sait déjà — il
+    /// tient les bindings en mémoire et grise le bouton — mais la vérification
+    /// est refaite ici parce que c'est ici que le fichier disparaît : une
+    /// image effacée sous un meme donnerait un carré vide en plein stream,
+    /// sans rien pour dire pourquoi.
+    ///
+    /// L'échec de l'effacement du fichier n'est PAS une erreur : la fiche est
+    /// déjà partie, et un fichier orphelin ne se voit nulle part, alors qu'une
+    /// fiche sans fichier casse tous les sélecteurs.
+    pub fn delete_asset(&self, id: &str) -> Result<(), String> {
+        {
+            let mut db = self.db.lock().unwrap();
+            if db.default_asset_id.as_deref() == Some(id) {
+                return Err("c'est l'image de test livrée avec l'application".into());
+            }
+            if db
+                .bindings
+                .iter()
+                .any(|b| b.asset_id() == Some(id) || b.sound_asset_id() == Some(id))
+            {
+                return Err("quelque chose s'en sert encore".into());
+            }
+            db.assets.retain(|a| a.id != id);
+        }
+        let _ = fs::remove_file(self.asset_path(id));
+        Ok(())
     }
 
     pub fn asset_path(&self, id: &str) -> PathBuf {

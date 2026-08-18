@@ -327,6 +327,21 @@ async fn import_asset_from_url(
     Ok(meta)
 }
 
+/// Retire une image ou un son de la bibliothèque.
+///
+/// Sans cette commande, tout ce qui entrait dans la bibliothèque y restait
+/// pour toujours : un import raté, une image d'essai, et surtout les
+/// `-detoure.png` que le détourage crée à CHAQUE tentative — lesquels
+/// s'empilaient ensuite dans tous les sélecteurs « reprendre une image déjà
+/// importée » sans qu'aucun écran ne permette d'en retirer un seul.
+#[tauri::command]
+fn delete_asset(app: tauri::State<App>, id: String) -> Result<(), String> {
+    app.state.store.delete_asset(&id)?;
+    app.state.store.save().map_err(|e| e.to_string())?;
+    app.state.broadcast(&app.state.preload_msg());
+    Ok(())
+}
+
 /// Renvoie les octets d'un asset en base64, pour que le Studio puisse le
 /// charger dans un canvas. Passer par l'URL du serveur local marcherait pour
 /// AFFICHER l'image, mais elle viendrait d'une autre origine que la webview :
@@ -1053,6 +1068,7 @@ pub fn run() {
             panic_clear,
             overlay_url,
             overlay_stats,
+            delete_asset,
             reveal_log,
             save_profile,
             delete_profile,

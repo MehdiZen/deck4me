@@ -83,6 +83,42 @@ import { DECK_LABELS, DECK_LAYOUT, deckAccel } from './deck-layout'
       }
     </nav>
 
+    <!-- Le nom d'une page et sa combinaison se changent.
+         Les deux etaient lus partout — les onglets ici, l'en-tete du widget,
+         l'accord enregistre aupres de Windows — et ecrits nulle part. Les
+         trois pages s'appelaient donc « Page 1 », « Page 2 », « Page 3 » a
+         vie, alors que le widget est precisement la pour remplacer les
+         etiquettes d'un boitier ; et la combinaison etait figee sur Alt, sans
+         recours si elle tombait sur celle d'un autre logiciel. -->
+    <div class="pagecfg">
+      <label>
+        <span class="lbl">Nom de cette page</span>
+        <input
+          [value]="pageName()"
+          (change)="renamePage($any($event.target).value)"
+          aria-label="Nom de la page"
+        />
+      </label>
+      <label>
+        <span class="lbl">Combinaison</span>
+        <select
+          [value]="pageMod()"
+          (change)="setPageMod($any($event.target).value)"
+          aria-label="Combinaison de la page"
+        >
+          @for (m of MODS; track m) {
+            <option [value]="m" [selected]="m === pageMod()">{{ m }} + pavé</option>
+          }
+        </select>
+      </label>
+      @if (modClash()) {
+        <p class="badge err">
+          Deux pages partagent cette combinaison : Windows n'en servira qu'une,
+          et l'autre restera muette.
+        </p>
+      }
+    </div>
+
     <div class="cols">
       <div class="pad">
         @for (c of cells(); track c.key) {
@@ -195,6 +231,12 @@ import { DECK_LABELS, DECK_LAYOUT, deckAccel } from './deck-layout'
       padding-left: 4px; font-size: 12px; color: var(--ink-2); cursor: pointer;
     }
     .subopt input { accent-color: #5eead4; }
+
+    .pagecfg { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; }
+    .pagecfg label { display: flex; flex-direction: column; gap: 4px; }
+    .pagecfg .lbl { font-size: 10.5px; }
+    .pagecfg input { width: 190px; font-size: 12.5px; padding: 6px 9px; }
+    .pagecfg select { font-size: 12.5px; padding: 6px 26px 6px 9px; }
     .note {
       margin: 0 0 16px; padding: 10px 13px; border-radius: 9px;
       border: 1px solid var(--line-soft); background: var(--surface);
@@ -278,6 +320,37 @@ export class DeckPage {
 
   protected armed = computed(() => this.store.settings().deckEnabled)
   protected pinned = computed(() => this.store.settings().deckPinned)
+
+  /** Les combinaisons proposees. Toutes contiennent au moins deux touches
+   *  mortes : « Ctrl » seul volerait Ctrl+Inser (copier) au systeme. */
+  protected readonly MODS = ['Alt', 'Ctrl+Alt', 'Shift+Alt', 'Ctrl+Shift', 'Ctrl+Shift+Alt']
+
+  protected pageName = computed(
+    () => this.store.settings().deckPageNames[this.page()] ?? `Page ${this.page() + 1}`,
+  )
+  protected pageMod = computed(() => this.store.settings().deckPageMods[this.page()] ?? '')
+
+  /** Deux pages sur la meme combinaison : Windows attribue un accord au premier
+   *  qui le demande, la seconde page ne repondrait jamais. Le dire vaut mieux
+   *  que d'interdire — on peut vouloir passer par cet etat en reorganisant. */
+  protected modClash = computed(() => {
+    const mods = this.store.settings().deckPageMods
+    return mods.some((m, i) => i !== this.page() && m === mods[this.page()])
+  })
+
+  protected async renamePage(name: string): Promise<void> {
+    const t = name.trim()
+    if (!t || t === this.pageName()) return
+    const names = [...this.store.settings().deckPageNames]
+    names[this.page()] = t
+    await this.store.saveSettings({ deckPageNames: names })
+  }
+
+  protected async setPageMod(mod: string): Promise<void> {
+    const mods = [...this.store.settings().deckPageMods]
+    mods[this.page()] = mod
+    await this.store.saveSettings({ deckPageMods: mods })
+  }
 
   protected pages = computed(() =>
     this.store.settings().deckPageMods.map((mod, index) => ({
