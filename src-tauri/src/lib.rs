@@ -876,8 +876,37 @@ async fn install_update(app_handle: tauri::AppHandle) -> Result<(), String> {
     app_handle.restart();
 }
 
+/// Ramène le Studio devant, quel que soit son état.
+///
+/// Les trois appels sont nécessaires et ne font pas la même chose : une fenêtre
+/// peut être cachée, réduite, ou simplement derrière une autre. N'en faire qu'un
+/// laisserait le second lancement sans effet visible dans deux cas sur trois —
+/// c'est-à-dire ressembler exactement à « l'application ne se lance pas ».
+fn reveal_main(app: &tauri::AppHandle) {
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.unminimize();
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
+        // UNE SEULE INSTANCE, et ce plugin doit rester le PREMIER enregistré :
+        // il court-circuite le démarrage du second processus, donc tout ce qui
+        // serait branché avant lui s'exécuterait quand même pour rien.
+        //
+        // Sans lui, un second lancement allait jusqu'au bout, trouvait le port
+        // local déjà pris et s'arrêtait sur ce message — sans caméra, sans
+        // overlay, et sans rien à faire d'autre que le fermer. Deux fenêtres
+        // identiques dont une seule fonctionne est pire que pas de fenêtre du
+        // tout : on ne sait pas laquelle on regarde.
+        //
+        // Le second processus s'arrête tout seul ; on se contente de ramener
+        // celle qui tourne déjà au premier plan.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            reveal_main(app);
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         // Fermer le Studio ferme l'application, widget compris.

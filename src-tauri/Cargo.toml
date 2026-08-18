@@ -30,6 +30,9 @@ libloading = "0.8"
 nokhwa = { version = "0.10", features = ["input-msmf"] }
 winreg = "0.52"
 tauri-plugin-global-shortcut = "2"
+# Une seule instance à la fois. Sans lui, un second lancement se heurtait au port
+# local déjà pris et restait planté sur ce message, sans rien pouvoir faire.
+tauri-plugin-single-instance = "2"
 tauri-plugin-updater = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 
