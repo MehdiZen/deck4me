@@ -70,7 +70,12 @@ export interface Settings {
   deckPinned: boolean
   /** Position retenue du widget. null = en bas à droite de l'écran principal. */
   deckPos: [number, number] | null
+  /** Quelle moitié de la nav et des réglages est montrée. Change l'affichage,
+   *  jamais ce que le moteur de gestures sait faire. */
+  appMode: AppMode
 }
+
+export type AppMode = 'streamer' | 'control'
 
 export const DEFAULT_SETTINGS: Settings = {
   hotkeys: {},
@@ -88,6 +93,7 @@ export const DEFAULT_SETTINGS: Settings = {
   deckPageNames: ['Page 1', 'Page 2', 'Page 3'],
   deckPinned: false,
   deckPos: null,
+  appMode: 'streamer',
 }
 
 /**

@@ -1,4 +1,4 @@
-import { Component, computed, inject, signal } from '@angular/core'
+import { Component, Input, computed, inject, signal } from '@angular/core'
 import { ConfirmService } from '../services/confirm.service'
 import { StoreService, isAudio, type AssetMeta } from '../services/store.service'
 import { Icon } from './icon'
@@ -13,8 +13,13 @@ import { Icon } from './icon'
   selector: 'app-asset-library',
   imports: [Icon],
   template: `
-    <div class="card">
-      <h2>Bibliothèque</h2>
+    <!-- embedded : posé dans une modale qui fournit déjà son cadre et son
+         titre — un second cadre autour du premier ferait une bordure dans
+         une bordure. -->
+    <div [class.card]="!embedded">
+      @if (!embedded) {
+        <h2>Bibliothèque</h2>
+      }
       <p class="lbl">
         Toutes les images et tous les sons importés, quel que soit le profil.
         Une image détourée compte comme une image de plus : l'originale est
@@ -131,6 +136,8 @@ import { Icon } from './icon'
   `,
 })
 export class AssetLibrary {
+  @Input() embedded = false
+
   protected store = inject(StoreService)
   private confirm = inject(ConfirmService)
   protected readonly isAudio = isAudio

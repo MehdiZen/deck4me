@@ -197,6 +197,11 @@ pub struct Settings {
     /// Position retenue du widget, en coordonnées logiques. `None` = en bas à
     /// droite de l'écran principal, du côté du pavé numérique.
     pub deck_pos: Option<(f64, f64)>,
+    /// "streamer" ou "control" : quelle moitié de la navigation et des
+    /// réglages est montrée. Change ce qui est affiché, jamais ce que le
+    /// moteur de gestures sait faire — les deux publics partagent tout le
+    /// reste (calibration, poses, deck).
+    pub app_mode: String,
 }
 
 impl Default for Settings {
@@ -220,6 +225,7 @@ impl Default for Settings {
             deck_page_names: vec!["Page 1".into(), "Page 2".into(), "Page 3".into()],
             deck_pinned: false,
             deck_pos: None,
+            app_mode: "streamer".to_string(),
         }
     }
 }

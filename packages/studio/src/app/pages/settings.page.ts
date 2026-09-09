@@ -17,7 +17,13 @@ import { StoreService } from '../services/store.service'
     <div class="head">
       <div>
         <h1>Réglages</h1>
-        <p class="lbl sub">Caméra, calibration, overlay OBS, profils et raccourcis.</p>
+        <p class="lbl sub">
+          @if (store.settings().appMode === 'streamer') {
+            Caméra, calibration, overlay OBS, profils et raccourcis.
+          } @else {
+            Caméra, calibration, profils et raccourcis.
+          }
+        </p>
       </div>
     </div>
 
@@ -93,6 +99,7 @@ import { StoreService } from '../services/store.service'
 
       <app-calibration />
 
+      @if (store.settings().appMode === 'streamer') {
       <div class="card">
         <h2>Overlay OBS</h2>
         <p class="lbl">
@@ -143,7 +150,34 @@ import { StoreService } from '../services/store.service'
 
       <app-virtual-cam />
 
-      <app-asset-library />
+      <!-- En modale plutôt qu'en ligne : la grille des memes grossit avec
+           l'usage, et une page de réglages qui grandit avec la bibliothèque
+           de l'utilisateur est une page qu'on n'arrive plus à parcourir. -->
+      <div class="card row">
+        <div class="grow">
+          <h2>Bibliothèque</h2>
+          <p class="lbl">{{ store.assets().length }} fichier(s) importés.</p>
+        </div>
+        <button (click)="libraryOpen.set(true)">
+          <app-icon name="image" [size]="15" /> Ouvrir
+        </button>
+      </div>
+
+      @if (libraryOpen()) {
+        <div class="modal-bg" (click)="libraryOpen.set(false)">
+          <div class="modal" (click)="$event.stopPropagation()">
+            <header>
+              <h2>Bibliothèque</h2>
+              <span class="spacer"></span>
+              <button class="ghost sm" (click)="libraryOpen.set(false)">
+                <app-icon name="close" [size]="15" /> Fermer
+              </button>
+            </header>
+            <app-asset-library [embedded]="true" />
+          </div>
+        </div>
+      }
+      }
 
       <app-profiles />
       <app-hotkeys />
@@ -163,6 +197,17 @@ import { StoreService } from '../services/store.service'
     .wire .lbl { text-transform: none; letter-spacing: 0; font-size: 12px; flex: 1; min-width: 200px; }
     .opt { display: flex; align-items: flex-start; gap: 11px; cursor: pointer; font-size: 13.5px; margin-top: 14px; }
     .opt .lbl { display: block; margin-top: 2px; text-transform: none; letter-spacing: 0; font-size: 11.5px; }
+
+    .modal {
+      width: 720px; max-width: 100%; max-height: 88vh; overflow-y: auto;
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: var(--r-panel); padding: 18px 20px;
+      box-shadow: var(--edge), 0 30px 80px #000000a0;
+      animation: pop 200ms var(--spring) both;
+    }
+    @keyframes pop { from { opacity: 0; transform: translateY(10px) scale(.985) } }
+    .modal header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .modal header h2 { margin: 0; }
   `,
 })
 export class SettingsPage {
@@ -170,6 +215,7 @@ export class SettingsPage {
   protected detection = inject(DetectionService)
   protected overlay = inject(OverlayService)
   copied = signal(false)
+  libraryOpen = signal(false)
 
   constructor() {
     void this.detection.listCameras()

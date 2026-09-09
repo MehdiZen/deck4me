@@ -60,16 +60,18 @@ const NO_MACRO: string[] = []
          Le compteur de chaque onglet donne au passage le budget de collisions,
          qui est ce qui plafonne réellement le nombre de poses. -->
     <div class="tabs" role="tablist">
-      <button
-        class="tab"
-        role="tab"
-        [class.on]="!isLink()"
-        [attr.aria-selected]="!isLink()"
-        (click)="tab.set('meme')"
-      >
-        <app-icon name="image" [size]="15" /> Memes
-        <span class="cnt">{{ store.memeGestures().length }}</span>
-      </button>
+      @if (store.settings().appMode === 'streamer') {
+        <button
+          class="tab"
+          role="tab"
+          [class.on]="!isLink()"
+          [attr.aria-selected]="!isLink()"
+          (click)="tab.set('meme')"
+        >
+          <app-icon name="image" [size]="15" /> Memes
+          <span class="cnt">{{ store.memeGestures().length }}</span>
+        </button>
+      }
       <button
         class="tab"
         role="tab"
@@ -786,7 +788,12 @@ export class GesturesPage {
   /** Filtre libre sur le nom. */
   q = signal('')
 
-  readonly isLink = computed(() => this.tab() === 'link')
+  /** En Contrôle, une pose seule ne déclenche jamais d'action directe — le
+   *  même garde-fou que les macros : un geste seul peut partir par accident,
+   *  un enchaînement non. L'onglet Memes disparaît, celui-ci reste forcé. */
+  readonly isLink = computed(
+    () => this.tab() === 'link' || this.store.settings().appMode === 'control',
+  )
   readonly list = computed(() => {
     const src = this.isLink() ? this.store.linkGestures() : this.store.memeGestures()
     const needle = this.q().trim().toLowerCase()

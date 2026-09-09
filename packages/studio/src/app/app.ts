@@ -1,11 +1,12 @@
-import { Component, effect, inject } from '@angular/core'
+import { Component, computed, effect, inject, signal } from '@angular/core'
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router'
 import { listen } from '@tauri-apps/api/event'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { Confirm } from './components/confirm'
 import { Icon } from './components/icon'
 import { DetectionService } from './services/detection.service'
 import { MatcherService } from './services/matcher.service'
-import { StoreService } from './services/store.service'
+import { StoreService, type AppMode } from './services/store.service'
 import { UpdateService } from './services/update.service'
 import { VcamService } from './services/vcam.service'
 
@@ -21,11 +22,68 @@ import { VcamService } from './services/vcam.service'
   selector: 'app-root',
   imports: [RouterOutlet, RouterLink, RouterLinkActive, Icon, Confirm],
   template: `
-    <div class="shell">
+    <div class="app">
+      <!-- Barre de titre maison : la fenêtre n'a plus de cadre Windows
+           (« decorations: false »), donc plus rien ne la déplace ni ne la
+           réduit sans ceci. data-tauri-drag-region fait le glisser-déposer,
+           les trois boutons refont juste ce que le système ne fait plus. -->
+      <div class="titlebar" data-tauri-drag-region>
+        <span class="tb-word" data-tauri-drag-region>deck<b>4</b>me</span>
+        <div class="tb-btns">
+          <button class="tb-btn" (click)="minimize()" aria-label="Réduire">
+            <svg viewBox="0 0 10 10" fill="none" stroke="currentColor">
+              <path d="M0 5h10" />
+            </svg>
+          </button>
+          <button class="tb-btn" (click)="toggleMaximize()" aria-label="Agrandir / restaurer">
+            @if (maximized()) {
+              <svg viewBox="0 0 10 10" fill="none" stroke="currentColor">
+                <path d="M2.5 0.5h7v7h-7z" />
+                <path d="M0.5 2.5h7v7h-7z" />
+              </svg>
+            } @else {
+              <svg viewBox="0 0 10 10" fill="none" stroke="currentColor">
+                <path d="M0.5 0.5h9v9h-9z" />
+              </svg>
+            }
+          </button>
+          <button class="tb-btn close" (click)="closeWindow()" aria-label="Fermer">
+            <svg viewBox="0 0 10 10" fill="none" stroke="currentColor">
+              <path d="M0 0l10 10M10 0l-10 10" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="shell">
       <aside class="rail">
         <div class="brand">
           <span class="mark"></span>
           <span class="word">deck<b>4</b>me</span>
+        </div>
+
+        <!-- Deux publics, un seul moteur en dessous. Le switch ne cache que
+             la navigation et les réglages propres à l'autre monde — la
+             calibration, les poses et le deck restent communs, parce que
+             filmer sa main et l'enregistrer ne dépend pas de ce qu'on
+             déclenche ensuite. -->
+        <div class="mode" role="tablist" aria-label="Mode de l'application">
+          <button
+            role="tab"
+            [class.on]="mode() === 'streamer'"
+            [attr.aria-selected]="mode() === 'streamer'"
+            (click)="setMode('streamer')"
+          >
+            Streamer
+          </button>
+          <button
+            role="tab"
+            [class.on]="mode() === 'control'"
+            [attr.aria-selected]="mode() === 'control'"
+            (click)="setMode('control')"
+          >
+            Contrôle
+          </button>
         </div>
 
         <!-- Cinq destinations, et une seule langue.
@@ -34,9 +92,13 @@ import { VcamService } from './services/vcam.service'
              titre annonçait Gestures et le sous-titre comptait des poses. Deux
              mots pour un objet, c'est un objet de plus à apprendre. -->
         <nav>
-          <a routerLink="/live" routerLinkActive="on"><app-icon name="live" /> Live</a>
+          @if (mode() === 'streamer') {
+            <a routerLink="/live" routerLinkActive="on"><app-icon name="live" /> Live</a>
+          }
           <a routerLink="/gestures" routerLinkActive="on"><app-icon name="hand" /> Poses</a>
-          <a routerLink="/macros" routerLinkActive="on"><app-icon name="zap" /> Macros</a>
+          @if (mode() === 'streamer') {
+            <a routerLink="/macros" routerLinkActive="on"><app-icon name="zap" /> Macros</a>
+          }
           <a routerLink="/deck" routerLinkActive="on"><app-icon name="keyboard" /> Deck</a>
           <a routerLink="/reglages" routerLinkActive="on"><app-icon name="sliders" /> Réglages</a>
         </nav>
@@ -106,6 +168,7 @@ import { VcamService } from './services/vcam.service'
         }
         <router-outlet />
       </main>
+      </div>
     </div>
 
     <!-- Montée une seule fois pour toute l'app : une boîte de confirmation
@@ -114,7 +177,35 @@ import { VcamService } from './services/vcam.service'
     <app-confirm />
   `,
   styles: `
-    .shell { display: flex; height: 100vh; overflow: hidden; }
+    .app { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    .shell { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+
+    /* Barre de titre maison. Même fond que le rail : la fenêtre n'a plus de
+       cadre système à distinguer de l'app, les deux ne doivent donc pas se
+       distinguer entre eux non plus. */
+    .titlebar {
+      flex: none;
+      display: flex; align-items: center;
+      height: 32px;
+      background: #121118;
+      -webkit-user-select: none; user-select: none;
+    }
+    .tb-word {
+      padding-left: 12px;
+      font-size: 12px; font-weight: 600; letter-spacing: -0.01em;
+      color: var(--ink-3);
+    }
+    .tb-word b { color: var(--accent-hi); }
+    .tb-btns { margin-left: auto; display: flex; height: 100%; }
+    .tb-btn {
+      width: 44px; height: 100%;
+      display: grid; place-items: center;
+      background: transparent; border: none; color: var(--ink-3); cursor: pointer;
+      transition: background 120ms var(--ease), color 120ms var(--ease);
+    }
+    .tb-btn svg { width: 10px; height: 10px; stroke-width: 1; }
+    .tb-btn:hover { background: #ffffff12; color: var(--ink); }
+    .tb-btn.close:hover { background: #e03e4e; color: #fff; }
 
     .rail {
       width: var(--rail);
@@ -146,6 +237,22 @@ import { VcamService } from './services/vcam.service'
     }
     .word { font-size: 15.5px; font-weight: 640; letter-spacing: -0.025em; }
     .word b { color: var(--accent-hi); font-weight: 640; }
+
+    /* Deux onglets, pas deux apps : le fond qui glisse dit que c'est le même
+       rail qui change de contenu, pas une autre destination. */
+    .mode {
+      display: flex; gap: 2px; padding: 3px; margin-bottom: 16px;
+      background: #0d0c12; border: 1px solid var(--line-soft);
+      border-radius: 10px;
+    }
+    .mode button {
+      flex: 1; padding: 7px 0; border: none; border-radius: 7px;
+      background: transparent; color: var(--ink-3);
+      font-size: 12.5px; font-weight: 560; cursor: pointer;
+      transition: background 160ms var(--ease), color 160ms var(--ease);
+    }
+    .mode button:hover { color: var(--ink-2); }
+    .mode button.on { background: var(--accent-wash); color: var(--ink); }
 
     nav { display: flex; flex-direction: column; gap: 2px; }
     nav a {
@@ -233,6 +340,14 @@ export class App {
   private updates = inject(UpdateService)
   private vcam = inject(VcamService)
 
+  protected mode = computed(() => this.store.settings().appMode)
+
+  /** Icône agrandir/restaurer de la barre de titre maison. Reflète l'état
+   *  réel de la fenêtre, y compris quand elle est agrandie autrement qu'en
+   *  cliquant le bouton — double-clic sur la barre, accroche Windows. */
+  protected maximized = signal(false)
+  private win = getCurrentWindow()
+
   constructor() {
     // Tout ce qui suit attend que les réglages soient lus : ce sont eux qui
     // disent quoi reprendre au lancement.
@@ -240,6 +355,7 @@ export class App {
     this.detection.onCameraChange = (id) => void this.store.saveSettings({ detectionCamera: id })
     this.matcher.init()
     void this.bindHotkeys()
+    void this.bindWindowState()
 
     // Le raccourci « panic » est traité côté Rust (l'overlay est nettoyé même
     // si la webview rame) ; ici on ne fait que refléter l'état.
@@ -288,7 +404,35 @@ export class App {
     }
   }
 
+  private async bindWindowState(): Promise<void> {
+    try {
+      this.maximized.set(await this.win.isMaximized())
+      await this.win.onResized(async () => {
+        this.maximized.set(await this.win.isMaximized())
+      })
+    } catch {
+      /* hors webview Tauri (ng serve) : la fenêtre système gère tout */
+    }
+  }
+
+  minimize(): void {
+    void this.win.minimize()
+  }
+
+  toggleMaximize(): void {
+    void this.win.toggleMaximize()
+  }
+
+  closeWindow(): void {
+    void this.win.close()
+  }
+
   async switchProfile(ev: Event): Promise<void> {
     await this.store.setActiveProfile((ev.target as HTMLSelectElement).value)
+  }
+
+  async setMode(mode: AppMode): Promise<void> {
+    if (mode === this.mode()) return
+    await this.store.saveSettings({ appMode: mode })
   }
 }
