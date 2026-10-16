@@ -55,8 +55,8 @@ const env = {
   // vide se distingue d'un héritage machine.
   TAURI_SIGNING_PRIVATE_KEY_PATH: '',
   // Le mot de passe ne protège rien tout seul — sans le fichier de clé, qui
-  // n'est pas dans le dépôt, il n'ouvre rien. Il est déjà écrit dans le README
-  // pour cette raison. Surchargeable pour une clé différente.
+  // n'est pas dans le dépôt, il n'ouvre rien. Il doit venir de l'environnement
+  // et ne figure jamais dans le dépôt.
   TAURI_SIGNING_PRIVATE_KEY_PASSWORD:
     process.env['TAURI_SIGNING_PRIVATE_KEY_PASSWORD'] ?? '',
 }
