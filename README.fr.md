@@ -2,6 +2,8 @@
 
 [English version](README.md)
 
+Téléchargez l'installateur depuis la [dernière release](https://github.com/MehdiZen/deck4me/releases/latest). Windows peut afficher un avertissement "Éditeur inconnu". Choisissez alors "Informations complémentaires", puis "Exécuter quand même".
+
 deck4me est une application de bureau Windows pour les streamers. Elle lit votre webcam, reconnaît des poses de votre visage et de vos mains, et déclenche un meme (une image, une animation ou un son) sur votre stream quand vous tenez une pose. Tout tourne sur votre machine, le modèle de détection est embarqué et rien n'est envoyé à un serveur.
 
 L'application est construite avec Tauri v2. Un serveur axum local alimente une page d'overlay que l'on ajoute à OBS comme source navigateur. L'interface est en français.
