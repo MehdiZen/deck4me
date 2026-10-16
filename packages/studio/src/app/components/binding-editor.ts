@@ -114,6 +114,32 @@ const FX_LABEL: Record<string, string> = {
         <!-- Réglages -->
         <div class="side">
           <section>
+            <h3>Destination</h3>
+            <div class="seg">
+              <button
+                [class.on]="draft().destination !== 'camera'"
+                (click)="patch({ destination: 'stream' })"
+              >
+                <app-icon name="live" [size]="14" /> Stream (OBS)
+              </button>
+              <button
+                [class.on]="draft().destination === 'camera'"
+                (click)="patch({ destination: 'camera' })"
+              >
+                <app-icon name="camera" [size]="14" /> Caméra virtuelle
+              </button>
+            </div>
+            @if (draft().destination === 'camera') {
+              <p class="lbl note">
+                Incrusté directement dans « deck4me Camera » — visible dans
+                Discord, Zoom, tout ce qui prend cette caméra, sans passer par
+                OBS. Le son ne joue pas, et un GIF n'affiche que sa première
+                image.
+              </p>
+            }
+          </section>
+
+          <section>
             <h3>Image</h3>
             @if (currentAsset(); as a) {
               <div class="assetrow">
@@ -224,6 +250,7 @@ const FX_LABEL: Record<string, string> = {
             }
           </section>
 
+          @if (draft().destination !== 'camera') {
           <section>
             <h3>Son</h3>
             @if (soundAsset(); as s) {
@@ -270,6 +297,7 @@ const FX_LABEL: Record<string, string> = {
               </p>
             }
           </section>
+          }
 
           <section>
             <h3>Calque</h3>

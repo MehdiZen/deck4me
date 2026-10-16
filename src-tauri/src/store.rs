@@ -142,6 +142,15 @@ impl BindingRecord {
     pub fn sound_asset_id(&self) -> Option<&str> {
         self.0.get("sound")?.get("assetId").and_then(Value::as_str)
     }
+    /// "stream" (overlay OBS, par défaut) ou "camera" (incrusté dans deck4me
+    /// Camera). Absent sur tout binding créé avant cette distinction — d'où
+    /// le défaut, pas un champ obligatoire à migrer.
+    pub fn destination(&self) -> &str {
+        self.0
+            .get("destination")
+            .and_then(Value::as_str)
+            .unwrap_or("stream")
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -13,6 +13,7 @@ export const DEFAULT_RENDER: RenderParams = {
   exit: 'fade',
   layer: 0,
   sound: null,
+  destination: 'stream',
 }
 
 /** Point d'ancrage v1 → position équivalente, en % du cadre. */

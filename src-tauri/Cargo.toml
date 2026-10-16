@@ -25,6 +25,9 @@ imagesize = "0.13"
 # Encodeur JPEG pur Rust, sans dépendance C : sert à livrer les images de la
 # caméra virtuelle directement à la webview, sans repasser par DirectShow.
 jpeg-encoder = "0.6"
+# Décodage des memes pour l'incrustation caméra (camoverlay). gif est inclus
+# mais seule la première image est lue en phase 1 — aucune boucle d'animation.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 base64 = "0.22"
 libloading = "0.8"
 nokhwa = { version = "0.10", features = ["input-msmf"] }

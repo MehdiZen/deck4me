@@ -13,6 +13,7 @@ use serde::Serialize;
 use std::ffi::c_void;
 use std::path::PathBuf;
 use crate::camfeed;
+use crate::camoverlay::CamOverlay;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -78,6 +79,10 @@ pub struct VirtualCam {
     stop: Arc<AtomicBool>,
     status: Arc<Mutex<VcamStatus>>,
     thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    /// Meme incrusté directement dans le flux — l'alternative à l'overlay OBS.
+    /// Vit ici et pas dans `App` : seul le thread de pompage le lit, et il
+    /// doit survivre à un arrêt/redémarrage de la caméra virtuelle.
+    pub overlay: Arc<CamOverlay>,
 }
 
 impl VirtualCam {
@@ -87,6 +92,7 @@ impl VirtualCam {
             stop: Arc::new(AtomicBool::new(false)),
             status: Arc::new(Mutex::new(VcamStatus::default())),
             thread: Mutex::new(None),
+            overlay: Arc::new(CamOverlay::default()),
         }
     }
 
@@ -216,11 +222,12 @@ impl VirtualCam {
         let dll_path = self.dll_path.clone();
         let stop = self.stop.clone();
         let status = self.status.clone();
+        let overlay = self.overlay.clone();
 
         let handle = std::thread::Builder::new()
             .name("vcam-pump".into())
             .spawn(move || {
-                if let Err(e) = pump(dll_path, camera_index, wanted, &stop, &status) {
+                if let Err(e) = pump(dll_path, camera_index, wanted, &stop, &status, &overlay) {
                     let mut s = status.lock().unwrap();
                     s.error = Some(e);
                 }
@@ -297,6 +304,7 @@ fn pump(
     wanted: Option<VcamFormat>,
     stop: &AtomicBool,
     status: &Mutex<VcamStatus>,
+    overlay: &CamOverlay,
 ) -> Result<(), String> {
     use nokhwa::pixel_format::RgbFormat;
     use nokhwa::utils::{CameraFormat, FrameFormat, RequestedFormatType, Resolution};
@@ -439,6 +447,10 @@ fn pump(
                 d[2] = s[0];
             }
         }
+        // Après la conversion (sinon écrasé), avant l'envoi (sinon jamais vu) :
+        // le seul endroit qui ait à la fois la trame fraîche et encore la main
+        // dessus.
+        overlay.composite(&mut bgr, w, h);
         unsafe { sc_send(cam_handle, bgr.as_ptr() as *const c_void) };
         let t_end = Instant::now();
 

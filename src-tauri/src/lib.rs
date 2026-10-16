@@ -1,5 +1,6 @@
 pub mod actions;
 mod camfeed;
+pub mod camoverlay;
 pub mod deck;
 pub mod deckpage;
 pub mod deckwin;
@@ -398,8 +399,65 @@ fn fire_owner(
     if has_actions && !has_binding(app, owner_id) {
         return Ok(());
     }
+
+    let binding = {
+        let db = app.state.store.db.lock().unwrap();
+        db.bindings
+            .iter()
+            .find(|b| b.gesture_id() == Some(owner_id))
+            .cloned()
+    };
+    // « camera » court-circuite l'overlay OBS entièrement : incrusté dans le
+    // flux de la caméra virtuelle, il n'a rien à faire sur le fil WebSocket.
+    if binding.as_ref().is_some_and(|b| b.destination() == "camera") {
+        return fire_camera(app, owner_id, &binding.unwrap());
+    }
+
     let trigger = build_trigger(app, owner_id)?;
     app.state.broadcast_trigger(trigger);
+    Ok(())
+}
+
+/// Pousse le meme dans `camoverlay` plutôt que sur le fil OBS. Voir
+/// `camoverlay.rs` pour ce que la phase 1 ne fait pas (animation, son).
+fn fire_camera(app: &App, gesture_id: &str, b: &BindingRecord) -> Result<(), String> {
+    let asset_id = b.asset_id().ok_or("binding sans assetId")?.to_string();
+    let asset_path = app.state.store.asset_path(&asset_id);
+
+    let hold = {
+        let db = app.state.store.db.lock().unwrap();
+        db.gestures
+            .iter()
+            .find(|g| g.id() == Some(gesture_id))
+            .map(|g| g.hold_mode() == "while_held")
+            .unwrap_or(false)
+    };
+
+    let f = |k: &str| b.0.get(k).cloned();
+    // Durée réelle mesurée dans template.html (fm-enter-*) : la trajectoire de
+    // chaque effet n'est pas reproduite ici, seul son rythme l'est, pour que
+    // le meme ne paraisse pas plus lent ou plus abrupt selon l'effet choisi.
+    let enter_ms = match f("enter").and_then(|v| v.as_str().map(String::from)).as_deref() {
+        Some("pop") => 260,
+        Some("slide") => 220,
+        Some("drop") => 380,
+        Some("shake") => 460,
+        Some("spin") => 380,
+        _ => 180, // fade, et défaut
+    };
+
+    app.vcam.overlay.show(camoverlay::ActiveOverlay {
+        asset_id,
+        asset_path,
+        x_pct: f("x").and_then(|v| v.as_f64()).unwrap_or(50.0),
+        y_pct: f("y").and_then(|v| v.as_f64()).unwrap_or(50.0),
+        size_pct: f("sizePct").and_then(|v| v.as_f64()).unwrap_or(25.0),
+        enter_ms,
+        duration_ms: f("durationMs").and_then(|v| v.as_u64()).unwrap_or(3000),
+        hold,
+        started_at: std::time::Instant::now(),
+        released_at: None,
+    });
     Ok(())
 }
 
@@ -480,6 +538,11 @@ fn key_names() -> Vec<&'static str> {
 fn gesture_released(app: tauri::State<App>, gesture_id: String) {
     let binding_id = binding_id_for(&app, &gesture_id);
     app.state.broadcast(&WsMsg::Release { binding_id });
+    // Sans effet si le déclencheur actif n'est pas un while_held caméra — voir
+    // `CamOverlay::release`. Toujours appelé plutôt que vérifié en amont :
+    // vérifier la destination ici recréerait la même requête que `release`
+    // fait déjà sur son propre état.
+    app.vcam.overlay.release();
 }
 
 // ---- Deck clavier -------------------------------------------------------

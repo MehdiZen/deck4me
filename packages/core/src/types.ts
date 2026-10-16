@@ -110,6 +110,13 @@ export interface SoundRef {
  * Le v1 (anchor + offsets + scale relatif aux pixels natifs) dérivait dès que
  * la source de navigateur OBS changeait de taille.
  */
+/** stream = overlay OBS (par défaut). camera = incrusté dans deck4me Camera —
+ *  visible dans Discord/Zoom/tout ce qui prend cette caméra, sans OBS. Le son
+ *  et l'animation GIF n'existent que côté stream : une image vidéo n'a pas de
+ *  piste audio, et l'incrustation caméra n'affiche que la première image
+ *  d'un GIF. Voir camoverlay.rs. */
+export type RenderDestination = 'stream' | 'camera'
+
 export interface RenderParams {
   x: number
   y: number
@@ -119,6 +126,7 @@ export interface RenderParams {
   exit: ExitFx
   layer: number
   sound?: SoundRef | null
+  destination: RenderDestination
   /** Champs v1 conservés le temps de la migration — jamais réécrits. */
   anchor?: Anchor
   scale?: number
