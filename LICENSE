@@ -1,0 +1,44 @@
+DECK4ME END USER LICENSE AGREEMENT (EULA)
+
+Copyright (c) 2026 Mehdi Zenati
+
+This software is distributed under a dual-licensing model: Free for Non-Commercial Personal Use, and Paid for Commercial and Professional Use.
+
+By downloading, installing, or using this software, you agree to be bound by the terms of this License.
+
+1. NON-COMMERCIAL PERSONAL USE LICENSE
+--------------------------------------
+Permission is hereby granted, free of charge, to any individual or household to use, copy, and run this software solely for private, personal, and non-commercial purposes.
+
+Under this personal license:
+* You may use the software on your personal home computer(s).
+* You may not use the software to generate income or facilitate any professional, educational (school/university administration), non-profit, or government activities.
+
+2. COMMERCIAL AND PROFESSIONAL LICENSE
+--------------------------------------
+Any use of this software within a commercial entity, professional environment, office, or for any business-related activities (including freelancing, consulting, customer support, content production, monetized streaming or IT administration) requires a valid, paid Commercial License.
+
+* You must purchase a separate license key or enterprise plan for each user running the software in a professional context, or contact the author through https://github.com/MehdiZen/deck4me (open an issue) for bulk licensing.
+* Using the software without a valid commercial license in a professional context constitutes a breach of copyright.
+
+3. RESTRICTIONS
+---------------
+Except as explicitly permitted under this license, you may not:
+* Sub-license, rent, lease, or resell the software.
+* Offer the software, or a modified version of it, to third parties as a hosted or managed service.
+* Reverse-engineer, decompile, or disassemble any packaged or compiled build of the application, except to the extent permitted by applicable law.
+* Distribute modified versions of the software under the name "deck4me" (or its former names "meme4me" and "facememe") without explicit written consent from the author.
+* Distribute the installer or the virtual camera driver built from this repository in a way that suggests it is published or endorsed by the author.
+
+4. OPEN SOURCE AND THIRD-PARTY COMPLIANCE
+-----------------------------------------
+This software integrates third-party open-source components, which remain under their own licenses and are not covered by the terms above.
+* The virtual camera filter in vendor/softcam is the Softcam library by tshino, released under the MIT License (see vendor/softcam/LICENSE). It embeds the DirectShow Base Classes from the Microsoft Windows Samples, also provided under the MIT License.
+* The hand and face detection uses MediaPipe Tasks Vision and the MediaPipe model files, which are published by Google under the Apache License 2.0. They are not stored in this repository and are downloaded by the "npm run vendor" script.
+* The other libraries (Tauri, Angular, axum, and the packages listed in the lock files) keep the licenses of their respective authors.
+The source code of deck4me is shared publicly for community review and personal contributions under a "Source-Available" model. Any contributions submitted to the repository remain under the copyright of the author unless agreed otherwise.
+The application runs on your own computer and processes your webcam image locally. The virtual camera driver is registered on your system with administrator rights, and you are responsible for installing it only on machines you control.
+
+5. WARRANTY & LIABILITY
+-----------------------
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
